@@ -493,17 +493,19 @@ export async function insertNewStubsCron(stubs) {
     rows.push(cloud);
   }
 
-  if (rows.length === 0) return { inserted: 0, skipped };
+  if (rows.length === 0) return { attempted: 0, inserted: 0, skipped };
 
   // ON CONFLICT (url) DO NOTHING via PostgREST resolution header.
-  // return=minimal avoids a parse error on the empty 204 body.
-  client.requestSync('POST', 'active_roles', {
+  // return=representation gives back only the rows actually inserted (duplicates
+  // are dropped silently), so resp.length is a true inserted count.
+  const resp = client.requestSync('POST', 'active_roles', {
     query: { on_conflict: 'url' },
     body: rows,
-    headers: { Prefer: 'resolution=ignore-duplicates,return=minimal' },
+    headers: { Prefer: 'resolution=ignore-duplicates,return=representation' },
   });
+  const inserted = Array.isArray(resp) ? resp.length : 0;
 
-  return { inserted: rows.length, skipped };
+  return { attempted: rows.length, inserted, skipped };
 }
 
 // -- Lane stats helper (used by server + SPA) --------------------------------

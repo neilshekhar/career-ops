@@ -824,6 +824,20 @@ try {
     fail('insertNewStubsCron missing resolution=ignore-duplicates header');
   }
 
+  // Check it uses return=representation (true inserted count, not overstating)
+  if (qsSrc.includes('return=representation')) {
+    pass('insertNewStubsCron uses return=representation (accurate inserted count)');
+  } else {
+    fail('insertNewStubsCron missing return=representation — inserted count will overstate duplicates');
+  }
+
+  // Check it returns attempted (not just inserted)
+  if (qsSrc.includes("attempted: rows.length")) {
+    pass('insertNewStubsCron returns attempted count (distinct from inserted)');
+  } else {
+    fail('insertNewStubsCron missing attempted field — caller cannot tell dedup rate');
+  }
+
   // Check it does NOT call save_queue
   const insertFnMatch = qsSrc.match(/export async function insertNewStubsCron[\s\S]+?^}/m);
   if (insertFnMatch && !insertFnMatch[0].includes('save_queue')) {
@@ -858,8 +872,34 @@ try {
   } else {
     fail('queue-ingest.mjs missing insertNewStubsCron call');
   }
+
+  // Cron stub must carry jd_text (durable) and null jd_path (ephemeral runner)
+  if (qiSrc.includes('jd_text: jdData.description') && qiSrc.includes('jd_path: null')) {
+    pass('queue-ingest.mjs cron stub sets jd_text and nulls jd_path');
+  } else {
+    fail('queue-ingest.mjs cron stub missing jd_text or still sets jd_path — scoring will fail after load from Supabase');
+  }
+
+  // Local write must be guarded (CRON_MODE skips the ephemeral jds/ write)
+  if (qiSrc.includes('!CRON_MODE') && qiSrc.includes('writeFileSync')) {
+    pass('queue-ingest.mjs guards local jds/ write with !CRON_MODE');
+  } else {
+    fail('queue-ingest.mjs missing CRON_MODE guard on writeFileSync — cron wastes I/O writing ephemeral files');
+  }
 } catch (e) {
   fail(`queue-ingest.mjs cron checks crashed: ${e.message}`);
+}
+
+// 15e. modes/queue.md: jd_text fallback for scoring and prepare phases
+try {
+  const queueModeSrc = readFile('modes/queue.md');
+  if (queueModeSrc.includes('jd_text') && queueModeSrc.includes('jd_path')) {
+    pass('modes/queue.md references jd_text as fallback alongside jd_path');
+  } else {
+    fail('modes/queue.md missing jd_text fallback — cron-discovered roles will score with low-confidence (no local JD file)');
+  }
+} catch (e) {
+  fail(`modes/queue.md jd_text check crashed: ${e.message}`);
 }
 
 // 15d. api-cron.yml: workflow file exists and has required structure
@@ -892,6 +932,34 @@ try {
       pass('api-cron.yml does not echo secrets inline (no injection risk)');
     } else {
       fail('api-cron.yml echoes secrets inline — injection risk');
+    }
+
+    // Hardening: least-privilege permissions block
+    if (wf.includes('permissions:') && wf.includes('contents: read')) {
+      pass('api-cron.yml has least-privilege permissions: contents: read');
+    } else {
+      fail('api-cron.yml missing permissions block — defaults to write-all on public repo');
+    }
+
+    // Hardening: persist-credentials: false (workflow never pushes)
+    if (wf.includes('persist-credentials: false')) {
+      pass('api-cron.yml sets persist-credentials: false on checkout');
+    } else {
+      fail('api-cron.yml missing persist-credentials: false — token unnecessarily persisted');
+    }
+
+    // Hardening: actions are SHA-pinned (not mutable tags)
+    if (wf.includes('actions/checkout@') && /checkout@[0-9a-f]{40}/.test(wf)) {
+      pass('api-cron.yml SHA-pins actions/checkout');
+    } else {
+      fail('api-cron.yml actions/checkout uses mutable tag — SHA-pin required on signing-key workflow');
+    }
+
+    // Hardening: --ignore-scripts on npm install
+    if (wf.includes('--ignore-scripts')) {
+      pass('api-cron.yml uses npm install --ignore-scripts');
+    } else {
+      fail('api-cron.yml missing --ignore-scripts on npm install — postinstall scripts can run during dep install');
     }
   } else {
     fail('api-cron.yml workflow file missing');

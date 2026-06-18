@@ -13,10 +13,11 @@ name: API Discovery Cron
 #   never appears in logs. GitHub auto-masks the registered secrets.
 # - portals.yml is reconstructed from a secret via printf (never echoed).
 # - Nothing is committed or pushed; the runner is ephemeral.
+# - actions/* are SHA-pinned (see steps below) to prevent supply-chain attacks
+#   on this signing-key-bearing workflow. npm install uses --ignore-scripts.
+# - Note: committing package-lock.json + npm ci would add dep-version pinning;
+#   deferred as a repo-wide convention change.
 #
-# Hardening TODO (complement to Environment scoping):
-# - Pin actions/* to commit SHAs once SHA pinning is adopted repo-wide.
-
 on:
   schedule:
     # 19:00 UTC = 05:00 AEST (next-day) — scans fresh roles overnight
@@ -28,21 +29,26 @@ on:
     # Options: (a) run after merge to main, or (b) temporarily add the
     # feature branch to the cron environment's branch policy during dev.
 
+permissions:
+  contents: read  # checkout only; nothing is committed or pushed
+
 jobs:
   discover:
     runs-on: ubuntu-latest
     environment: cron
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false  # workflow never pushes
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
         with:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --ignore-scripts --no-audit --no-fund
         # Playwright browsers are NOT installed — the cron uses only the
         # zero-token API/HTTP path (Greenhouse/Lever/Ashby). No --production
         # flag so jose and js-yaml are available.

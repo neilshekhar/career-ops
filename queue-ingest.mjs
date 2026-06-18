@@ -488,7 +488,9 @@ async function main() {
       jdData.description || '(description not available — fetch manually)',
     ].join('\n');
 
-    if (!DRY_RUN) writeFileSync(jdPath, jdContent, 'utf-8');
+    // Local mode: write JD to jds/ for scoring. Cron mode: skip — runner is
+    // ephemeral, and jd_text is persisted to Supabase instead (see stub below).
+    if (!DRY_RUN && !CRON_MODE) writeFileSync(jdPath, jdContent, 'utf-8');
 
     // Detect document requirements and requirements snippet (zero model cost)
     const docReqs = detectDocRequirements(jdData.description, jdData.formFields);
@@ -506,7 +508,11 @@ async function main() {
       ats:              atsInfo.ats,
       source:           discoverySourceFor(atsInfo.ats),
       location:         resolvedLocation,
-      jd_path:          jdRelPath,
+      // Cron: store full JD text in Supabase (durable); local: store file path.
+      // This is the documented contract in docs/architecture/supabase-migration-schema.md:32.
+      ...(CRON_MODE
+        ? { jd_text: jdData.description || null, jd_path: null }
+        : { jd_path: jdRelPath }),
       size_bucket:      null,
       score_raw:        null,
       score:            null,
@@ -554,8 +560,8 @@ async function main() {
 
   if (!DRY_RUN && ingested > 0) {
     if (CRON_MODE) {
-      const { inserted, skipped: cronSkipped } = await insertNewStubsCron(cronStubs);
-      console.log(`\nInserted ${inserted} new stub(s) via cron credential (${cronSkipped} skipped by status guard)`);
+      const { attempted, inserted, skipped: cronSkipped } = await insertNewStubsCron(cronStubs);
+      console.log(`\nCron insert: ${inserted} new / ${attempted} attempted (${cronSkipped} skipped by status guard, ${attempted - inserted} already in Supabase)`);
     } else {
       saveQueue(queue);
       console.log(`\nSaved ${ingested} new stub(s) to the queue store`);
