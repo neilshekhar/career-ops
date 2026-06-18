@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 
 import {
-  loadQueue, saveQueue, appendRole, loadQueueSeenSets,
+  loadQueue, saveQueue, appendRole, loadQueueSeenSets, insertNewStubsCron,
 } from './queue-store.mjs';
 import { fetchJson, fetchText } from './providers/_http.mjs';
 
@@ -31,7 +31,11 @@ const SCAN_HIST   = join(ROOT, 'data', 'scan-history.tsv');
 const APPS_FILE   = join(ROOT, 'data', 'applications.md');
 const JDS_DIR     = join(ROOT, 'jds');
 
-const DRY_RUN = process.argv.includes('--dry-run');
+const DRY_RUN  = process.argv.includes('--dry-run');
+// --cron: use cron credential, persist via insertNewStubsCron (no save_queue)
+const CRON_MODE = process.argv.includes('--cron');
+// --api-only: skip custom/websearch ATS entries (implied by --cron)
+const API_ONLY  = CRON_MODE || process.argv.includes('--api-only');
 
 // ── Greenhouse ────────────────────────────────────────────────────────────────
 // Allowed hostnames (mirrors providers/greenhouse.mjs allowlist)
@@ -388,8 +392,12 @@ function loadApplicationsSeenSets() {
 async function main() {
   mkdirSync(JDS_DIR, { recursive: true });
 
-  const queue    = loadQueue();
-  const queueSeen = loadQueueSeenSets(queue);
+  // Cron mode: dedup from cloud via cron credential (no dashboard client needed).
+  // Standard mode: dedup from local queue + dashboard Supabase.
+  const queue     = CRON_MODE ? { roles: [] } : loadQueue();
+  const queueSeen = CRON_MODE
+    ? loadQueueSeenSets({ roles: [] }, { role: 'cron' })
+    : loadQueueSeenSets(queue);
   const appSeen   = loadApplicationsSeenSets();
 
   const pending = parsePipeline();
@@ -399,11 +407,14 @@ async function main() {
   }
 
   console.log(`Found ${pending.length} pending URL(s) in pipeline.md`);
-  if (DRY_RUN) console.log('(dry run — no files will be written)\n');
+  if (CRON_MODE) console.log('(cron mode — cron credential, no save_queue, no JD files written)');
+  if (API_ONLY)  console.log('(api-only mode — custom/websearch ATS entries skipped)');
+  if (DRY_RUN)   console.log('(dry run — no files will be written)\n');
 
   let skipped = 0;
   let ingested = 0;
   const errors = [];
+  const cronStubs = []; // collected in cron mode, flushed at end
 
   for (const item of pending) {
     const { url, company, title } = item;
@@ -422,6 +433,12 @@ async function main() {
     const atsInfo = detectAts(url);
     if (!atsInfo) {
       errors.push({ url, error: 'could not parse URL' });
+      continue;
+    }
+
+    // --api-only: skip custom/websearch ATS (no JD available via API)
+    if (API_ONLY && atsInfo.ats === 'custom') {
+      skipped++;
       continue;
     }
 
@@ -512,7 +529,12 @@ async function main() {
     };
 
     if (!DRY_RUN) {
-      appendRole(queue, stub);
+      if (CRON_MODE) {
+        // Cron path: collect stubs, flush at end via insertNewStubsCron
+        cronStubs.push(stub);
+      } else {
+        appendRole(queue, stub);
+      }
       // Mark as seen within this run to avoid intra-run dupes
       queueSeen.ids.add(roleId);
       queueSeen.urls.add(url);
@@ -531,8 +553,13 @@ async function main() {
   }
 
   if (!DRY_RUN && ingested > 0) {
-    saveQueue(queue);
-    console.log(`\nSaved ${ingested} new stub(s) to the queue store`);
+    if (CRON_MODE) {
+      const { inserted, skipped: cronSkipped } = await insertNewStubsCron(cronStubs);
+      console.log(`\nInserted ${inserted} new stub(s) via cron credential (${cronSkipped} skipped by status guard)`);
+    } else {
+      saveQueue(queue);
+      console.log(`\nSaved ${ingested} new stub(s) to the queue store`);
+    }
   }
 
   console.log(`\n${'━'.repeat(45)}`);
@@ -545,7 +572,11 @@ async function main() {
     console.log(`\nErrors (${errors.length}):`);
     for (const e of errors) console.log(`  ✗ ${e.url}: ${e.error}`);
   }
-  console.log(`\n→ Next: /career-ops queue   to score the ${ingested} new stub(s).`);
+  if (CRON_MODE) {
+    console.log(`\n→ Cron run complete. New stubs are in Supabase active_roles (status='new').`);
+  } else {
+    console.log(`\n→ Next: /career-ops queue   to score the ${ingested} new stub(s).`);
+  }
   if (DRY_RUN) console.log('(dry run — re-run without --dry-run to save)');
 }
 

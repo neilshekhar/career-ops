@@ -755,6 +755,151 @@ try {
   fail(`Supabase queue store contract checks crashed: ${e.message}`);
 }
 
+// ── 15. API-CRON CONTRACT ────────────────────────────────────────
+
+console.log('\n15. API-cron contract');
+
+// 15a. mint-cron-jwt.mjs: importable export + CLI guard
+try {
+  const mintMod = await import(pathToFileURL(join(ROOT, 'mint-cron-jwt.mjs')).href);
+  if (typeof mintMod.mintCronJwt === 'function') {
+    pass('mint-cron-jwt.mjs exports mintCronJwt function');
+  } else {
+    fail('mint-cron-jwt.mjs does not export mintCronJwt');
+  }
+
+  // Verify the CLI guard is present (import.meta.url check)
+  const mintSrc = readFile('mint-cron-jwt.mjs');
+  if (mintSrc.includes('import.meta.url') && mintSrc.includes('process.argv[1]')) {
+    pass('mint-cron-jwt.mjs has import.meta.url CLI guard');
+  } else {
+    fail('mint-cron-jwt.mjs missing import.meta.url CLI guard — importing it will run the CLI');
+  }
+
+  // Verify env-key source is present
+  if (mintSrc.includes('CAREER_OPS_SIGNING_KEY')) {
+    pass('mint-cron-jwt.mjs supports CAREER_OPS_SIGNING_KEY env-key source');
+  } else {
+    fail('mint-cron-jwt.mjs missing CAREER_OPS_SIGNING_KEY env-key source');
+  }
+
+  // Verify --exp-seconds flag is present
+  if (mintSrc.includes('--exp-seconds')) {
+    pass('mint-cron-jwt.mjs supports --exp-seconds flag');
+  } else {
+    fail('mint-cron-jwt.mjs missing --exp-seconds flag');
+  }
+} catch (e) {
+  fail(`mint-cron-jwt.mjs import or source checks crashed: ${e.message}`);
+}
+
+// 15b. queue-store.mjs: insertNewStubsCron export + loadQueueSeenSets role param
+try {
+  const qsMod = await import(pathToFileURL(join(ROOT, 'queue-store.mjs')).href);
+  if (typeof qsMod.insertNewStubsCron === 'function') {
+    pass('queue-store.mjs exports insertNewStubsCron');
+  } else {
+    fail('queue-store.mjs missing insertNewStubsCron export');
+  }
+
+  // Check loadQueueSeenSets signature accepts a role option
+  const qsSrc = readFile('queue-store.mjs');
+  if (qsSrc.includes("role = 'dashboard'") && qsSrc.includes('loadQueueSeenSets')) {
+    pass('loadQueueSeenSets accepts { role } option with dashboard default');
+  } else {
+    fail('loadQueueSeenSets does not accept { role } option');
+  }
+
+  // Check insertNewStubsCron has the status guard
+  if (qsSrc.includes("cloud.status !== 'new'")) {
+    pass('insertNewStubsCron has hard status guard (only inserts status=new)');
+  } else {
+    fail('insertNewStubsCron missing status guard');
+  }
+
+  // Check it uses resolution=ignore-duplicates (ON CONFLICT DO NOTHING)
+  if (qsSrc.includes('resolution=ignore-duplicates')) {
+    pass('insertNewStubsCron uses resolution=ignore-duplicates (idempotent insert)');
+  } else {
+    fail('insertNewStubsCron missing resolution=ignore-duplicates header');
+  }
+
+  // Check it does NOT call save_queue
+  const insertFnMatch = qsSrc.match(/export async function insertNewStubsCron[\s\S]+?^}/m);
+  if (insertFnMatch && !insertFnMatch[0].includes('save_queue')) {
+    pass('insertNewStubsCron does not call save_queue');
+  } else {
+    fail('insertNewStubsCron must not call save_queue (cron has no execute grant on it)');
+  }
+} catch (e) {
+  fail(`queue-store.mjs cron checks crashed: ${e.message}`);
+}
+
+// 15c. queue-ingest.mjs: --cron and --api-only flags present
+try {
+  const qiSrc = readFile('queue-ingest.mjs');
+  if (qiSrc.includes('--cron') && qiSrc.includes('CRON_MODE')) {
+    pass('queue-ingest.mjs has --cron flag');
+  } else {
+    fail('queue-ingest.mjs missing --cron flag');
+  }
+  if (qiSrc.includes('--api-only') && qiSrc.includes('API_ONLY')) {
+    pass('queue-ingest.mjs has --api-only flag');
+  } else {
+    fail('queue-ingest.mjs missing --api-only flag');
+  }
+  if (qiSrc.includes("atsInfo.ats === 'custom'") && qiSrc.includes('API_ONLY')) {
+    pass('queue-ingest.mjs skips custom ATS when --api-only is set');
+  } else {
+    fail('queue-ingest.mjs missing custom-ATS skip for --api-only');
+  }
+  if (qiSrc.includes('insertNewStubsCron')) {
+    pass('queue-ingest.mjs calls insertNewStubsCron in cron mode');
+  } else {
+    fail('queue-ingest.mjs missing insertNewStubsCron call');
+  }
+} catch (e) {
+  fail(`queue-ingest.mjs cron checks crashed: ${e.message}`);
+}
+
+// 15d. api-cron.yml: workflow file exists and has required structure
+try {
+  const wfPath = '.github/workflows/api-cron.yml';
+  if (fileExists(wfPath)) {
+    const wf = readFile(wfPath);
+    if (wf.includes("cron: '0 19 * * *'")) pass('api-cron.yml has once-daily schedule');
+    else fail('api-cron.yml missing or wrong schedule');
+
+    if (wf.includes('environment: cron')) pass('api-cron.yml uses cron environment (secret scoping)');
+    else fail('api-cron.yml missing environment: cron');
+
+    if (wf.includes('SUPABASE_CRON_SIGNING_KEY') && wf.includes('CAREER_OPS_SIGNING_KEY')) {
+      pass('api-cron.yml mints JWT from signing key env var');
+    } else {
+      fail('api-cron.yml missing signing key → mint step');
+    }
+
+    if (wf.includes('::add-mask::')) pass('api-cron.yml masks the minted JWT');
+    else fail('api-cron.yml missing ::add-mask:: for minted JWT');
+
+    if (wf.includes('--cron') && wf.includes('--api-only')) {
+      pass('api-cron.yml runs queue-ingest with --cron --api-only');
+    } else {
+      fail('api-cron.yml missing --cron --api-only flags on queue-ingest');
+    }
+
+    if (!wf.includes("echo '${{") && !wf.includes('echo "${{')) {
+      pass('api-cron.yml does not echo secrets inline (no injection risk)');
+    } else {
+      fail('api-cron.yml echoes secrets inline — injection risk');
+    }
+  } else {
+    fail('api-cron.yml workflow file missing');
+  }
+} catch (e) {
+  fail(`api-cron.yml checks crashed: ${e.message}`);
+}
+
 // ── SUMMARY ─────────────────────────────────────────────────────
 
 console.log('\n' + '='.repeat(50));
