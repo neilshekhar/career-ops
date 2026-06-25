@@ -314,6 +314,11 @@ Full apply-flow details: `modes/apply.md` (custom ATS / MCP Playwright path).
 ## Upstream Merges (Fork Maintenance)
 
 This repo is a personal fork that periodically catches up to santifer's upstream.
+**Never push branches, open PRs, or post PR comments/reviews against
+`santifer/career-ops` without Neil's explicit permission in the current
+conversation.** Routine fork work targets `neilshekhar/career-ops` only. If a PR
+is needed, pass the repository explicitly (for example `--repo
+neilshekhar/career-ops`) and verify the target owner before creating it.
 **Every upstream pull MUST pass the full validation gate in `UPSTREAM_MERGE_CHECKLIST.md`
 before it lands on `main`.** That checklist is standing precedent, not a one-off: engine
 zero-diff, `test-all.mjs` green, `verify-pipeline.mjs` clean, cron RLS 6/6, `jose` mint,
