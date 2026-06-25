@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.1](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.12.0...career-ops-v1.12.1) (2026-06-25)
+
+
+### Bug Fixes
+
+* **release:** sync VERSION file to 1.12.0 ([#8](https://github.com/neilshekhar/career-ops/issues/8)) ([d8a1970](https://github.com/neilshekhar/career-ops/commit/d8a19707f7d262623f2a08b6af9199aa2eb8644e))
+
 ## [1.12.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.11.1...career-ops-v1.12.0) (2026-06-25)
 
 
