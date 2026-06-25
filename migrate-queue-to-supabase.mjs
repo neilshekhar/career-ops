@@ -18,6 +18,7 @@ import {
   QUEUE_PATH,
   splitQueueForPersistence,
 } from './queue-store.mjs';
+import { queueDoneStatusFromTracker } from './tracker-status-map.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const SCAN_HISTORY = join(ROOT, 'data', 'scan-history.tsv');
@@ -86,16 +87,6 @@ function seenRowsFromScanHistory(rows) {
     }));
 }
 
-function statusFromTracker(status = '') {
-  const s = status.trim().toLowerCase();
-  if (s === 'applied') return 'submitted';
-  if (s === 'skip') return 'skipped';
-  if (s === 'discarded') return 'reviewed';
-  if (s === 'rejected') return 'closed';
-  if (s === 'evaluated') return 'reviewed';
-  return s || 'reviewed';
-}
-
 function seenRowsFromApplications(path) {
   if (!existsSync(path)) return [];
   const rows = [];
@@ -110,7 +101,7 @@ function seenRowsFromApplications(path) {
       url,
       company: cells[3] || null,
       title: cells[4] || null,
-      final_status: statusFromTracker(cells[6]),
+      final_status: queueDoneStatusFromTracker(cells[6], { includeEvaluated: true }) ?? 'reviewed',
       first_seen: cells[2] || null,
       decided_at: cells[2] ? `${cells[2]}T00:00:00.000Z` : null,
     });

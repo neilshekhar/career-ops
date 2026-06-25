@@ -15,7 +15,7 @@
 
 import http from 'http';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
-import { join, dirname, extname } from 'path';
+import { join, dirname, extname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn, execFileSync } from 'child_process';
 import yaml from 'js-yaml';
@@ -24,6 +24,7 @@ import {
   loadQueue, saveQueue, computeLane, computeStats,
   setStatus, updateById, ACTIVE_STATUSES, DONE_STATUSES,
 } from './queue-store.mjs';
+import { queueDoneStatusFromTracker } from './tracker-status-map.mjs';
 
 const ROOT     = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR  = join(ROOT, 'dashboard', 'web');
@@ -95,6 +96,115 @@ function writeTrackerTsv(role, decision) {
     // Non-fatal: the TSV file is written; user can run merge-tracker manually
     console.warn('WARN: merge-tracker.mjs exited with error:', err.message?.slice(0, 200));
   }
+}
+
+// ── Tracker → queue reconciliation ───────────────────────────────────────────
+
+function normalizeJobUrl(value) {
+  if (!value || typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!/^https?:\/\//i.test(raw)) return null;
+
+  try {
+    const url = new URL(raw);
+    url.protocol = url.protocol.toLowerCase();
+    url.hostname = url.hostname.toLowerCase();
+    url.hash = '';
+
+    // Only remove obvious tracking params. Some job boards use query params
+    // as the actual job identity, so never blanket-strip url.search.
+    for (const key of [...url.searchParams.keys()]) {
+      if (key.toLowerCase().startsWith('utm_')) {
+        url.searchParams.delete(key);
+      }
+    }
+
+    if (url.pathname.length > 1) {
+      url.pathname = url.pathname.replace(/\/+$/, '');
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function splitTrackerRow(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) return null;
+  return trimmed.slice(1, -1).split('|').map((cell) => cell.trim());
+}
+
+function extractUrlFromLinkedReport(target) {
+  if (!target || /^https?:\/\//i.test(target)) return null;
+
+  const reportPath = resolve(dirname(APPS_FILE), target);
+  if (reportPath !== ROOT && !reportPath.startsWith(`${ROOT}/`)) return null;
+  if (!existsSync(reportPath)) return null;
+
+  try {
+    return readFileSync(reportPath, 'utf-8')
+      .match(/^\*\*URL:\*\*\s*(https?:\/\/\S+)/im)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function extractTrackerUrl(reportCell) {
+  if (!reportCell) return null;
+
+  const linkTarget = reportCell.match(/\]\(([^)]+)\)/)?.[1] ?? null;
+  if (linkTarget && /^https?:\/\//i.test(linkTarget)) return linkTarget;
+
+  return (
+    reportCell.match(/https?:\/\/[^\s|)]+/i)?.[0] ??
+    extractUrlFromLinkedReport(linkTarget) ??
+    null
+  );
+}
+
+function loadTrackerTerminalStatusesByUrl() {
+  const statusesByUrl = new Map();
+  if (!existsSync(APPS_FILE)) return statusesByUrl;
+
+  const text = readFileSync(APPS_FILE, 'utf-8');
+  for (const line of text.split(/\r?\n/)) {
+    const cells = splitTrackerRow(line);
+    if (!cells || cells.length < 8 || !/^\d+$/.test(cells[0])) continue;
+
+    const queueStatus = queueDoneStatusFromTracker(cells[5], { includeEvaluated: false });
+    if (!queueStatus) continue;
+
+    const url = normalizeJobUrl(extractTrackerUrl(cells[7]));
+    if (url && !statusesByUrl.has(url)) statusesByUrl.set(url, queueStatus);
+  }
+
+  return statusesByUrl;
+}
+
+function reconcileQueueWithTracker(queue) {
+  const terminalByUrl = loadTrackerTerminalStatusesByUrl();
+  if (terminalByUrl.size === 0) return [];
+
+  const changed = [];
+  for (const role of queue.roles ?? []) {
+    if (!ACTIVE_STATUSES.has(role.status)) continue;
+    const normalizedRoleUrl = normalizeJobUrl(role.url);
+    const terminalStatus = normalizedRoleUrl ? terminalByUrl.get(normalizedRoleUrl) : null;
+    if (!terminalStatus) continue;
+
+    const previousStatus = role.status;
+    if (setStatus(queue, role.id, terminalStatus)) {
+      changed.push({
+        id: role.id,
+        company: role.company,
+        title: role.title,
+        from: previousStatus,
+        to: terminalStatus,
+      });
+    }
+  }
+
+  return changed;
 }
 
 // ── Profile loader ────────────────────────────────────────────────────────────
@@ -324,6 +434,16 @@ function apiGetQueue(res) {
   } catch (err) {
     return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
   }
+  const trackerReconciled = reconcileQueueWithTracker(queue);
+  let trackerReconcileWarning = null;
+  if (trackerReconciled.length > 0) {
+    try {
+      saveQueue(queue);
+    } catch (err) {
+      trackerReconcileWarning = `tracker reconciliation could not persist: ${err.message}`;
+      console.warn(`WARN: ${trackerReconcileWarning}`);
+    }
+  }
   const stats = computeStats(queue);
 
   const enriched = queue.roles
@@ -334,7 +454,11 @@ function apiGetQueue(res) {
       provenance_summary: provenanceSummary(r.drafts),
     }));
 
-  respond(res, 200, { settings: queue.settings, stats, roles: enriched });
+  const settings = { ...(queue.settings ?? {}) };
+  if (trackerReconciled.length > 0) settings.tracker_reconciled = trackerReconciled.length;
+  if (trackerReconcileWarning) settings.tracker_reconcile_warning = trackerReconcileWarning;
+
+  respond(res, 200, { settings, stats, roles: enriched });
 }
 
 function apiSetThreshold(req, res) {

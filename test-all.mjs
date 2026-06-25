@@ -4116,6 +4116,16 @@ try {
     fail('migration script missing dry-run-first insert plan behavior');
   }
 
+  if (
+    migrationScript.includes("import { queueDoneStatusFromTracker } from './tracker-status-map.mjs'") &&
+    migrationScript.includes('queueDoneStatusFromTracker(cells[6], { includeEvaluated: true })') &&
+    !/function statusFromTracker/.test(migrationScript)
+  ) {
+    pass('migrate-queue-to-supabase.mjs uses the shared tracker-to-queue status mapper');
+  } else {
+    fail('migrate-queue-to-supabase.mjs has a drifting local tracker status mapper');
+  }
+
   const integration = run(NODE, ['test-supabase-store.mjs'], { stdio: ['pipe', 'pipe', 'pipe'] });
   if (integration !== null) {
     pass('Supabase round-trip integration test script exits cleanly (skips without test env)');
@@ -4915,6 +4925,7 @@ console.log('\n23. Dashboard server localhost binding and lane definitions');
 try {
   const serverSrc = readFile('dashboard-server.mjs');
   const appJs     = readFile('dashboard/web/app.js');
+  const statusMapSrc = readFile('tracker-status-map.mjs');
 
   // HOST must be hardcoded to 127.0.0.1 — must never be 0.0.0.0
   if (serverSrc.includes("'127.0.0.1'") && !serverSrc.includes("'0.0.0.0'")) {
@@ -4944,6 +4955,63 @@ try {
     pass('dashboard/web/app.js initialises laneMap with ready, needs, review arrays');
   } else {
     fail('dashboard/web/app.js laneMap missing one or more lanes');
+  }
+
+  if (serverSrc.includes('function reconcileQueueWithTracker(queue)')) {
+    pass('dashboard-server.mjs reconciles tracker terminal rows into queue state');
+  } else {
+    fail('dashboard-server.mjs missing tracker-to-queue reconciliation guard');
+  }
+
+  if (
+    serverSrc.includes("import { queueDoneStatusFromTracker } from './tracker-status-map.mjs'") &&
+    !serverSrc.includes('TRACKER_STATUS_TO_QUEUE')
+  ) {
+    pass('dashboard-server.mjs uses the shared tracker-to-queue status mapper');
+  } else {
+    fail('dashboard-server.mjs has a local tracker-to-queue status map');
+  }
+
+  const apiGetQueueBlock = serverSrc.slice(serverSrc.indexOf('function apiGetQueue'));
+  const reconcileIdx = apiGetQueueBlock.indexOf('reconcileQueueWithTracker(queue)');
+  const statsIdx = apiGetQueueBlock.indexOf('computeStats(queue)');
+  if (reconcileIdx !== -1 && statsIdx !== -1 && reconcileIdx < statsIdx) {
+    pass('dashboard-server.mjs reconciles tracker state before computing visible queue stats');
+  } else {
+    fail('dashboard-server.mjs does not reconcile tracker state before queue stats/rendering');
+  }
+
+  if (
+    /applied:\s+['"]submitted['"]/.test(statusMapSrc) &&
+    /responded:\s+['"]submitted['"]/.test(statusMapSrc) &&
+    /interview:\s+['"]submitted['"]/.test(statusMapSrc) &&
+    /offer:\s+['"]submitted['"]/.test(statusMapSrc) &&
+    /rejected:\s+['"]closed['"]/.test(statusMapSrc) &&
+    /discarded:\s+['"]reviewed['"]/.test(statusMapSrc) &&
+    /skip:\s+['"]skipped['"]/.test(statusMapSrc)
+  ) {
+    pass('tracker-status-map.mjs maps terminal tracker statuses to done queue statuses');
+  } else {
+    fail('tracker-status-map.mjs terminal tracker status mapping is missing or incomplete');
+  }
+
+  if (
+    serverSrc.includes('function extractUrlFromLinkedReport(target)') &&
+    serverSrc.includes('URL:') &&
+    /extractUrlFromLinkedReport\(linkTarget\)/.test(serverSrc)
+  ) {
+    pass('dashboard-server.mjs can reconcile tracker rows that link to local reports');
+  } else {
+    fail('dashboard-server.mjs cannot recover job URLs from local tracker report links');
+  }
+
+  if (
+    serverSrc.includes("key.toLowerCase().startsWith('utm_')") &&
+    !/url\.search\s*=/.test(serverSrc)
+  ) {
+    pass('dashboard-server.mjs URL reconciliation strips only safe tracking params');
+  } else {
+    fail('dashboard-server.mjs URL reconciliation may strip job-identifying query params');
   }
 
   // Static web files exist
