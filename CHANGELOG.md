@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.11.1...career-ops-v1.12.0) (2026-06-25)
+
+
+### Features
+
+* **fill:** embed answer-cache fills forms on every portal, not just ATS ([50927b0](https://github.com/neilshekhar/career-ops/commit/50927b0c181b5133236ed0e317e18d3b9f49f736))
+
 ## [1.11.1](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.11.0...career-ops-v1.11.1) (2026-06-25)
 
 
