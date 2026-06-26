@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.14.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.12.1...career-ops-v1.14.0) (2026-06-26)
+
+
+### Features (upstream v1.10.0-era → v1.13.0+)
+
+* **security:** SSRF hardening for lever/ashby/workday providers
+* **liveness:** zero-token ATS API liveness check before Playwright (`liveness-api.mjs`)
+* **providers:** add BambooHR and Breezy HR scanner providers
+* **scan:** word-boundary title-filter matching; malformed-config guard
+* **scan:** `scan-ats-full` adds `--json`, `--shuffle`, `--include-undated` flags
+* **cv/pdf:** disable fi/fl ligatures for ATS-clean text extraction
+* **cv/pdf:** fix images not rendering due to about:blank origin
+* **cv/pdf:** `mailto:`/`tel:` links in CV header; break-inside pagination fix
+* **cv:** opt-in profile photo for DACH/European markets (`.cv-photo`)
+* **tracker:** `tracker.mjs delete --num N`; shared `tracker-utils.mjs`
+* **dashboard:** Go TUI in-viewer status picker; EUR/GBP/CHF + international city recognition
+* **modes:** recruiter-side risk heuristics (`modes/heuristics/recruiter-side.md`)
+* **modes:** user custom-instructions extension point (`modes/_custom.template.md`)
+* **i18n:** Danish (`modes/da/`) and Polish (`modes/pl/`) locale modes
+* **modes:** EU SWE calibration mode (`modes/regional/eu-swe.md`)
+* **batch:** `--skip-pdf` flag; `--limit` + budget guide
+* **cli:** Grok Build CLI support
+
 ## [1.12.1](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.12.0...career-ops-v1.12.1) (2026-06-25)
 
 
