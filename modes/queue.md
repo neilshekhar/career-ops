@@ -198,6 +198,14 @@ time on every portal. This is exactly what happened in the 2026-06-25 session (a
 roles had `drafts: {}`). Always run `queue-resolve.mjs --pre` (Layers 1+2), then run
 `queue-resolve.mjs --teach` only when Layer 3 novel answers exist, before writing status.
 
+**Custom-portal roles (`ats: custom`) may have sparse `role.drafts` after `--pre`** —
+that is expected and not a failure. Their real form fields only render inside the live
+portal (behind JS / login walls / multi-page wizards), so `free_text_fields` captured at
+ingest time rarely matches the live form exactly. The live `--lookup` call in `modes/apply.md`
+Step 6 fills the gap at apply time. As long as `--pre` ran without error and `cv_pdf` is
+set, the role is safe to mark `prepared`. The "no `prepared` without drafts" rule is about
+not skipping `--pre` entirely — not about requiring a full `drafts` object for custom portals.
+
 Write these fields via `saveQueue()`:
 
 ```
@@ -245,8 +253,10 @@ custom ATSes, the agent apply path handles it interactively.
   printed `novel` fields. Never read the form DOM to answer fields.
 - **No `prepared` without drafts.** A role must not be marked `status: "prepared"`
   until `queue-resolve.mjs --pre` has run and `role.drafts` is populated (or the role
-  has no `free_text_fields`). Shortcut scripts that flip status without running `--pre`
-  break the fill pipeline on every portal — see Step 3 above.
+  has no `free_text_fields`, or the role is `ats: custom` whose live fields are resolved
+  at apply time via `--lookup` — sparse drafts after `--pre` are expected and not a
+  failure for custom portals; see Step 3). Shortcut scripts that flip status without
+  running `--pre` break the fill pipeline on every portal — see Step 3 above.
 - **Cache safety.** Mark an answer `reusable: true` only when it is genuinely
   employer-independent and not tied to a specific location/number/date/amount.
   The resolver enforces this on lookup, but set the flag honestly.

@@ -46,6 +46,7 @@ import { checkUrlLiveness } from './liveness-browser.mjs';
 import {
   matchProfileRule, normLabel, looksLikeVisaSelect, pickVisaOption,
   chooseOptionDeterministic, matchEeoOption, resolveSalaryNumber, detectKnockout,
+  COVER_RE, KSC_RE,
 } from './field-rules.mjs';
 import {
   classifyLoginState, classifyConfirmation, CONFIRMATION_NUM_RE,
@@ -66,8 +67,7 @@ const HEADLESS  = process.argv.includes('--headless');
 // ── Selectors / regexes ───────────────────────────────────────────────────────
 
 const RESUME_RE  = /resume|cv\b|curriculum|attach/i;
-const COVER_RE   = /cover.?letter/i;
-const KSC_RE     = /key.+selection|selection.+criteria|address.+criteria|ksc/i;
+// COVER_RE / KSC_RE are imported from field-rules.mjs (canonical home) and re-exported below.
 
 // Multi-page nav: buttons we MAY click to advance
 const NAV_ALLOWLIST = /^(continue|next|save and continue|save & continue|review|proceed|next step|next page)$/i;
