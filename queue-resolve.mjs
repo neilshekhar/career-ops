@@ -307,9 +307,17 @@ function liveResolve(roleId, jsonArg) {
 
 // ── --teach ───────────────────────────────────────────────────────────────────
 
-function teachAnswers(roleId, jsonArg) {
-  const queue = loadQueue();
-  const role = queue.roles.find((r) => r.id === roleId);
+// @param opts.embedFn — injectable for tests (default: embedSync); accepts string[]
+// @param opts.queue   — injectable queue (default: loadQueue()); when provided, the
+//                       caller owns persistence (we never saveQueue an injected queue).
+// @param opts.cache   — injectable answer-cache (default: loadCache()); caller owns persistence.
+// @param opts.store   — injectable screener store (default: loadStore()); caller owns persistence.
+export function teachAnswers(roleId, jsonArg, { embedFn = embedSync, queue = null, cache = null, store = null } = {}) {
+  const ownQueue = queue === null;
+  const ownCache = cache === null;
+  const ownStore = store === null;
+  const useQueue = ownQueue ? loadQueue() : queue;
+  const role = useQueue.roles.find((r) => r.id === roleId);
   if (!role) throw new Error(`role not found: ${roleId}`);
   role.drafts = role.drafts || {};
 
@@ -341,7 +349,7 @@ function teachAnswers(roleId, jsonArg) {
   let ftEmbeddings = null;
   if (freeTextLabels.length > 0) {
     try {
-      const out = embedSync(freeTextLabels);
+      const out = embedFn(freeTextLabels);
       ftEmbeddings = out.embeddings; // parallel to freeTextLabels
     } catch (e) {
       process.stderr.write(`⚠️  cache teach skipped (embedding unavailable): ${e.message}\n`);
@@ -352,9 +360,10 @@ function teachAnswers(roleId, jsonArg) {
     freeTextLabels.map((lbl, idx) => [lbl, ftEmbeddings ? ftEmbeddings[idx] : null]),
   );
 
-  const cache = loadCache();
-  const store = loadStore();
+  const useCache = ownCache ? loadCache() : cache;
+  const useStore = ownStore ? loadStore() : store;
   const taught = [];
+  let cacheTouched = false;
   items.forEach((it) => {
     if (!it.label || it.answer == null) return;
     const key = normLabel(it.label);
@@ -370,7 +379,7 @@ function teachAnswers(roleId, jsonArg) {
     const hasOptions = Array.isArray(it.options) && it.options.length > 0;
     if (isSelectType || hasOptions) {
       if (it.reusable) {
-        const result = learnScreener(store, {
+        const result = learnScreener(useStore, {
           label: it.label, answer: it.answer,
           options: it.options || [], roleId,
         });
@@ -383,11 +392,12 @@ function teachAnswers(roleId, jsonArg) {
       // Free-text → embedding cache (unchanged path).
       const emb = ftEmbeddingByLabel.get(it.label) ?? null;
       if (emb) {
-        teach(cache, {
+        teach(useCache, {
           question: it.label, embedding: emb, answer: it.answer,
           field_type: it.type || 'textarea', reusable: !!it.reusable,
           entities: it.entities || {}, confidence: it.confidence || 'medium',
         });
+        cacheTouched = true;
         taught.push({ label: it.label, reusable: !!it.reusable, cached: true });
       } else {
         taught.push({ label: it.label, reusable: !!it.reusable, cached: false });
@@ -395,10 +405,10 @@ function teachAnswers(roleId, jsonArg) {
     }
   });
 
-  if (embeddings) saveCache(cache);
-  saveStore(store);
-  saveQueue(queue);
-  return { roleId, taught };
+  if (cacheTouched && ownCache) saveCache(useCache);
+  if (ownStore) saveStore(useStore);
+  if (ownQueue) saveQueue(useQueue);
+  return { roleId, taught, cacheTouched };
 }
 
 // ── CLI ─────────────────────────────────────────────────────────────────────

@@ -5951,7 +5951,7 @@ try {
     extractEntities, DEFAULT_THRESHOLD: DEF_THRESH,
   } = await import(pathToFileURL(join(ROOT, 'answer-cache.mjs')).href);
 
-  const { resolveFields: resolveFieldsFn } = await import(
+  const { resolveFields: resolveFieldsFn, teachAnswers: teachAnswersFn } = await import(
     pathToFileURL(join(ROOT, 'queue-resolve.mjs')).href
   );
 
@@ -6677,6 +6677,103 @@ try {
     pass('queue-resolve.mjs main() is guarded — safe to import in tests without triggering CLI');
   } else {
     fail('queue-resolve.mjs main() is not guarded — importing it in tests will run the CLI');
+  }
+
+  // ── teachAnswers() behavioral tests (injected queue/cache/store/embedFn) ────
+  // Regression guard for the stale-variable bug where the save gate referenced an
+  // undefined `embeddings` (renamed to `ftEmbeddings`), throwing a ReferenceError
+  // before drafts/cache/store were persisted. These run the real teach path with
+  // injected deps — no Python, no disk, no real queue.
+
+  const makeStore = () => ({ version: 1, entries: {} });
+  const { normLabel: normLabelFn } = await import('./field-rules.mjs');
+
+  // Case 1: mixed free-text + reusable screener radio → no throw, cache + store + drafts all written.
+  {
+    const queue = { roles: [{ id: 'tq-1', company: 'Acme', title: 'Analyst', drafts: {} }] };
+    const cache = makeCache([]);
+    const store = makeStore();
+    let embedCalls = 0;
+    const items = JSON.stringify([
+      { label: 'Describe your data experience', type: 'textarea', answer: 'Ten years of SQL.', reusable: true },
+      { label: 'Do you require visa sponsorship?', type: 'radio', options: ['Yes', 'No'], answer: 'No', reusable: true },
+    ]);
+    let out, threw = false;
+    try {
+      out = teachAnswersFn('tq-1', items, {
+        embedFn: (labels) => { embedCalls++; return { embeddings: labels.map(() => vecA) }; },
+        queue, cache, store,
+      });
+    } catch (e) {
+      threw = true;
+      fail(`teachAnswers() mixed teach threw (regression: stale save-gate variable?): ${e.message}`);
+    }
+    if (!threw) {
+      pass('teachAnswers() mixed teach: does not throw (save gate uses ftEmbeddings/cacheTouched, not stale `embeddings`)');
+    }
+    if (!threw && out?.cacheTouched === true && cache.entries.length === 1 && cache.entries[0].answer === 'Ten years of SQL.') {
+      pass('teachAnswers() free-text item → embedded + written to injected cache (cacheTouched=true)');
+    } else {
+      fail(`teachAnswers() free-text caching failed: cacheTouched=${out?.cacheTouched} entries=${cache.entries.length}`);
+    }
+    if (!threw && store.entries[normLabelFn('Do you require visa sponsorship?')]?.answer === 'No') {
+      pass('teachAnswers() reusable screener radio → written to injected screener store');
+    } else {
+      fail('teachAnswers() reusable screener radio was not learned into the injected store');
+    }
+    if (!threw && queue.roles[0].drafts[normLabelFn('Describe your data experience')]?.answer === 'Ten years of SQL.') {
+      pass('teachAnswers() writes model answers into role.drafts (drafts-first reuse on next resolve)');
+    } else {
+      fail('teachAnswers() did not write the free-text answer into role.drafts');
+    }
+  }
+
+  // Case 2: radio-only teach → embedder is NOT cold-loaded, no throw, cacheTouched=false.
+  {
+    const queue = { roles: [{ id: 'tq-2', company: 'Beta', title: 'Engineer', drafts: {} }] };
+    const cache = makeCache([]);
+    const store = makeStore();
+    let embedCalls = 0;
+    const items = JSON.stringify([
+      { label: 'Do you have a non-compete?', type: 'radio', options: ['Yes', 'No'], answer: 'No', reusable: true },
+    ]);
+    let out, threw = false;
+    try {
+      out = teachAnswersFn('tq-2', items, {
+        embedFn: (labels) => { embedCalls++; return { embeddings: labels.map(() => vecA) }; },
+        queue, cache, store,
+      });
+    } catch (e) {
+      threw = true;
+      fail(`teachAnswers() radio-only teach threw: ${e.message}`);
+    }
+    if (!threw && embedCalls === 0 && out?.cacheTouched === false) {
+      pass('teachAnswers() radio-only teach: embedder NOT called, cacheTouched=false (no wasted embed cost)');
+    } else {
+      fail(`teachAnswers() radio-only teach: embedCalls=${embedCalls} cacheTouched=${out?.cacheTouched} (expected 0/false)`);
+    }
+  }
+
+  // Case 3: reusable:false screener item → drafts only, NOT written to store (no cross-portal leak).
+  {
+    const queue = { roles: [{ id: 'tq-3', company: 'Gamma', title: 'Lead', drafts: {} }] };
+    const cache = makeCache([]);
+    const store = makeStore();
+    const items = JSON.stringify([
+      { label: 'Why do you want to work here?', type: 'radio', options: ['A', 'B'], answer: 'A', reusable: false },
+    ]);
+    let threw = false;
+    try {
+      teachAnswersFn('tq-3', items, { embedFn: () => ({ embeddings: [] }), queue, cache, store });
+    } catch (e) {
+      threw = true;
+      fail(`teachAnswers() reusable:false teach threw: ${e.message}`);
+    }
+    if (!threw && Object.keys(store.entries).length === 0) {
+      pass('teachAnswers() reusable:false screener item → NOT persisted to store (no cross-portal contamination)');
+    } else {
+      fail(`teachAnswers() reusable:false leaked into store: ${Object.keys(store.entries).length} entries`);
+    }
   }
 } catch (e) {
   fail(`answer-cache gate / resolveFields behavioral tests crashed: ${e.message}`);
