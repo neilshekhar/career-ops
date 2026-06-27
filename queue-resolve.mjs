@@ -149,6 +149,13 @@ export function resolveFields(role, fields, profile, { embedFn = embedSync, cach
 
     if (isSelectField(f)) {
       const options = f.options || [];
+      // Option-less select/radio/checkbox — no option to pick or learn against.
+      // Push straight to novel so the live --lookup (or LLM) handles it once the
+      // real form supplies options. Avoids a wasted intent-embed round-trip.
+      if (options.length === 0) {
+        novel.push({ label: f.label, type: f.type, required: !!f.required, options: [], help: f.help || null });
+        continue;
+      }
       // Visa/work-rights dropdown → answer from the locked visa policy.
       if (looksLikeVisaSelect(f.label, options)) {
         const pick = pickVisaOption(options, role.visa_answer);

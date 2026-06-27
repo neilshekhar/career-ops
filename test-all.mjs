@@ -6581,6 +6581,37 @@ try {
     }
   }
 
+  // resolveFields: option-less select/radio goes directly to novel, embedFn NOT called.
+  // Covers the guard added after Fix #4 broadened isSelectField to radio|checkbox —
+  // without the guard, an option-less radio whose label matches a rule would cold-load
+  // the embedder for no fillable result.
+  {
+    let embedCallsForOptionless = 0;
+    const roleOL = { drafts: {} };
+    // "Are you authorized to work in Australia?" matches the work_authorized L1 rule,
+    // but options:[] means no pick is possible — must go novel without embedding.
+    const resultOL = resolveFieldsFn(
+      roleOL,
+      [{ label: 'Are you authorized to work in Australia?', type: 'radio', options: [], required: true }],
+      screenerProfile,
+      {
+        embedFn: () => { embedCallsForOptionless++; return { embeddings: [] }; },
+        cache: makeCache([]),
+        screenerStore: { version: 1, entries: {} },
+      },
+    );
+    if (resultOL.novel.length === 1 && resultOL.resolved.length === 0) {
+      pass('resolveFields: option-less radio (matches rule) → novel, not stalled in optionChoices');
+    } else {
+      fail(`resolveFields: option-less radio should be novel, got resolved=${resultOL.resolved.length} novel=${resultOL.novel.length}`);
+    }
+    if (embedCallsForOptionless === 0) {
+      pass('resolveFields: option-less radio → embedFn NOT called (no wasted cold-load)');
+    } else {
+      fail(`resolveFields: option-less radio triggered embedFn ${embedCallsForOptionless} time(s) — wasted embed call`);
+    }
+  }
+
   // ── Structural checks (source-level) ──────────────────────────────────────
 
   const resolveSrc = readFileSync(join(ROOT, 'queue-resolve.mjs'), 'utf-8');
