@@ -89,6 +89,10 @@ for the exact behavior.
   `browser_navigate` with `newTab: true`** — that replaces the current tab (the generated
   JS is `page.goto()`) and destroys the filled form.
 - Fill **all** roles first, leaving every tab open. Present a summary of open tabs when done.
+  Include per-role provenance in the summary so the end-of-batch review is effective:
+  for each tab note how many fields were `deterministic` / `learned` / `model` (LLM-generated).
+  Flag any `learned` or `model` answers on knockout/screener fields for extra scrutiny —
+  everything else can be skimmed. No blocking prompts; the candidate submits at the end.
 - The candidate reviews all filled forms together and submits manually at the end.
 - **Never close a tab** — closing is the candidate's job, not the agent's.
 
@@ -165,16 +169,76 @@ If the role on screen differs from the one evaluated:
 - **If re-evaluate**: Execute full A-F evaluation, update report, regenerate Section G
 - **Update tracker**: Change role title in applications.md if applicable
 
-## Step 6 — Analyze form questions
+## Step 6 — Analyze and resolve form fields (per page)
 
-Identify ALL visible questions:
-- Free text fields (cover letter, why this role, etc.)
-- Dropdowns (how did you hear, work authorization, etc.)
-- Yes/No (relocation, visa, etc.)
-- Salary fields (range, expectation)
-- Upload fields (resume, cover letter PDF)
+**For custom-portal roles with a queue record (`ats: custom` — SEEK, JobAdder, Gem,
+Workday, Amazon, Vic Gov, etc.):**
 
-**Drafts-first — applies to every portal (SEEK, JobAdder, Gem, Workday, GH/Lever/Ashby):**
+Repeat this loop on **every wizard page** as it becomes visible:
+
+1. **Snapshot and extract.** Take a browser snapshot. Collect every editable field:
+   `{label, type, options?, required, help?}`.
+   - **Always include the `options` array** for every select/radio/checkbox field. Without
+     it, deterministic option-mapping and embedding-assisted option picks cannot fire —
+     the field falls to novel even when a rule matches. For `["Yes","No"]` radios this is
+     the single most common cause of screeners reaching the LLM unnecessarily.
+   - **Exclude** upload / file fields — handled via `cv_pdf` / `cover_letter_paths`
+     from the queue record; they do not go through the resolver.
+   - **Include** cover-letter and KSC textareas (labels matching
+     `/cover.?letter/i` or `/key.+selection|selection.+criteria|ksc/i`) — the
+     resolver hard-routes them straight to `novel` (never L1/L2/cache), so they
+     automatically flow to Step 7 generation without any risk of cache reuse.
+
+2. **Run live lookup (Layer 1+2, zero LLM tokens).** Write the non-excluded fields to
+   a temp file and run:
+   ```
+   node queue-resolve.mjs --lookup <role-id> '@/tmp/<slug>-page-N.json'
+   ```
+   This applies deterministic profile rules (Layer 1), the exact-label learned screener
+   store (Layer 1.5), then the semantic answer cache (Layer 2, cosine ≥ 0.85 +
+   `reusable` + entity match). It writes hits into `role.drafts` and prints
+   `{resolved, novel}`.
+
+3. **Fill resolved fields verbatim.** Each entry in `resolved[]` carries the
+   `answer` text directly — read it from `resolved[i].answer`; no separate
+   `role.drafts` reload is needed. Note provenance inline:
+   - `✓ deterministic` — profile rule (name, email, salary, work-rights, etc.)
+   - `✓ learned` — exact-label screener store hit (filled silently, no confirmation)
+   - `✓ cache 0.91` — semantic cache hit (score shown)
+   - `✓ model` — prior `--teach` answer for this role
+
+   **All store and cache fills are silent** — first-use or not. Everything is visible
+   in the end-of-batch review; no per-field confirmation pause is needed.
+
+   **Truthfulness floor — surface for confirmation regardless of source:**
+   years of experience, security clearance, disability status, veteran status. These
+   are eligibility assertions; a cached or learned answer must never assert something
+   false. All other fields fill silently.
+
+4. **Accumulate novel fields** from the `novel` list for Step 7. Do not invoke the
+   LLM yet.
+
+5. **Conditional branching.** If filling a field causes new editable inputs to appear
+   on the page, re-snapshot and repeat steps 2–4 on the newly visible fields.
+
+6. **Advance the page.** Click a navigation button matching
+   `Continue | Next | Save and continue | Save & continue | Review | Proceed | Next step | Next page`
+   to move forward. **Never click a final-submit button** (Submit / Submit application /
+   Send application / Confirm and submit). Stop when the page shows a review/summary
+   (entered data echoed, no further editable inputs visible).
+
+**Embed unavailable:** if the embedding endpoint is down, `--lookup` returns all
+non-deterministic fields as novel — the apply continues normally; the agent generates
+everything in Step 7.
+
+**Pre-resolved drafts from `--pre`:** if `--pre` ran at prepare-time, `role.drafts`
+may already contain fields. `--lookup` overwrites those entries with the live-verified
+set (idempotent). Drafts for fields not present on the live form are silently ignored.
+
+---
+
+**For GH/Lever/Ashby roles and any portal when no queue record exists (legacy fallback):**
+
 For each field, normalize the label (lowercase, strip asterisks and trailing punctuation —
 same `normLabel` used by `form-fill.mjs` and `field-rules.mjs`) and look it up in
 `role.drafts`. Classify as:
@@ -185,8 +249,7 @@ same `normLabel` used by `form-fill.mjs` and `field-rules.mjs`) and look it up i
 - **novel** (no draft key, or a draft whose label/options visibly no longer match the
   live form): collect into a list — these are the only fields that go to Step 7.
 
-Upload / file fields are handled separately (attach `cv_pdf` / `cover_letter_paths` from
-the queue record); they do not go through the drafts lookup.
+Upload / file fields are handled separately; they do not go through the drafts lookup.
 
 Legacy classification (keep for back-compat when no queue record exists):
 - **Already answered in Section G** → adapt the existing response
@@ -257,9 +320,11 @@ Notes:
 - [Personalization suggestions the candidate should review]
 ```
 
-## Step 7b — Teach the cache (after novel answers are generated)
+## Step 7b — Teach the stores (once per role, after all pages) — MANDATORY
 
-After generating all novel answers in Step 7, write them to a temp file and run:
+**This step is not optional.** After all wizard pages are complete and all novel answers
+have been generated in Step 7 (accumulate novels across pages — do not teach after each
+individual page), write ALL novel answers — including radio/select — to a temp file and run:
 
 ```
 node queue-resolve.mjs --teach <role-id> '@/tmp/answers-<company-slug>.json'
@@ -267,25 +332,36 @@ node queue-resolve.mjs --teach <role-id> '@/tmp/answers-<company-slug>.json'
 
 Format for each item:
 ```json
-{ "label": "<exact question label>", "type": "textarea|text|select", "answer": "<answer>",
-  "reusable": true|false, "confidence": "high|medium|low" }
+{ "label": "<exact question label>", "type": "textarea|text|select|radio", "answer": "<answer>",
+  "reusable": true|false, "confidence": "high|medium|low",
+  "options": ["Yes", "No"] }
 ```
 
+**Always include `options`** for radio/select/checkbox items — without it the learned store
+cannot record which options were available (used for future revalidation). It is fine to
+include `options: []` for text/textarea items.
+
 - **`reusable: true`** — employer-independent answers: work-rights text, availability
-  phrasing, salary format, behavioural/skills questions. These will be reused verbatim on
-  any future portal when cosine similarity ≥ 0.85 and entity-compatibility passes.
+  phrasing, salary format, behavioural/skills questions, binary screeners (Yes/No).
+  Gates **both** stores: screener store (select/radio/checkbox) and embedding cache (free-text).
 - **`reusable: false`** — company-specific answers: why this company/role, culture fit,
-  motivational questions. Stored in `role.drafts` with `source: model` but not reused
-  elsewhere.
+  consent/marketing checkboxes, motivational questions. Stored in `role.drafts` only
+  (current role); **never** written to either store or reused cross-portal.
 
-This call writes the answers into `role.drafts` (provenance `model`) **and** upserts each
-question + its embedding into `data/answer-cache.json`. The cache is portal-agnostic — the
-next SEEK, JobAdder, Gem, Workday, or Greenhouse form that asks a paraphrase of the same
-question resolves it at Layer 2 (zero LLM cost) instead of Layer 3. **This is the
-mechanism that makes the embed-cache apply across every portal type.**
+**Routing (automatic, done inside `--teach`):**
+- `type: radio|select|checkbox` or item has `options`, **and `reusable: true`** →
+  **screener store** (`data/screener-answers.json`, exact-label, volatile-guarded).
+  Silently auto-filled on the next exact-label match.
+- `type: radio|select|checkbox` or item has `options`, **`reusable: false`** →
+  `role.drafts` only. Not persisted cross-role.
+- Free-text (`text|textarea`, no `options`) → **embedding cache** (`data/answer-cache.json`,
+  cosine ≥ 0.85). Reused when a paraphrase scores above the threshold (gated by `reusable`
+  inside `teach()`).
 
-Skip this step only if the role has no `id` in the queue or all fields were file-upload
-only (no free-text novel answers were generated).
+All fills are silent — no per-field confirmation. Learned and cached answers are
+visible in the end-of-batch review summary. Exception: the truthfulness floor fields
+(clearance / disability / veteran / years-of-experience) — surface those for confirmation
+regardless of source.
 
 ## Step 8 — Post-apply (optional)
 

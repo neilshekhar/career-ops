@@ -89,6 +89,13 @@ application_answers:
   office_days_commitment: "Yes — I can commit to the required days in office."
   work_rights_freetext: "I have full working rights and require no sponsorship."
   work_rights_consent: "Yes, I consent."
+  # Binary screener radios/selects — emitted verbatim as Yes/No radio answers.
+  # FILL IN: review after any visa or employment-status change.
+  work_authorized: "Yes"        # legally authorized to work in target country?
+  requires_sponsorship: "No"    # requires employer visa sponsorship?
+  is_over_18: "Yes"             # are you 18 or older? (also drives "if under 18" inversion)
+  has_noncompete: "No"          # non-compete / restraint-of-trade agreement with prior employer?
+  has_bachelors: "Yes"          # hold a Bachelor's degree?
   website: "https://your-portfolio.example.com"
   # Part-time guardrail (only used for roles classified part-time):
   # availability_parttime: "..."

@@ -21,6 +21,13 @@
  * here: their answers are employer-specific, so they belong to Layer 3.
  */
 
+// Field-class regexes shared with form-fill.mjs and queue-resolve.mjs. Cover-letter
+// and key-selection-criteria fields are long-form and always role-specific — they are
+// never deterministic-filled or cache-reused. (Canonical home; form-fill.mjs imports
+// these and re-exports them so existing importers keep resolving.)
+export const COVER_RE = /cover.?letter/i;
+export const KSC_RE   = /key.+selection|selection.+criteria|address.+criteria|ksc/i;
+
 export function splitName(fullName = '') {
   const parts = fullName.trim().split(/\s+/);
   const last = parts.length > 1 ? parts[parts.length - 1] : '';
@@ -68,6 +75,32 @@ export function matchProfileRule(label, type, profile, role = {}) {
       value: () => nonEmpty(a.work_rights_freetext),
       // only for free-text — a visa DROPDOWN is handled by form-fill via role.visa_answer
       guard: () => type !== 'select' },
+
+    // ── Binary screener radios/selects (employer-independent, stable facts) ────
+    // Ordered most-specific-first so sponsorship phrasing is never mis-answered
+    // as work_authorized. All emit a canonical "Yes"/"No" which
+    // chooseOptionDeterministic() maps correctly onto ["Yes","No"] radio options.
+    // Real visa dropdowns are intercepted earlier via looksLikeVisaSelect().
+    { id: 'visa_sponsorship',
+      test: /sponsor(ship)?|require.+visa.+support|need.+sponsor/,
+      value: () => nonEmpty(a.requires_sponsorship) },
+    { id: 'work_authorized',
+      test: /(authori[sz]ed|eligible|entitled|permitted).{0,25}\bwork\b|right to work in/,
+      value: () => nonEmpty(a.work_authorized) },
+    { id: 'age_under_18',
+      // Handles inverted phrasing: "If under 18… else select No"
+      test: /\bunder 18\b|younger than 18|less than 18/,
+      value: () => a.is_over_18 != null ? (a.is_over_18 === 'Yes' ? 'No' : 'Yes') : null },
+    { id: 'age_over_18',
+      test: /18 (years? )?(or older|and over|\+)|over 18|at least 18|older than 18|of legal (working )?age/,
+      value: () => nonEmpty(a.is_over_18) },
+    { id: 'non_compete',
+      test: /non.?compete|noncompete|restraint of trade|restrictive covenant/,
+      value: () => nonEmpty(a.has_noncompete) },
+    { id: 'bachelors_degree',
+      // Narrow match — does not fire for "master's", "PhD", "doctorate"
+      test: /\bbachelor'?s?\b.*degree|do you have.*\bbachelor\b|hold.*\bbachelor\b|undergraduate degree|university degree/,
+      value: () => nonEmpty(a.has_bachelors) },
     { id: 'website',
       test: /\bwebsite\b|\bportfolio\b|personal site|web address|personal url/,
       value: () => nonEmpty(a.website) || nonEmpty(c.portfolio_url) || nonEmpty(c.github) },

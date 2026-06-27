@@ -5940,6 +5940,717 @@ try {
   fail(`custom instructions test crashed: ${e.message}`);
 }
 
+// ── 30. ANSWER-CACHE GATE + resolveFields BEHAVIORAL TESTS ──────────────────
+
+console.log('\n30. Answer-cache gate (lookup/teach/entitiesCompatible) + resolveFields behavioral tests');
+
+try {
+  // Import pure functions directly — no Python, no file I/O beyond the module itself.
+  const {
+    lookup: cacheLoookup, teach: cacheTeach, entitiesCompatible,
+    extractEntities, DEFAULT_THRESHOLD: DEF_THRESH,
+  } = await import(pathToFileURL(join(ROOT, 'answer-cache.mjs')).href);
+
+  const { resolveFields: resolveFieldsFn } = await import(
+    pathToFileURL(join(ROOT, 'queue-resolve.mjs')).href
+  );
+
+  // ── Synthetic helpers ──────────────────────────────────────────────────────
+  // Build an L2-normalised vector with cosine == dotProd (a,b). Using unit vecs:
+  // a = [1,0,...], b = [cos θ, sin θ, 0,...] gives cosine exactly cos θ.
+  const dim = 768;
+  const vecA = new Array(dim).fill(0); vecA[0] = 1;
+  const vecAbove = new Array(dim).fill(0);  // cosine = DEF_THRESH + 0.02
+  vecAbove[0] = DEF_THRESH + 0.02;
+  vecAbove[1] = Math.sqrt(1 - (DEF_THRESH + 0.02) ** 2);
+  const vecBelow = new Array(dim).fill(0);  // cosine = DEF_THRESH - 0.02
+  vecBelow[0] = DEF_THRESH - 0.02;
+  vecBelow[1] = Math.sqrt(1 - (DEF_THRESH - 0.02) ** 2);
+  const vecIdentical = [...vecA];           // cosine = 1.0
+
+  // Minimal profile for resolveFields (no candidate fields needed for L2-only tests)
+  const minProfile = {
+    candidate: { full_name: 'Test User', email: 'test@test.com', phone: '+61400000000' },
+    application_answers: {},
+    location: {},
+  };
+
+  function makeCache(entries = []) {
+    return { version: 1, embedding_model: 'google/embeddinggemma-300m', dim, entries };
+  }
+  function makeEntry(overrides = {}) {
+    return {
+      id: 'test-entry', question: 'Are you eligible to work in Australia?',
+      embedding: vecA, answer: 'Yes, I am a permanent resident.',
+      field_type: 'text', reusable: true,
+      entities: { locations: ['australia'], numbers: [], dates: [], money: [] },
+      confidence: 'high', reuse_count: 0, created_at: new Date().toISOString(), last_used_at: null,
+      ...overrides,
+    };
+  }
+
+  // ── lookup() gate ──────────────────────────────────────────────────────────
+
+  // Must return a hit when cosine ≥ threshold AND reusable AND entity-compatible
+  const cacheAbove = makeCache([makeEntry({ embedding: vecA })]);
+  const hitAbove = cacheLoookup(cacheAbove, {
+    question: 'Are you eligible to work in Australia?',
+    embedding: vecA,  // cosine == 1.0 ≥ 0.85 → hit
+    threshold: DEF_THRESH,
+  });
+  if (hitAbove && hitAbove.entry.id === 'test-entry') {
+    pass('lookup() returns hit when cosine=1.0 ≥ threshold AND reusable AND entity-compatible');
+  } else {
+    fail('lookup() missed a qualifying entry (cosine=1.0, reusable, entity-compatible)');
+  }
+
+  if (hitAbove && hitAbove.firstUse === true) {
+    pass('lookup() sets firstUse=true when reuse_count===0');
+  } else {
+    fail('lookup() firstUse flag wrong for a fresh entry (reuse_count===0)');
+  }
+
+  // Must return null when cosine < threshold
+  const cacheBelow = makeCache([makeEntry({ embedding: vecA })]);
+  const hitBelow = cacheLoookup(cacheBelow, {
+    question: 'Are you eligible to work in Australia?',
+    embedding: vecBelow,  // cosine = DEF_THRESH - 0.02 → miss
+    threshold: DEF_THRESH,
+  });
+  if (hitBelow === null) {
+    pass('lookup() returns null when cosine < threshold');
+  } else {
+    fail('lookup() returned a hit for cosine below threshold (false positive)');
+  }
+
+  // Must return null when reusable === false
+  const cacheNotReusable = makeCache([makeEntry({ reusable: false })]);
+  const hitNotReusable = cacheLoookup(cacheNotReusable, {
+    question: 'Are you eligible to work in Australia?',
+    embedding: vecA,
+    threshold: DEF_THRESH,
+  });
+  if (hitNotReusable === null) {
+    pass('lookup() returns null when entry.reusable === false');
+  } else {
+    fail('lookup() reused a non-reusable entry (safety violation)');
+  }
+
+  // Must return null on entity mismatch (location differs)
+  const cacheMelbourne = makeCache([makeEntry({
+    embedding: vecA,
+    entities: { locations: ['melbourne'], numbers: [], dates: [], money: [] },
+  })]);
+  const hitSydney = cacheLoookup(cacheMelbourne, {
+    question: 'Are you willing to relocate to Sydney?',  // entity: Sydney
+    embedding: vecA,
+    threshold: DEF_THRESH,
+  });
+  if (hitSydney === null) {
+    pass('lookup() returns null on location entity mismatch (Melbourne entry vs Sydney question)');
+  } else {
+    fail('lookup() ignored location entity mismatch — cache safety violation');
+  }
+
+  // ── entitiesCompatible() ──────────────────────────────────────────────────
+
+  if (entitiesCompatible(
+    { locations: [], numbers: [], dates: [], money: [] },
+    { locations: [], numbers: [], dates: [], money: [] },
+  )) {
+    pass('entitiesCompatible() returns true for two empty entity sets');
+  } else {
+    fail('entitiesCompatible() returned false for empty==empty (should be compatible)');
+  }
+
+  if (!entitiesCompatible(
+    { locations: ['melbourne'], numbers: [], dates: [], money: [] },
+    { locations: ['sydney'],    numbers: [], dates: [], money: [] },
+  )) {
+    pass('entitiesCompatible() returns false when locations differ');
+  } else {
+    fail('entitiesCompatible() returned true for differing locations');
+  }
+
+  if (!entitiesCompatible(
+    { locations: [], numbers: ['5'], dates: [], money: [] },
+    { locations: [], numbers: [],    dates: [], money: [] },
+  )) {
+    pass('entitiesCompatible() returns false when numbers differ (one side has "5")');
+  } else {
+    fail('entitiesCompatible() returned true for mismatched number entities');
+  }
+
+  // ── teach() dedup ─────────────────────────────────────────────────────────
+
+  const cacheForTeach = makeCache([]);
+  const stored = cacheTeach(cacheForTeach, {
+    question: 'How many years of SQL experience do you have?',
+    embedding: vecA, answer: '7 years', field_type: 'text', reusable: true,
+    entities: {}, confidence: 'high',
+  });
+  if (cacheForTeach.entries.length === 1 && stored.answer === '7 years') {
+    pass('teach() inserts a new entry into an empty cache');
+  } else {
+    fail('teach() did not insert an entry into an empty cache');
+  }
+
+  // Re-teach the near-identical question (cosine ≥ 0.985) → update in place, not duplicate
+  cacheTeach(cacheForTeach, {
+    question: 'How many years of SQL experience do you have?',  // identical text → cosine=1.0
+    embedding: vecIdentical, answer: '8 years', field_type: 'text', reusable: true,
+    entities: {}, confidence: 'high',
+  });
+  if (cacheForTeach.entries.length === 1 && cacheForTeach.entries[0].answer === '8 years') {
+    pass('teach() dedup: near-identical question (cosine≥0.985) updates in place, not duplicated');
+  } else {
+    fail(`teach() dedup failed: ${cacheForTeach.entries.length} entries, answer="${cacheForTeach.entries[0]?.answer}"`);
+  }
+
+  // ── resolveFields() behavioral tests ──────────────────────────────────────
+
+  // Test: drafts-first — a pre-existing model draft (reusable:false) must be reused
+  // verbatim and NOT fall through to L2 (which would reject it and emit as novel).
+  {
+    const role = { drafts: { 'motivation': { answer: 'I love data.', source: 'model', reusable: false } } };
+    let embedCallCount = 0;
+    const result = resolveFieldsFn(
+      role,
+      [{ label: 'Motivation', type: 'textarea' }],
+      minProfile,
+      { embedFn: () => { embedCallCount++; return { embeddings: [] }; }, cache: makeCache([]) },
+    );
+    if (result.resolved.length === 1 && result.novel.length === 0) {
+      pass('resolveFields() drafts-first: model draft (reusable:false) reused → in resolved not novel');
+    } else {
+      fail(`resolveFields() drafts-first: expected 1 resolved 0 novel, got ${result.resolved.length}/${result.novel.length}`);
+    }
+    if (result.resolved[0]?.source === 'model') {
+      pass('resolveFields() drafts-first: resolved entry carries source=model');
+    } else {
+      fail(`resolveFields() drafts-first: source wrong: "${result.resolved[0]?.source}"`);
+    }
+    if (embedCallCount === 0) {
+      pass('resolveFields() drafts-first: embedFn NOT called (no wasted embed cost for pre-drafted fields)');
+    } else {
+      fail(`resolveFields() drafts-first: embedFn called ${embedCallCount} time(s) for a pre-drafted field`);
+    }
+  }
+
+  // Test: cover-letter label → always novel, even when a synthetic cache would match
+  {
+    const cacheFull = makeCache([makeEntry({ question: 'Cover letter', embedding: vecA })]);
+    const role2 = { drafts: {} };
+    const result2 = resolveFieldsFn(
+      role2,
+      [
+        { label: 'Cover letter', type: 'textarea' },
+        { label: 'Key selection criteria', type: 'textarea' },
+      ],
+      minProfile,
+      { embedFn: () => ({ embeddings: [vecA, vecA] }), cache: cacheFull },
+    );
+    if (result2.novel.length === 2 && result2.resolved.length === 0) {
+      pass('resolveFields() cover/KSC: both labels always emitted as novel (never L2/cache)');
+    } else {
+      fail(`resolveFields() cover/KSC: expected 2 novel 0 resolved, got ${result2.novel.length}/${result2.resolved.length}`);
+    }
+  }
+
+  // Test: select draft validation — if draft answer not in live options, fall through to re-resolve
+  {
+    const role3 = {
+      drafts: { 'employment type': { answer: 'Full Time', source: 'deterministic', rule: 'hours' } },
+    };
+    const result3 = resolveFieldsFn(
+      role3,
+      [{ label: 'Employment type', type: 'select', options: ['Full-Time', 'Part-Time', 'Contract'] }],
+      minProfile,
+      { embedFn: () => ({ embeddings: [vecA, vecA, vecA, vecA] }), cache: makeCache([]) },
+    );
+    // 'Full Time' (with space) is not in ['Full-Time', 'Part-Time', 'Contract'] (with hyphen) → not blindly reused.
+    // We test the actual property: the stale answer 'Full Time' must never appear in resolved[].answer,
+    // regardless of whether the field fell through to a valid L1 re-resolve or dropped to novel.
+    // Do NOT assert resolved.length === 0 — L1 may legitimately remap the select to a live option.
+    const reusedStale3 = result3.resolved.some((r) => r.answer === 'Full Time');
+    const accountedFor3 = (result3.resolved.length + result3.novel.length) === 1;
+    if (!reusedStale3 && accountedFor3) {
+      pass('resolveFields() select draft-first validation: stale draft (option wording changed) is not blindly reused');
+    } else {
+      fail(`resolveFields() select draft-first validation: reusedStale=${reusedStale3} accountedFor=${accountedFor3} resolved=${result3.resolved.length} novel=${result3.novel.length}`);
+    }
+  }
+
+  // Test: positive cache hit via injected cache + matching embedFn → source: cache.
+  // Use a generic label that has no geo/number entities and won't match L1 rules.
+  {
+    const role4 = { drafts: {} };
+    const cacheEntry = makeEntry({
+      embedding: vecA, reusable: true,
+      question: 'Describe your biggest professional achievement',
+      entities: { locations: [], numbers: [], dates: [], money: [] },
+    });
+    const cacheHit = makeCache([cacheEntry]);
+    const result4 = resolveFieldsFn(
+      role4,
+      [{ label: 'Describe your biggest professional achievement', type: 'textarea' }],
+      minProfile,
+      { embedFn: () => ({ embeddings: [vecA] }), cache: cacheHit },
+    );
+    if (result4.resolved.length === 1 && result4.resolved[0].source === 'cache') {
+      pass('resolveFields() L2 positive: injected cache hit → resolved with source=cache (no Python needed)');
+    } else {
+      fail(`resolveFields() L2 positive: expected 1 cache-resolved, got resolved=${result4.resolved.length} novel=${result4.novel.length}`);
+    }
+  }
+
+  // Test: embed failure → all non-deterministic fields become novel, no throw
+  {
+    const role5 = { drafts: {} };
+    let threw = false;
+    let result5;
+    try {
+      result5 = resolveFieldsFn(
+        role5,
+        [{ label: 'Describe your data analysis experience', type: 'textarea' }],
+        minProfile,
+        { embedFn: () => { throw new Error('embed server unavailable'); }, cache: makeCache([]) },
+      );
+    } catch (e) {
+      threw = true;
+    }
+    if (threw) {
+      fail('resolveFields() embed-failure: threw instead of degrading gracefully');
+    } else if (result5 && result5.novel.length === 1 && result5.resolved.length === 0) {
+      pass('resolveFields() embed-failure: field becomes novel gracefully (no throw)');
+    } else {
+      fail(`resolveFields() embed-failure: unexpected result — resolved=${result5?.resolved.length} novel=${result5?.novel.length}`);
+    }
+  }
+
+  // ── Screener radio/select deterministic rules ──────────────────────────────
+  // These tests use matchProfileRule() directly (no embedFn / Python needed).
+  // They verify that the 6 new binary screener rules resolve without reaching L2.
+
+  const screenerProfile = {
+    candidate: { full_name: 'Test User', email: 'test@example.com', phone: '000', location: 'Sydney' },
+    location: { country: 'Australia' },
+    application_answers: {
+      work_authorized: 'Yes',
+      requires_sponsorship: 'No',
+      is_over_18: 'Yes',
+      has_noncompete: 'No',
+      has_bachelors: 'Yes',
+      salary_range: 'AUD 80,000',
+      notice_period: 'Immediately available',
+    },
+  };
+
+  // Import matchProfileRule (already imported at top of this section via resolveFields dynamic import)
+  const { matchProfileRule: matchRuleFn } = await import('./field-rules.mjs');
+
+  // work_authorized — "authorized to work" phrasing → Yes
+  {
+    const hit = matchRuleFn(
+      'Are you legally authorized to work in the country for which you are applying?',
+      'radio', screenerProfile, {},
+    );
+    if (hit && hit.rule === 'work_authorized' && hit.value === 'Yes') {
+      pass('screener work_authorized: "authorized to work" radio → Yes (deterministic)');
+    } else {
+      fail(`screener work_authorized: expected rule=work_authorized value=Yes, got ${JSON.stringify(hit)}`);
+    }
+  }
+
+  // visa_sponsorship — must NOT fire for "authorized" phrasing; must fire for "sponsorship"
+  {
+    const noHit = matchRuleFn('Are you authorized to work in Australia?', 'radio', screenerProfile, {});
+    // The work_authorized rule fires first (which is correct); visa_sponsorship should not
+    // be the match here. We just confirm the field resolves deterministically.
+    if (noHit && noHit.value === 'Yes') {
+      pass('screener inversion guard: "authorized to work" resolves Yes (not confused with sponsorship No)');
+    } else {
+      fail(`screener inversion guard: unexpected result ${JSON.stringify(noHit)}`);
+    }
+    const sponsorHit = matchRuleFn('Do you require visa sponsorship to work here?', 'radio', screenerProfile, {});
+    if (sponsorHit && sponsorHit.rule === 'visa_sponsorship' && sponsorHit.value === 'No') {
+      pass('screener visa_sponsorship: "require visa sponsorship" radio → No (deterministic)');
+    } else {
+      fail(`screener visa_sponsorship: expected rule=visa_sponsorship value=No, got ${JSON.stringify(sponsorHit)}`);
+    }
+  }
+
+  // age_under_18 — inverted label ("if under 18, else select No") → No for over-18 candidate
+  {
+    const hit = matchRuleFn(
+      'If you are under 18 years of age, do you have a valid work permit? If you are older than 18, please select no.',
+      'radio', screenerProfile, {},
+    );
+    if (hit && hit.rule === 'age_under_18' && hit.value === 'No') {
+      pass('screener age_under_18: inverted "under 18 else select no" label → No (derived from is_over_18=Yes)');
+    } else {
+      fail(`screener age_under_18: expected rule=age_under_18 value=No, got ${JSON.stringify(hit)}`);
+    }
+  }
+
+  // age_over_18 → Yes
+  {
+    const hit = matchRuleFn('Are you 18 years or older?', 'radio', screenerProfile, {});
+    if (hit && hit.rule === 'age_over_18' && hit.value === 'Yes') {
+      pass('screener age_over_18: "18 years or older" radio → Yes');
+    } else {
+      fail(`screener age_over_18: expected rule=age_over_18 value=Yes, got ${JSON.stringify(hit)}`);
+    }
+  }
+
+  // non_compete → No
+  {
+    const hit = matchRuleFn(
+      'Do you have a non-compete agreement with your previous/current employer?',
+      'radio', screenerProfile, {},
+    );
+    if (hit && hit.rule === 'non_compete' && hit.value === 'No') {
+      pass('screener non_compete: "non-compete agreement" radio → No');
+    } else {
+      fail(`screener non_compete: expected rule=non_compete value=No, got ${JSON.stringify(hit)}`);
+    }
+  }
+
+  // bachelors_degree → Yes
+  {
+    const hit = matchRuleFn("Do you have Bachelor's Degree?", 'radio', screenerProfile, {});
+    if (hit && hit.rule === 'bachelors_degree' && hit.value === 'Yes') {
+      pass("screener bachelors_degree: \"Do you have Bachelor's Degree?\" radio → Yes");
+    } else {
+      fail(`screener bachelors_degree: expected rule=bachelors_degree value=Yes, got ${JSON.stringify(hit)}`);
+    }
+  }
+
+  // bachelors_degree does NOT fire for "master's" or "PhD"
+  {
+    const noMasters = matchRuleFn("Do you hold a master's degree?", 'radio', screenerProfile, {});
+    const noPhd    = matchRuleFn('Do you have a PhD or doctorate?',  'radio', screenerProfile, {});
+    const mastersOk = !noMasters || noMasters.rule !== 'bachelors_degree';
+    const phdOk     = !noPhd    || noPhd.rule    !== 'bachelors_degree';
+    if (mastersOk && phdOk) {
+      pass("screener bachelors_degree: does NOT fire for master's or PhD labels (narrow match)");
+    } else {
+      fail(`screener bachelors_degree scope: masters=${JSON.stringify(noMasters)} phd=${JSON.stringify(noPhd)}`);
+    }
+  }
+
+  // End-to-end via resolveFields: screener radios with options → all resolved deterministic, none novel
+  {
+    const roleS = { drafts: {} };
+    let embedCalledForScreener = 0;
+    const resultS = resolveFieldsFn(
+      roleS,
+      [
+        { label: 'Are you legally authorized to work in the country for which you are applying?', type: 'radio', options: ['Yes', 'No'], required: true },
+        { label: 'If you are under 18 years of age, do you have a valid work permit? If you are older than 18, please select no.', type: 'radio', options: ['Yes', 'No'], required: true },
+        { label: 'Do you have non-compete agreement with your previous/current employer?', type: 'radio', options: ['Yes', 'No'], required: true },
+        { label: "Do you have Bachelor's Degree?", type: 'radio', options: ['Yes', 'No'], required: true },
+      ],
+      screenerProfile,
+      { embedFn: () => { embedCalledForScreener++; return { embeddings: [] }; }, cache: makeCache([]) },
+    );
+    if (resultS.resolved.length === 4 && resultS.novel.length === 0) {
+      pass('screener resolveFields E2E: all 4 radios resolved deterministically → 0 novel (no LLM needed)');
+    } else {
+      fail(`screener resolveFields E2E: expected 4 resolved 0 novel, got ${resultS.resolved.length}/${resultS.novel.length} — novel: ${resultS.novel.map(n=>n.label).join(', ')}`);
+    }
+    if (embedCalledForScreener === 0) {
+      pass('screener resolveFields E2E: embedFn NOT called for screener radios ($0 embed cost)');
+    } else {
+      fail(`screener resolveFields E2E: embedFn called ${embedCalledForScreener} time(s) — screeners should not reach L2`);
+    }
+  }
+
+  // Visa dropdown is NOT hijacked by work_authorized — still goes via looksLikeVisaSelect
+  {
+    const roleV = { drafts: {}, visa_answer: 'Student Visa' };
+    const resultV = resolveFieldsFn(
+      roleV,
+      [{ label: 'What is your visa status?', type: 'select', options: ['Citizen', 'Permanent Resident', 'Student Visa', 'Other'], required: true }],
+      screenerProfile,
+      { embedFn: () => ({ embeddings: [] }), cache: makeCache([]) },
+    );
+    if (resultV.resolved.length === 1 && resultV.resolved[0].rule === 'visa') {
+      pass('screener visa guard: visa dropdown still resolved via visa rule (not hijacked by work_authorized)');
+    } else {
+      fail(`screener visa guard: expected 1 resolved with rule=visa, got ${JSON.stringify(resultV.resolved)}`);
+    }
+  }
+
+  // ── Learned screener store (screener-store.mjs) ────────────────────────────
+
+  const { loadStore: loadStoreTest, learnScreener: learnScreenerTest, lookupScreener: lookupScreenerTest } =
+    await import('./screener-store.mjs');
+
+  // learnScreener: pure Yes/No screener is learned
+  {
+    const store = { version: 1, entries: {} };
+    const r = learnScreenerTest(store, { label: 'Do you have a non-compete agreement?', answer: 'No', options: ['Yes', 'No'] });
+    if (r.learned === true && Object.keys(store.entries).length === 1) {
+      pass('learnScreener: pure Yes/No screener is stored');
+    } else {
+      fail(`learnScreener: expected learned=true and 1 entry, got learned=${r.learned} entries=${Object.keys(store.entries).length}`);
+    }
+  }
+
+  // learnScreener: volatile label (number) is NOT stored
+  {
+    const store = { version: 1, entries: {} };
+    const r = learnScreenerTest(store, { label: 'Do you have 5 years of Python experience?', answer: 'Yes', options: ['Yes', 'No'] });
+    if (r.learned === false && Object.keys(store.entries).length === 0) {
+      pass('learnScreener: volatile label (bare number "5") is NOT stored');
+    } else {
+      fail(`learnScreener: expected learned=false and 0 entries, got learned=${r.learned} entries=${Object.keys(store.entries).length}`);
+    }
+  }
+
+  // learnScreener: volatile label (money) is NOT stored
+  {
+    const store = { version: 1, entries: {} };
+    const r = learnScreenerTest(store, { label: 'Is your salary expectation above AUD 80000?', answer: 'Yes', options: ['Yes', 'No'] });
+    if (r.learned === false) {
+      pass('learnScreener: volatile label (money AUD) is NOT stored');
+    } else {
+      fail(`learnScreener: money label should not be stored, got learned=${r.learned}`);
+    }
+  }
+
+  // learnScreener: volatile answer (bare number) is NOT stored — "how many years?" with answer "3"
+  {
+    const store = { version: 1, entries: {} };
+    const r = learnScreenerTest(store, { label: 'How many years of Python experience do you have?', answer: '3', options: ['0-2', '3-5', '5+'] });
+    if (r.learned === false) {
+      pass('learnScreener: numeric answer ("3") is NOT stored (volatile — context-specific per role)');
+    } else {
+      fail(`learnScreener: numeric answer should not be stored, got learned=${r.learned}`);
+    }
+  }
+
+  // learnScreener: volatile label (location) is NOT stored
+  {
+    const store = { version: 1, entries: {} };
+    const r = learnScreenerTest(store, { label: 'Are you willing to relocate to Melbourne?', answer: 'Yes', options: ['Yes', 'No'] });
+    if (r.learned === false) {
+      pass('learnScreener: volatile label (location "Melbourne") is NOT stored');
+    } else {
+      fail(`learnScreener: location label should not be stored, got learned=${r.learned}`);
+    }
+  }
+
+  // lookupScreener: exact-label match returns entry; near-miss returns null
+  {
+    const store = { version: 1, entries: {} };
+    learnScreenerTest(store, { label: 'Do you have a non-compete agreement with your current employer?', answer: 'No', options: ['Yes', 'No'] });
+    const { normLabel: normLabelForStore } = await import('./field-rules.mjs');
+    const key = normLabelForStore('Do you have a non-compete agreement with your current employer?');
+    const hit = lookupScreenerTest(store, key);
+    if (hit && hit.answer === 'No') {
+      pass('lookupScreener: exact-label match returns stored entry');
+    } else {
+      fail(`lookupScreener: exact match failed — got ${JSON.stringify(hit)}`);
+    }
+    const nearKey = normLabelForStore('Do you have a non-compete with your previous employer?');
+    const miss = lookupScreenerTest(store, nearKey);
+    if (miss === null) {
+      pass('lookupScreener: near-miss label returns null (exact-only, no fuzzy)');
+    } else {
+      fail(`lookupScreener: near-miss should return null, got ${JSON.stringify(miss)}`);
+    }
+  }
+
+  // resolveFields with injected screenerStore: exact-label hit → source:'learned', 0 novel
+  // Use a label that has no existing profile rule (so L1 misses and L1.5 must fire).
+  {
+    const roleL = { drafts: {} };
+    const syntheticStore = { version: 1, entries: {} };
+    // Pre-populate store with a learned answer for a truly novel label (no rule covers it)
+    learnScreenerTest(syntheticStore, {
+      label: 'Are you currently enrolled in a full-time educational program?', answer: 'Yes',
+      options: ['Yes', 'No'], roleId: 'seek:test-prior',
+    });
+    let embedCallsForLearned = 0;
+    const resultL = resolveFieldsFn(
+      roleL,
+      [{ label: 'Are you currently enrolled in a full-time educational program?', type: 'radio', options: ['Yes', 'No'], required: true }],
+      screenerProfile,
+      {
+        embedFn: () => { embedCallsForLearned++; return { embeddings: [] }; },
+        cache: makeCache([]),
+        screenerStore: syntheticStore,
+      },
+    );
+    if (resultL.resolved.length === 1 && resultL.novel.length === 0 && resultL.resolved[0].source === 'learned') {
+      pass('resolveFields learned layer: exact-label hit → resolved source=learned, 0 novel');
+    } else {
+      fail(`resolveFields learned layer: expected 1 learned/0 novel, got ${resultL.resolved.length}/${resultL.novel.length} source=${resultL.resolved[0]?.source}`);
+    }
+    if (embedCallsForLearned === 0) {
+      pass('resolveFields learned layer: embedFn NOT called (no embed cost for learned screeners)');
+    } else {
+      fail(`resolveFields learned layer: embedFn called ${embedCallsForLearned} time(s) — should not reach L2`);
+    }
+  }
+
+  // resolveFields learned layer: stale answer not in live options → falls to novel
+  {
+    const roleStale = { drafts: {} };
+    const staleStore = { version: 1, entries: {} };
+    learnScreenerTest(staleStore, {
+      label: 'Are you open to flexible arrangements?', answer: 'Fully Remote',
+      options: ['Yes, Fully Remote', 'Hybrid', 'No'], roleId: 'seek:prior',
+    });
+    // New form has different option wording — learned answer 'Fully Remote' not in new set
+    const resultStale = resolveFieldsFn(
+      roleStale,
+      [{ label: 'Are you open to flexible arrangements?', type: 'radio', options: ['Yes', 'No'], required: true }],
+      screenerProfile,
+      { embedFn: () => ({ embeddings: [] }), cache: makeCache([]), screenerStore: staleStore },
+    );
+    if (resultStale.novel.length === 1 && resultStale.resolved.length === 0) {
+      pass('resolveFields learned layer: stale answer not in live options → falls to novel (revalidation guard)');
+    } else {
+      fail(`resolveFields learned layer: stale revalidation failed — resolved=${resultStale.resolved.length} novel=${resultStale.novel.length}`);
+    }
+  }
+
+  // resolveFields learned layer: near-miss label → novel (exact-only)
+  {
+    const roleNear = { drafts: {} };
+    const nearStore = { version: 1, entries: {} };
+    learnScreenerTest(nearStore, {
+      label: 'Do you have a non-compete agreement with your current employer?', answer: 'No',
+      options: ['Yes', 'No'], roleId: 'seek:prior',
+    });
+    // Slightly different label — must NOT match
+    const resultNear = resolveFieldsFn(
+      roleNear,
+      [{ label: 'Do you have a non-compete agreement with your previous employer?', type: 'radio', options: ['Yes', 'No'], required: true }],
+      screenerProfile,
+      { embedFn: () => ({ embeddings: [] }), cache: makeCache([]), screenerStore: nearStore },
+    );
+    // The hardcoded non_compete rule fires → actually deterministic. Use a label that has
+    // no rule — check the near-miss on a truly novel label.
+    // (The non_compete rule covers both "current" and "previous" anyway — so use a
+    //  genuinely novel label that only exists in the store.)
+    const nearStore2 = { version: 1, entries: {} };
+    learnScreenerTest(nearStore2, {
+      label: 'Has your previous role required you to sign an exclusivity agreement?', answer: 'No',
+      options: ['Yes', 'No'], roleId: 'seek:prior',
+    });
+    const resultNear2 = resolveFieldsFn(
+      { drafts: {} },
+      [{ label: 'Has your previous role required you to sign an exclusivity clause?', type: 'radio', options: ['Yes', 'No'], required: true }],
+      screenerProfile,
+      { embedFn: () => ({ embeddings: [] }), cache: makeCache([]), screenerStore: nearStore2 },
+    );
+    if (resultNear2.novel.length === 1 && resultNear2.resolved.length === 0) {
+      pass('resolveFields learned layer: near-miss label (different last word) → novel (exact-only, no fuzzy)');
+    } else {
+      fail(`resolveFields learned layer: near-miss should be novel, got resolved=${resultNear2.resolved.length} source=${resultNear2.resolved[0]?.source}`);
+    }
+  }
+
+  // learnScreener: reusable:false radio is NOT written to the screener store
+  // (teachAnswers gates learnScreener on it.reusable === true; role-specific answers
+  //  like "why this company" or consent checkboxes must not persist cross-portal).
+  {
+    const storeReu = { version: 1, entries: {} };
+    const rNonReusable = learnScreenerTest(storeReu, {
+      label: 'Why are you interested in working for our company?',
+      answer: 'I am passionate about this mission.',
+      options: [], roleId: 'seek:test-nr',
+    });
+    // This call path is how learnScreener sees it; no volatile tokens, but the CALLER
+    // must gate on reusable before even calling learnScreener. Confirm learnScreener
+    // itself doesn't block it (the gate lives in teachAnswers) — then verify the
+    // teachAnswers-level gate via the structural check below.
+    // The teachAnswers code path: if (!it.reusable) → pushed with learned:false,
+    // learnScreener is NOT called. So the store stays empty for that item.
+    // We test the structural guard in teachAnswers source rather than running a full
+    // CLI roundtrip (no spawning headless workers in test-all.mjs).
+    const qrSrcReusable = readFileSync(join(ROOT, 'queue-resolve.mjs'), 'utf-8');
+    if (qrSrcReusable.includes("if (it.reusable)") && qrSrcReusable.includes("learnReason: 'reusable:false'")) {
+      pass('teachAnswers: reusable:false gate present — non-reusable radio/select items are NOT written to screener store');
+    } else {
+      fail('teachAnswers: missing reusable:false gate — non-reusable screener answers may leak cross-portal');
+    }
+  }
+
+  // ── Structural checks (source-level) ──────────────────────────────────────
+
+  const resolveSrc = readFileSync(join(ROOT, 'queue-resolve.mjs'), 'utf-8');
+
+  // resolveFields export exists
+  if (resolveSrc.includes('export function resolveFields')) {
+    pass('queue-resolve.mjs exports resolveFields (testable, shared between --pre and --lookup)');
+  } else {
+    fail('queue-resolve.mjs does not export resolveFields — --pre/--lookup may have diverged');
+  }
+
+  // cache injection parameter present
+  if (resolveSrc.includes('cache = null')) {
+    pass('resolveFields() accepts injectable cache (tests never touch real answer-cache.json)');
+  } else {
+    fail('resolveFields() missing cache injection parameter — behavioral tests cannot run without real cache');
+  }
+
+  // drafts-first guard present
+  if (resolveSrc.includes('drafts-first') || resolveSrc.includes('Step 0: drafts-first')) {
+    pass('resolveFields() has explicit drafts-first guard (model answers not re-emitted as novel)');
+  } else {
+    fail('resolveFields() missing drafts-first guard — model answers will be incorrectly re-emitted as novel');
+  }
+
+  // COVER_RE / KSC_RE hard-skip present
+  if (resolveSrc.includes('COVER_RE.test') && resolveSrc.includes('KSC_RE.test')) {
+    pass('resolveFields() hard-skips cover-letter and KSC labels (always novel, never cache-reused)');
+  } else {
+    fail('resolveFields() missing cover/KSC hard-skip — long-form role-specific content may be cache-reused');
+  }
+
+  // --lookup CLI routing present
+  if (resolveSrc.includes("cmd === '--lookup'")) {
+    pass("queue-resolve.mjs has CLI routing for --lookup sub-command");
+  } else {
+    fail("queue-resolve.mjs missing --lookup CLI routing");
+  }
+
+  // liveResolve calls resolveFields
+  if (resolveSrc.includes('function liveResolve') && resolveSrc.includes('resolveFields(role, fields, profile)')) {
+    pass('liveResolve() delegates to resolveFields() — no gate drift between --pre and --lookup');
+  } else {
+    fail('liveResolve() does not call resolveFields() — --lookup and --pre may use different logic');
+  }
+
+  // preResolve also delegates (DRY)
+  if (resolveSrc.includes('function preResolve') && (resolveSrc.match(/resolveFields\(role/g) || []).length >= 2) {
+    pass('preResolve() also delegates to resolveFields() — single resolver core for both paths');
+  } else {
+    fail('preResolve() does not call resolveFields() — resolver core is duplicated');
+  }
+
+  // @file support in --lookup (same as --teach)
+  if (resolveSrc.includes("jsonArg.startsWith('@')") && (resolveSrc.match(/jsonArg\.startsWith/g) || []).length >= 2) {
+    pass('--lookup supports @file payloads (avoids shell escaping for large multi-page field sets)');
+  } else {
+    fail('--lookup missing @file support — large field payloads will require shell escaping');
+  }
+
+  // main() guarded so import does not run CLI
+  if (resolveSrc.includes("fileURLToPath(import.meta.url) === process.argv[1]")) {
+    pass('queue-resolve.mjs main() is guarded — safe to import in tests without triggering CLI');
+  } else {
+    fail('queue-resolve.mjs main() is not guarded — importing it in tests will run the CLI');
+  }
+} catch (e) {
+  fail(`answer-cache gate / resolveFields behavioral tests crashed: ${e.message}`);
+}
+
 // ── SUMMARY ─────────────────────────────────────────────────────
 
 console.log('\n' + '='.repeat(50));

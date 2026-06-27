@@ -5,6 +5,8 @@ data/apply-queue.json
 data/local-enrichments.json
 data/answer-cache.json
 data/.answer-cache-*.tmp
+data/screener-answers.json
+data/.screener-answers-*.tmp
 data/applications.db
 data/pipeline.md
 data/scan-history.tsv
