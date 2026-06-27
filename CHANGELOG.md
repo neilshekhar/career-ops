@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.15.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.14.0...career-ops-v1.15.0) (2026-06-27)
+
+
+### Features
+
+* **apply:** learned screener store for cross-application radio/select reuse ([ccbff9f](https://github.com/neilshekhar/career-ops/commit/ccbff9fd54c51b8941b2e2512812655e9aa90627))
+
+
+### Bug Fixes
+
+* **apply:** harden teach-back persistence ([70b4792](https://github.com/neilshekhar/career-ops/commit/70b479204acef4fcdd325ac35e57245a5dec1ae1))
+* **apply:** skip embedding for option-less select/radio in resolveFields ([792bdb5](https://github.com/neilshekhar/career-ops/commit/792bdb58f2c481ec0267d0a5004a7916015f71ea))
+
 ## [1.14.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.12.1...career-ops-v1.14.0) (2026-06-26)
 
 
