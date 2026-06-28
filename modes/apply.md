@@ -19,6 +19,25 @@ record exists for this role (match by URL or company+title):
 - **If no queue record exists:** proceed normally, deriving answers from
   `config/profile.yml` and `modes/_profile.md`.
 
+### Deep-eval marker (oferta-first)
+
+A role may carry the `deep-eval` flag in its `flags[]` (set from the dashboard's
+★ Deep-eval button — `POST /api/role/:id/flag`). The flag means **"this role is worth a
+full evaluation before I apply."** Honour it automatically — the candidate does not need to
+ask for it each time; the mark is the standing instruction.
+
+- **At the start of the apply/fill flow for a `deep-eval`-marked role:** if no current A–G
+  report already exists for it in `reports/`, run a full `oferta` evaluation first (report +
+  tailored CV + story-bank), **then** proceed with the normal apply/fill. If a current report
+  already exists, reuse it — do not re-run `oferta`.
+- This only adds an evaluation-first step for **marked** roles. It does **not** change the
+  deterministic fill pipeline (`queue-resolve.mjs` `resolveFields` / `form-fill.mjs` /
+  L1/L1.5/L2/L3) or how any individual field is filled. Unmarked roles behave exactly as before.
+- The dashboard web server cannot run `oferta` itself (it only runs deterministic scripts), so
+  this gate lives with the agent here, not in the dashboard's headless Run/Fill buttons. The
+  dashboard routes `deep-eval`-marked roles to the agent path so a marked role is never
+  headless-filled before its oferta runs.
+
 **On open:** re-verify liveness (Playwright `browser_navigate` + `browser_snapshot`).
 If the posting is closed, mark the queue record `status: "closed"` and inform the candidate.
 

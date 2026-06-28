@@ -89,6 +89,13 @@ Or paste a JD directly to run the full pipeline.
 
 After determining the mode, load the necessary files before executing:
 
+**Always also load the user's house rules.** If `modes/_custom.md` exists, read it
+alongside the mode files below for **every** mode and honor it. It holds the user's
+procedural preferences (house rules, custom workflows, output preferences, off-limits)
+and overrides system defaults where they conflict, within the Data Contract (never
+auto-submit an application; never put user-specific content in system files — see
+`DATA_CONTRACT.md`). It may be absent on a fresh setup; if so, just skip it.
+
 ### Modes that require `_shared.md` + their mode file:
 Read `modes/_shared.md` + `modes/{mode}.md`
 
@@ -105,7 +112,7 @@ For `scan`, `apply` (with Playwright), and `pipeline` (3+ URLs): launch as Agent
 ```
 Agent(
   subagent_type="general-purpose",
-  prompt="[content of modes/_shared.md]\n\n[content of modes/{mode}.md]\n\n[invocation-specific data]",
+  prompt="[content of modes/_shared.md]\n\n[content of modes/{mode}.md]\n\n[content of modes/_custom.md if present]\n\n[invocation-specific data]",
   description="career-ops {mode}"
 )
 ```

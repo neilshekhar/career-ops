@@ -170,11 +170,16 @@ function buildCard(role, laneKey, idx) {
     ? '<span class="badge badge-ko" title="Screener/knockout question detected">⛔ screener</span>'
     : '';
 
+  // Deep-eval marker badge (set from the inbox ★ button; honoured at apply time)
+  const deepBadge = (role.flags || []).includes('deep-eval')
+    ? '<span class="badge badge-deep" title="Marked for a full oferta evaluation before applying">★ deep-eval</span>'
+    : '';
+
   // Extra flags (first 2, excluding well-known ones)
   const HANDLED_FLAGS = new Set([
     'ambiguous-employment', 'large-co-visa-cap', 'pr-citizenship-required',
     'login-required', 'ksc-required', 'cover-letter-required', 'knockout-flag',
-    'manual-field',
+    'manual-field', 'deep-eval',
   ]);
   const extraFlags = (role.flags || [])
     .filter(f => !HANDLED_FLAGS.has(f))
@@ -198,7 +203,7 @@ function buildCard(role, laneKey, idx) {
       <div class="card-company">${esc(role.company)}${role.location ? ' · ' + esc(role.location) : ''}</div>
       <div class="card-url"><a href="${esc(role.url)}" target="_blank" rel="noopener" class="card-url-link" title="${esc(role.url)}">${esc(truncateUrl(role.url))}</a></div>
       <div class="card-badges">
-        ${typeBadge}${visaBadge}${eligBadge}${statusBadge}${loginBadge}${kscBadge}${coverBadge}${koBadge}${extraFlags}
+        ${typeBadge}${visaBadge}${eligBadge}${statusBadge}${loginBadge}${kscBadge}${coverBadge}${koBadge}${deepBadge}${extraFlags}
       </div>
       ${provBadge ? `<div class="card-prov">${provBadge}</div>` : ''}
       ${role.requirements_snippet ? `<div class="card-snippet">${esc(role.requirements_snippet.slice(0, 120))}…</div>` : ''}
@@ -334,6 +339,16 @@ function renderInbox(role) {
   submitBtn.title = isPrefilled
     ? 'Re-open with headed Fill Form and review before marking submitted'
     : 'Mark submitted after manual submission';
+
+  const deepBtn = document.getElementById('btn-deep-eval');
+  if (deepBtn) {
+    const marked = (role.flags || []).includes('deep-eval');
+    deepBtn.classList.toggle('active', marked);
+    deepBtn.textContent = marked ? '★ Deep-eval ✓' : '★ Deep-eval';
+    deepBtn.title = marked
+      ? 'Marked — a full oferta runs before applying. Click to unmark.'
+      : 'Mark this role as worth a full oferta evaluation before applying';
+  }
 
   if (role.employment_type === 'ambiguous') {
     note.textContent = '⚠ Employment type is ambiguous — confirm before filling.';
@@ -560,6 +575,29 @@ async function doDecision(decision) {
   }
 }
 
+async function toggleDeepEval() {
+  if (!activeId) return;
+  const role = allRoles.find(r => r.id === activeId);
+  const marked = (role?.flags || []).includes('deep-eval');
+  try {
+    const res = await fetch(`/api/role/${encodeURIComponent(activeId)}/flag`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flag: 'deep-eval', value: !marked }),
+    });
+    if (!res.ok) { toast('Could not update mark', 3000); return; }
+    const data = await res.json();
+    toast(data.marked
+      ? '★ Marked — full oferta will run before applying'
+      : 'Deep-eval mark removed');
+    await loadQueue();
+    const updated = allRoles.find(r => r.id === activeId);
+    if (updated) renderInbox(updated);
+  } catch {
+    toast('Mark update failed — check server logs', 4000);
+  }
+}
+
 async function setThreshold() {
   const val = parseFloat(document.getElementById('threshold-input').value);
   if (isNaN(val) || val < 0 || val > 5) { toast('Enter a threshold between 0 and 5'); return; }
@@ -719,6 +757,7 @@ function setupEventListeners() {
   document.getElementById('btn-submit').addEventListener('click', () => doDecision('submitted'));
   document.getElementById('btn-skip').addEventListener('click', () => doDecision('skipped'));
   document.getElementById('btn-reviewed').addEventListener('click', () => doDecision('reviewed'));
+  document.getElementById('btn-deep-eval').addEventListener('click', toggleDeepEval);
 
   document.getElementById('btn-select-all').addEventListener('click', selectAll);
   document.getElementById('btn-clear-all').addEventListener('click', clearAll);

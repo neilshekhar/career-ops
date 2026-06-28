@@ -5398,6 +5398,112 @@ try {
     if (fileExists(f)) pass(`${f} exists`);
     else fail(`${f} missing — dashboard SPA is incomplete`);
   }
+
+  // ── Deep-eval marker: dashboard endpoint + UI + apply-time honour rule ──────
+  const indexHtml  = readFile('dashboard/web/index.html');
+  const applyMd    = readFile('modes/apply.md');
+
+  // Server: flag endpoint exists and is routed
+  if (serverSrc.includes('function apiRoleFlag') &&
+      serverSrc.includes('/flag$/') &&
+      serverSrc.includes('apiRoleFlag(req, res')) {
+    pass('dashboard-server.mjs registers POST /api/role/:id/flag (deep-eval marker endpoint)');
+  } else {
+    fail('dashboard-server.mjs missing /api/role/:id/flag route or apiRoleFlag handler');
+  }
+
+  // Server: endpoint is a marker only — toggles flags + saves queue, never sets status
+  const flagBlock = serverSrc.slice(serverSrc.indexOf('function apiRoleFlag'), serverSrc.indexOf('function apiRoleFlag') + 1400);
+  if (flagBlock.includes('role.flags') && flagBlock.includes('saveQueue(queue)') && !flagBlock.includes('setStatus(')) {
+    pass('apiRoleFlag toggles role.flags and persists, without touching status/lane (marker only)');
+  } else {
+    fail('apiRoleFlag does not behave as a pure flag marker (must toggle flags + save, never setStatus)');
+  }
+
+  // Server: only the deep-eval flag may be toggled via this endpoint (safelist)
+  if (flagBlock.includes("flag !== DEEP_EVAL_FLAG") && serverSrc.includes("const DEEP_EVAL_FLAG = 'deep-eval'")) {
+    pass('apiRoleFlag safelists the deep-eval flag (other flags owned by scorer/fill pipeline)');
+  } else {
+    fail('apiRoleFlag does not safelist deep-eval — arbitrary flags could be hand-toggled');
+  }
+
+  // UI: toggle button + handler + dedicated badge
+  if (indexHtml.includes('id="btn-deep-eval"') && appJs.includes('function toggleDeepEval') &&
+      appJs.includes("getElementById('btn-deep-eval').addEventListener")) {
+    pass('dashboard UI: deep-eval toggle button is present and wired to /flag');
+  } else {
+    fail('dashboard UI: deep-eval toggle button missing or not wired');
+  }
+
+  if (appJs.includes("includes('deep-eval')") && appJs.includes('badge-deep')) {
+    pass('dashboard UI: deep-eval renders a dedicated badge and is a handled flag');
+  } else {
+    fail('dashboard UI: deep-eval badge rendering missing');
+  }
+
+  // Honour rule lives in the SYSTEM layer (modes/apply.md), which the career-ops skill loads
+  // as modes/{mode}.md for apply — so every CLI's apply agent sees it, and this test does NOT
+  // depend on the untracked user-layer modes/_custom.md (it passes on a clean checkout).
+  // Strip markdown emphasis before matching so bold/italic doesn't break the phrase check.
+  const applyPlain = applyMd.replace(/[*_`]/g, '');
+  if (applyPlain.includes('deep-eval') && /oferta/i.test(applyPlain) &&
+      /deterministic fill pipeline/i.test(applyPlain)) {
+    pass('modes/apply.md documents the deep-eval → oferta-first apply rule (fill pipeline unchanged)');
+  } else {
+    fail('modes/apply.md missing the deep-eval → oferta-first apply rule');
+  }
+
+  // Dispatch durability (single fill): a deep-eval-marked role must route to the agent path
+  // BEFORE any deterministic form-fill, or the dashboard would bypass the oferta-first guarantee.
+  const fillBlock = serverSrc.slice(serverSrc.indexOf('function apiRoleFill'), serverSrc.indexOf('function apiRoleDecision'));
+  const deepIdx = fillBlock.indexOf('isDeepEval(role)');
+  const fillIdx = fillBlock.indexOf("'form-fill.mjs'");
+  if (deepIdx !== -1 && fillIdx !== -1 && deepIdx < fillIdx) {
+    pass('apiRoleFill routes deep-eval roles to the agent path before any deterministic fill');
+  } else {
+    fail('apiRoleFill can headless-fill a deep-eval role (bypasses the oferta-first guarantee)');
+  }
+
+  // Dispatch durability (batch run): partitionRunRoles is the pure routing logic behind the
+  // apiRun "Run" dispatch. Test it BEHAVIORALLY (handover Lessons #26/#27 — a source-text
+  // check passes even against a flipped condition). A deep-eval-marked role must land in
+  // agentPath and never in the headless deterministic/login-gated buckets, whatever its ATS.
+  if (serverSrc.includes('partitionRunRoles(roles)')) {
+    pass('apiRun wires the run dispatch through partitionRunRoles (pure, unit-tested)');
+  } else {
+    fail('apiRun no longer routes through partitionRunRoles — partition logic may have drifted back inline');
+  }
+  try {
+    const { partitionRunRoles } = await import(pathToFileURL(join(ROOT, 'run-partition.mjs')).href);
+    const sample = [
+      { id: 'gh-plain',   ats: 'greenhouse', flags: [] },
+      { id: 'gh-deep',    ats: 'greenhouse', flags: ['deep-eval'] },
+      { id: 'custom',     ats: 'custom',     flags: [] },
+      { id: 'login',      ats: 'lever',      flags: ['login-required'] },
+      { id: 'login-deep', ats: 'lever',      flags: ['login-required', 'deep-eval'] },
+    ];
+    const { deterministic, loginGated, agentPath } = partitionRunRoles(sample);
+    const ids = (arr) => arr.map((r) => r.id);
+    const detIds = ids(deterministic), loginIds = ids(loginGated), agentIds = ids(agentPath);
+
+    if (detIds.includes('gh-plain') && !detIds.includes('gh-deep') && !detIds.includes('login-deep')) {
+      pass('partitionRunRoles: plain ATS role → deterministic; deep-eval roles excluded from deterministic');
+    } else {
+      fail(`partitionRunRoles deterministic bucket wrong: ${JSON.stringify(detIds)}`);
+    }
+    if (agentIds.includes('gh-deep') && agentIds.includes('custom') && agentIds.includes('login-deep')) {
+      pass('partitionRunRoles: deep-eval + custom roles → agent path (oferta-first guarantee holds)');
+    } else {
+      fail(`partitionRunRoles agentPath bucket wrong: ${JSON.stringify(agentIds)}`);
+    }
+    if (loginIds.includes('login') && !loginIds.includes('login-deep')) {
+      pass('partitionRunRoles: login role → login-gated; a deep-eval login role escalates to agent path');
+    } else {
+      fail(`partitionRunRoles loginGated bucket wrong: ${JSON.stringify(loginIds)}`);
+    }
+  } catch (err) {
+    fail(`partitionRunRoles behavioral test crashed: ${err.message}`);
+  }
 } catch (e) {
   fail(`Dashboard server checks crashed: ${e.message}`);
 }
@@ -5935,6 +6041,28 @@ try {
     pass('CLAUDE.md routes custom rules to modes/_custom.md + seeds it from the template');
   } else {
     fail('CLAUDE.md does not reference modes/_custom.md / its template — agents will not use it (#1198)');
+  }
+
+  // The canonical skill MUST wire _custom.md into context loading so house rules are honored
+  // by ALL CLIs (OpenCode/Codex/Antigravity/Grok via the per-CLI symlinks), not just Claude.
+  // Anchor to the loading INSTRUCTION, not a stray mention: the standing "always load" rule
+  // AND the subagent-prompt injection must both reference the file (prose, so presence-checked).
+  const skillMd = readFileSync(join(ROOT, '.agents', 'skills', 'career-ops', 'SKILL.md'), 'utf-8');
+  if (skillMd.includes('Always also load the user') &&
+      skillMd.includes('modes/_custom.md') &&
+      skillMd.includes('content of modes/_custom.md')) {
+    pass('SKILL.md instructs loading modes/_custom.md (standing rule + subagent injection) for all CLIs');
+  } else {
+    fail('SKILL.md does not instruct loading modes/_custom.md — house rules unseen by non-Claude CLI apply paths');
+  }
+
+  // AGENTS.md (the cross-CLI instructions doc) MUST list _custom.md in the user layer + route
+  // procedural rules to it, so non-Claude agents write house rules to the right place.
+  const agentsMd = readFileSync(join(ROOT, 'AGENTS.md'), 'utf-8');
+  if (agentsMd.includes('modes/_custom.md')) {
+    pass('AGENTS.md references modes/_custom.md (user layer + procedural-rule routing)');
+  } else {
+    fail('AGENTS.md does not mention modes/_custom.md — cross-CLI user-layer/loading flow is incomplete');
   }
 } catch (e) {
   fail(`custom instructions test crashed: ${e.message}`);

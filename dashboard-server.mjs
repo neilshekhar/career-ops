@@ -25,6 +25,7 @@ import {
   setStatus, updateById, ACTIVE_STATUSES, DONE_STATUSES,
 } from './queue-store.mjs';
 import { queueDoneStatusFromTracker } from './tracker-status-map.mjs';
+import { partitionRunRoles, isDeepEval } from './run-partition.mjs';
 
 const ROOT     = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR  = join(ROOT, 'dashboard', 'web');
@@ -323,14 +324,12 @@ function apiRun(req, res) {
       return respond(res, 404, { error: 'none of the requested role IDs found' });
     }
 
-    // Partition: deterministic (headless parallel) vs login-gated / agent-path (serial headed)
-    const deterministic = roles.filter((r) =>
-      r.ats !== 'custom' && !(r.flags || []).includes('login-required')
-    );
-    const loginGated = roles.filter((r) =>
-      (r.flags || []).includes('login-required') && r.ats !== 'custom'
-    );
-    const agentPath = roles.filter((r) => r.ats === 'custom');
+    // Partition the run into execution lanes: deterministic (headless parallel) vs
+    // login-gated (serial headed) vs agent-path (notice only). deep-eval-marked roles
+    // always go to the agent path so a full oferta runs before any fill (the headless
+    // server has no LLM) — see modes/apply.md → "Deep-eval marker". The pure logic lives
+    // in run-partition.mjs so it can be unit-tested without starting the server.
+    const { deterministic, loginGated, agentPath } = partitionRunRoles(roles);
 
     const runId = `run-${Date.now()}`;
 
@@ -347,7 +346,9 @@ function apiRun(req, res) {
     // ── Agent-path roles — emit notice only (user must run /career-ops apply) ──
     for (const role of agentPath) {
       emitActivity(runId, role.id, 'agent-path', role, {
-        message: `Custom ATS — run: /career-ops apply and open ${role.url}`,
+        message: isDeepEval(role)
+          ? `Marked deep-eval — run: /career-ops apply and open ${role.url} (a full oferta runs first if no current report exists)`
+          : `Custom ATS — run: /career-ops apply and open ${role.url}`,
       });
     }
 
@@ -504,6 +505,16 @@ function apiRoleFill(req, res, id) {
 
   const ats = role.ats;
 
+  // Deep-eval marker: route to the agent path so a full oferta runs before any fill
+  // (see modes/apply.md → "Deep-eval marker"). A headless fill here would bypass the
+  // oferta-first guarantee, so a marked role is never deterministically filled.
+  if (isDeepEval(role)) {
+    return respond(res, 200, {
+      method: 'agent',
+      message: `This role is marked deep-eval. Run: /career-ops apply\nA full oferta runs first if no current report exists, then it fills.\nThen open: ${role.url}`,
+    });
+  }
+
   // Agent-driven path for custom/Workday forms
   if (ats === 'custom') {
     return respond(res, 200, {
@@ -561,6 +572,54 @@ function apiRoleDecision(req, res, id) {
     }
 
     respond(res, 200, { id, decision, status: decision });
+  });
+}
+
+// ── Deep-eval marker ──────────────────────────────────────────────────────────
+//
+// Toggles the `deep-eval` flag on a role. This is a pre-apply marker only: it
+// records "this role is worth a full oferta evaluation before applying". It does
+// NOT run any evaluation (the server has no LLM) and does NOT change status, lane,
+// or anything in the fill pipeline. The agent honours the flag at apply time
+// (see modes/apply.md → "Deep-eval marker"): a marked role gets a full `oferta`
+// first, then fills as normal. To keep that guarantee, the fill/run dispatch routes
+// deep-eval-marked roles to the agent path (never headless). Unmarked roles unaffected.
+
+const DEEP_EVAL_FLAG = 'deep-eval';
+
+function apiRoleFlag(req, res, id) {
+  readBody(req, (body) => {
+    const parsed = safeJson(body) || {};
+    const flag = parsed.flag || DEEP_EVAL_FLAG;
+    // Safelist: this endpoint only manages the deep-eval marker. Other flags are
+    // owned by the scorer/fill pipeline and must not be hand-toggled here.
+    if (flag !== DEEP_EVAL_FLAG) {
+      return respond(res, 400, { error: `flag must be ${DEEP_EVAL_FLAG}` });
+    }
+
+    let queue;
+    try {
+      queue = loadQueue();
+    } catch (err) {
+      return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
+    }
+    const role = queue.roles.find(r => r.id === id);
+    if (!role) return respond(res, 404, { error: 'role not found' });
+
+    role.flags = Array.isArray(role.flags) ? role.flags : [];
+    const has  = role.flags.includes(flag);
+    // Explicit value wins; otherwise toggle.
+    const next = typeof parsed.value === 'boolean' ? parsed.value : !has;
+    if (next && !has) role.flags.push(flag);
+    if (!next && has) role.flags = role.flags.filter(f => f !== flag);
+
+    try {
+      saveQueue(queue);
+    } catch (err) {
+      return respond(res, 503, { error: `queue store write failed: ${err.message}` });
+    }
+
+    respond(res, 200, { id, flag, marked: next, flags: role.flags });
   });
 }
 
@@ -623,6 +682,9 @@ const server = http.createServer((req, res) => {
 
   const decisionMatch = path.match(/^\/api\/role\/([^/]+)\/decision$/);
   if (decisionMatch && method === 'POST') return apiRoleDecision(req, res, decodeURIComponent(decisionMatch[1]));
+
+  const flagMatch = path.match(/^\/api\/role\/([^/]+)\/flag$/);
+  if (flagMatch && method === 'POST') return apiRoleFlag(req, res, decodeURIComponent(flagMatch[1]));
 
   // Static SPA files
   if (path === '/' || path === '/index.html') {

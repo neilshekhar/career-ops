@@ -471,6 +471,8 @@ body {
 .btn-submit  { background: var(--green);  color: var(--base); flex: 1; }
 .btn-skip    { background: var(--surface0); color: var(--subtext); flex: 1; }
 .btn-review  { background: var(--surface0); color: var(--overlay0); }
+.btn-deep    { background: var(--surface0); color: var(--mauve); border: 1px solid var(--mauve); }
+.btn-deep.active { background: var(--mauve); color: var(--base); }
 
 .inbox-note {
   font-size: 11px;
@@ -555,6 +557,7 @@ body {
 .badge-prefilled { background: #f9e2af22; color: var(--yellow); }
 .badge-doc     { background: #cba6f722; color: var(--mauve); }
 .badge-ko      { background: #f38ba822; color: var(--red); }
+.badge-deep    { background: #cba6f722; color: var(--mauve); }
 .badge-prov    { background: transparent; color: var(--overlay0); font-size: 9px;
                  text-transform: none; letter-spacing: 0; font-weight: 400; padding: 0; }
 
