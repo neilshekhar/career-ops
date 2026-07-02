@@ -21,10 +21,10 @@ import { spawn, execFileSync } from 'child_process';
 import yaml from 'js-yaml';
 
 import {
-  loadQueue, saveQueue, computeLane, computeStats,
+  loadQueue, saveQueue, computeLane, computeStage, computeStats,
   setStatus, updateById, ACTIVE_STATUSES, DONE_STATUSES,
 } from './queue-store.mjs';
-import { queueDoneStatusFromTracker } from './tracker-status-map.mjs';
+import { queueDoneStatusFromTracker, parseTrackerDoneRows } from './tracker-status-map.mjs';
 import { partitionRunRoles, isDeepEval } from './run-partition.mjs';
 
 const ROOT     = dirname(fileURLToPath(import.meta.url));
@@ -452,14 +452,27 @@ function apiGetQueue(res) {
     .map(r => ({
       ...r,
       lane:               computeLane(r),
+      stage:              computeStage(r),
       provenance_summary: provenanceSummary(r.drafts),
     }));
+
+  // Done column: sourced from the tracker (applications.md), not the queue store —
+  // done roles are evicted from active_roles into seen_urls on save, so the tracker
+  // is the durable record of what was applied / closed.
+  let done = [];
+  try {
+    if (existsSync(APPS_FILE)) {
+      done = parseTrackerDoneRows(readFileSync(APPS_FILE, 'utf-8'));
+    }
+  } catch (err) {
+    console.warn('WARN: could not parse tracker done rows:', err.message?.slice(0, 200));
+  }
 
   const settings = { ...(queue.settings ?? {}) };
   if (trackerReconciled.length > 0) settings.tracker_reconciled = trackerReconciled.length;
   if (trackerReconcileWarning) settings.tracker_reconcile_warning = trackerReconcileWarning;
 
-  respond(res, 200, { settings, stats, roles: enriched });
+  respond(res, 200, { settings, stats, roles: enriched, done });
 }
 
 function apiSetThreshold(req, res) {

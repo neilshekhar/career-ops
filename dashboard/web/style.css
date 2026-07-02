@@ -74,10 +74,12 @@ body {
 .stats-strip .stat { display: flex; align-items: center; gap: 4px; }
 .stat-label { color: var(--overlay0); }
 .stat-value { font-weight: 600; }
-.stat-ready   { color: var(--green); }
-.stat-needs   { color: var(--yellow); }
-.stat-review  { color: var(--red); }
-.stat-pending { color: var(--subtext); }
+.stat-pending  { color: var(--subtext); }
+.stat-inbox    { color: var(--subtext); }
+.stat-todo     { color: var(--yellow); }
+.stat-prepared { color: var(--blue); }
+.stat-inreview { color: var(--mauve); }
+.stat-done     { color: var(--green); }
 
 .controls {
   display: flex;
@@ -205,9 +207,25 @@ body {
   flex-shrink: 0;
 }
 
-.lane[data-lane="ready"]   .lane-header { border-color: var(--green); color: var(--green); }
-.lane[data-lane="needs"]   .lane-header { border-color: var(--yellow); color: var(--yellow); }
-.lane[data-lane="review"]  .lane-header { border-color: var(--red); color: var(--red); }
+.lane[data-stage="inbox"]    .lane-header { border-color: var(--overlay0); color: var(--subtext); }
+.lane[data-stage="todo"]     .lane-header { border-color: var(--yellow); color: var(--yellow); }
+.lane[data-stage="prepared"] .lane-header { border-color: var(--blue); color: var(--blue); }
+.lane[data-stage="review"]   .lane-header { border-color: var(--mauve); color: var(--mauve); }
+.lane[data-stage="done"]     .lane-header { border-color: var(--green); color: var(--green); }
+
+/* To Do column call-to-action: roles waiting for the agent PREPARE step */
+.lane-cta {
+  margin: 8px 8px 0;
+  padding: 8px 10px;
+  background: #f9e2af14;
+  border: 1px dashed var(--yellow);
+  border-radius: var(--radius);
+  color: var(--yellow);
+  font-size: 11px;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+.lane-cta[hidden] { display: none; }
 
 .lane-count {
   background: var(--surface0);
@@ -316,6 +334,28 @@ body {
 .badge-blocked { background: #f38ba822; color: var(--red); }
 .badge-prepared { background: #a6e3a122; color: var(--green); }
 .badge-login    { background: #f9e2af22; color: var(--yellow); } /* login-required flag */
+
+/* Risk-lane badges (orthogonal to the stage column) */
+.badge-lane-needs  { background: #f9e2af22; color: var(--yellow); }
+.badge-lane-review { background: #fab38722; color: var(--peach); }
+
+/* Done column (read-only tracker history) */
+.card-done { cursor: default; opacity: 0.92; }
+.card-done:hover { border-color: var(--surface0); }
+.badge-done-applied { background: #a6e3a122; color: var(--green); }
+.badge-done-closed  { background: #6c708622; color: var(--overlay0); }
+
+.done-closed { margin-top: 4px; }
+.done-closed summary {
+  cursor: pointer;
+  color: var(--overlay0);
+  font-size: 11px;
+  padding: 6px 4px;
+  user-select: none;
+}
+.done-closed summary:hover { color: var(--subtext); }
+.done-closed[open] summary { margin-bottom: 6px; }
+.done-closed .card { margin-bottom: 6px; }
 
 /* ── Inbox panel ─────────────────────────────────────────────────────────── */
 

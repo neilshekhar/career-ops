@@ -365,6 +365,33 @@ export function saveQueue(queue, options = {}) {
   saveShadowQueue(queue);
 }
 
+// -- Stage computation: pure function, no I/O ---------------------------------
+
+/**
+ * Kanban pipeline stage for the dashboard board view.
+ * Maps role.status onto board columns:
+ *   'inbox'    — scored, not yet selected      (status: scored)
+ *   'todo'     — selected / above threshold, waiting for PREPARE (status: prepare-queued)
+ *   'prepared' — CV + cover letter + drafts ready (status: prepared)
+ *   'review'   — form filled, awaiting user review + manual submit (status: filled | prefilled)
+ *   'done'     — terminal (submitted / skipped / reviewed / closed)
+ *   null       — not on the board ('new' roles are a counter, not a card)
+ *
+ * Orthogonal to computeLane(): stage answers "where in the pipeline is this?",
+ * lane answers "how carefully must I look at it?" (shown as a badge on the card).
+ */
+export const STAGE_ORDER = Object.freeze(['inbox', 'todo', 'prepared', 'review', 'done']);
+
+export function computeStage(role) {
+  const status = role?.status;
+  if (status === 'scored')                            return 'inbox';
+  if (status === 'prepare-queued')                    return 'todo';
+  if (status === 'prepared')                          return 'prepared';
+  if (status === 'filled' || status === 'prefilled')  return 'review';
+  if (DONE_STATUSES.has(status))                      return 'done';
+  return null; // 'new' and anything unknown
+}
+
 // -- Lane computation: pure function, no I/O ---------------------------------
 
 /**
@@ -639,11 +666,17 @@ export async function evictExpiredNewStubsCron({ check, dryRun = false } = {}) {
 
 export function computeStats(queue) {
   let ready = 0, needsInput = 0, reviewCarefully = 0, newCount = 0, doneCount = 0;
+  let inbox = 0, todo = 0, prepared = 0, review = 0;
   let scoreSum = 0, scoreCount = 0;
 
   for (const role of queue.roles) {
     if (role.status === 'new') { newCount++; continue; }
     if (DONE_STATUSES.has(role.status)) { doneCount++; continue; }
+    const stage = computeStage(role);
+    if (stage === 'inbox')         inbox++;
+    else if (stage === 'todo')     todo++;
+    else if (stage === 'prepared') prepared++;
+    else if (stage === 'review')   review++;
     const lane = computeLane(role);
     if (lane === 'ready')            ready++;
     else if (lane === 'needs-input') needsInput++;
@@ -652,5 +685,8 @@ export function computeStats(queue) {
   }
 
   const avgScore = scoreCount > 0 ? Math.round((scoreSum / scoreCount) * 10) / 10 : null;
-  return { ready, needsInput, reviewCarefully, newCount, doneCount, avgScore };
+  return {
+    ready, needsInput, reviewCarefully, newCount, doneCount, avgScore,
+    inbox, todo, prepared, review,
+  };
 }

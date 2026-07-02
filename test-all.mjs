@@ -5320,20 +5320,22 @@ try {
     fail('dashboard-server.mjs server.listen does not reference HOST — binding may be wrong');
   }
 
-  // All 3 lane keys must be rendered
-  for (const lane of ['ready', 'needs', 'review']) {
-    if (appJs.includes(`renderLane('${lane}'`)) {
-      pass(`dashboard/web/app.js calls renderLane('${lane}')`);
+  // All 4 interactive stage columns must be rendered (Done is rendered separately,
+  // read-only, by renderDoneLane)
+  for (const stage of ['inbox', 'todo', 'prepared', 'review']) {
+    if (appJs.includes(`renderLane('${stage}'`)) {
+      pass(`dashboard/web/app.js calls renderLane('${stage}')`);
     } else {
-      fail(`dashboard/web/app.js missing renderLane('${lane}') call`);
+      fail(`dashboard/web/app.js missing renderLane('${stage}') call`);
     }
   }
 
-  // Lane map initialised with all 3 keys
-  if (appJs.includes('ready: []') && appJs.includes('needs: []') && appJs.includes('review: []')) {
-    pass('dashboard/web/app.js initialises laneMap with ready, needs, review arrays');
+  // Stage map initialised with all 4 interactive keys
+  if (appJs.includes('inbox: []') && appJs.includes('todo: []') &&
+      appJs.includes('prepared: []') && appJs.includes('review: []')) {
+    pass('dashboard/web/app.js initialises stage map with inbox, todo, prepared, review arrays');
   } else {
-    fail('dashboard/web/app.js laneMap missing one or more lanes');
+    fail('dashboard/web/app.js stage map missing one or more stages');
   }
 
   if (serverSrc.includes('function reconcileQueueWithTracker(queue)')) {
@@ -5343,7 +5345,8 @@ try {
   }
 
   if (
-    serverSrc.includes("import { queueDoneStatusFromTracker } from './tracker-status-map.mjs'") &&
+    serverSrc.includes("from './tracker-status-map.mjs'") &&
+    serverSrc.includes('queueDoneStatusFromTracker') &&
     !serverSrc.includes('TRACKER_STATUS_TO_QUEUE')
   ) {
     pass('dashboard-server.mjs uses the shared tracker-to-queue status mapper');
@@ -6905,6 +6908,130 @@ try {
   }
 } catch (e) {
   fail(`answer-cache gate / resolveFields behavioral tests crashed: ${e.message}`);
+}
+
+console.log('\n31. Kanban board — computeStage / stats / tracker Done rows');
+try {
+  const { computeStage, computeStats, STAGE_ORDER } =
+    await import(pathToFileURL(join(ROOT, 'queue-store.mjs')).href);
+  const { parseTrackerDoneRows } =
+    await import(pathToFileURL(join(ROOT, 'tracker-status-map.mjs')).href);
+
+  // computeStage: status → board column
+  const stageCases = [
+    ['scored',         'inbox'],
+    ['prepare-queued', 'todo'],
+    ['prepared',       'prepared'],
+    ['filled',         'review'],
+    ['prefilled',      'review'],
+    ['submitted',      'done'],
+    ['skipped',        'done'],
+    ['reviewed',       'done'],
+    ['closed',         'done'],
+    ['new',            null],
+    ['bogus-status',   null],
+  ];
+  const stageFails = stageCases.filter(([status, want]) => computeStage({ status }) !== want);
+  if (stageFails.length === 0) {
+    pass(`computeStage() maps all ${stageCases.length} statuses to the right board column`);
+  } else {
+    fail(`computeStage() wrong for: ${stageFails.map(([s]) => s).join(', ')}`);
+  }
+
+  if (Array.isArray(STAGE_ORDER) && STAGE_ORDER.join(',') === 'inbox,todo,prepared,review,done') {
+    pass('STAGE_ORDER is inbox,todo,prepared,review,done');
+  } else {
+    fail(`STAGE_ORDER unexpected: ${JSON.stringify(STAGE_ORDER)}`);
+  }
+
+  // computeStats: stage counters
+  const statsFixture = { roles: [
+    { status: 'new' },
+    { status: 'scored',         score: 4.0, eligibility: 'ok', confidence: 'high' },
+    { status: 'scored',         score: 3.0, eligibility: 'ok', confidence: 'high' },
+    { status: 'prepare-queued', score: 4.2, eligibility: 'ok', confidence: 'high' },
+    { status: 'prepared',       score: 4.5, eligibility: 'ok', confidence: 'high' },
+    { status: 'filled',         score: 4.1, eligibility: 'ok', confidence: 'high' },
+    { status: 'prefilled',      score: 4.3, eligibility: 'ok', confidence: 'high' },
+    { status: 'submitted',      score: 4.4 },
+  ]};
+  const st = computeStats(statsFixture);
+  if (st.inbox === 2 && st.todo === 1 && st.prepared === 1 && st.review === 2 &&
+      st.newCount === 1 && st.doneCount === 1) {
+    pass('computeStats() stage counters: inbox 2, todo 1, prepared 1, review 2, new 1, done 1');
+  } else {
+    fail(`computeStats() stage counters wrong: ${JSON.stringify(st)}`);
+  }
+
+  // parseTrackerDoneRows: markdown → done rows (grouping, exclusion, ordering, cap)
+  const trackerMd = [
+    '# Applications Tracker',
+    '',
+    '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |',
+    '|---|------|---------|------|-------|--------|-----|--------|-------|',
+    '| 1 | 2026-06-01 | AlphaCo | Data Analyst | 4.2/5 | Applied | ✅ | [1](reports/x.md) | n |',
+    '| 2 | 2026-06-03 | BetaCo | Data Engineer | 3.9/5 | **Rejected** | ✅ | [2](reports/y.md) | n |',
+    '| 3 | 2026-06-02 | GammaCo | BI Analyst | 4.0/5 | Evaluated | ❌ | [3](reports/z.md) | n |',
+    '| 4 | 2026-06-03 | DeltaCo | ML Engineer | 4.4/5 | Interview | ✅ | [4](reports/w.md) | n |',
+    '| 5 | 2026-06-04 | EpsCo | Analyst | 3.5/5 | SKIP | ❌ | [5](reports/v.md) | n |',
+  ].join('\n');
+
+  const rows = parseTrackerDoneRows(trackerMd);
+  const byCompany = Object.fromEntries(rows.map(r => [r.company, r]));
+
+  if (rows.length === 4 && !byCompany.GammaCo) {
+    pass('parseTrackerDoneRows() includes 4 done rows and excludes Evaluated');
+  } else {
+    fail(`parseTrackerDoneRows() rows wrong: ${rows.map(r => r.company).join(', ')}`);
+  }
+  if (byCompany.AlphaCo?.group === 'applied' && byCompany.DeltaCo?.group === 'applied' &&
+      byCompany.BetaCo?.group === 'closed' && byCompany.EpsCo?.group === 'closed') {
+    pass('parseTrackerDoneRows() groups Applied/Interview→applied, Rejected/SKIP→closed');
+  } else {
+    fail(`parseTrackerDoneRows() grouping wrong: ${JSON.stringify(rows.map(r => [r.company, r.group]))}`);
+  }
+  if (byCompany.BetaCo?.status === 'Rejected') {
+    pass('parseTrackerDoneRows() strips markdown bold from status');
+  } else {
+    fail(`parseTrackerDoneRows() bold status not normalized: ${byCompany.BetaCo?.status}`);
+  }
+  if (rows[0].company === 'EpsCo' && rows[1].company === 'DeltaCo') {
+    pass('parseTrackerDoneRows() sorts date desc (num desc tiebreak)');
+  } else {
+    fail(`parseTrackerDoneRows() order wrong: ${rows.map(r => r.company).join(', ')}`);
+  }
+  if (parseTrackerDoneRows(trackerMd, { limit: 2 }).length === 2) {
+    pass('parseTrackerDoneRows() respects the limit option');
+  } else {
+    fail('parseTrackerDoneRows() ignores the limit option');
+  }
+
+  // Wiring: server payload + board columns present
+  const serverSrc31 = readFile('dashboard-server.mjs');
+  if (serverSrc31.includes('computeStage(r)') &&
+      serverSrc31.includes('parseTrackerDoneRows') &&
+      serverSrc31.includes('roles: enriched, done')) {
+    pass('dashboard-server.mjs enriches roles with stage and ships tracker done rows');
+  } else {
+    fail('dashboard-server.mjs missing stage enrichment or done payload');
+  }
+  const idxSrc = readFile('dashboard/web/index.html');
+  const boardCols = ['inbox', 'todo', 'prepared', 'review', 'done']
+    .filter(s => idxSrc.includes(`data-stage="${s}"`));
+  if (boardCols.length === 5) {
+    pass('index.html has all 5 board columns (data-stage)');
+  } else {
+    fail(`index.html board columns missing: have ${boardCols.join(', ')}`);
+  }
+  const appSrc31 = readFile('dashboard/web/app.js');
+  if (appSrc31.includes("STAGE_NAV = ['inbox', 'todo', 'prepared', 'review']") &&
+      appSrc31.includes('renderDoneLane') && appSrc31.includes('renderTodoCta')) {
+    pass('app.js renders stage columns, Done lane, and the To Do PREPARE call-to-action');
+  } else {
+    fail('app.js missing stage nav, Done lane renderer, or To Do CTA');
+  }
+} catch (e) {
+  fail(`kanban board tests crashed: ${e.message}`);
 }
 
 // ── SUMMARY ─────────────────────────────────────────────────────

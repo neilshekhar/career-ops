@@ -1,9 +1,12 @@
 /**
  * career-ops apply queue — SPA
  *
- * Fetches /api/queue, renders 3 lanes, handles keyboard nav, inbox,
+ * Fetches /api/queue, renders a 5-column kanban board grouped by pipeline stage
+ * (Inbox / To Do / Prepared / In Review / Done), handles keyboard nav, inbox,
  * fill/submit/skip actions, search, threshold, bulk selection, parallel run,
  * and a live activity feed via SSE.
+ * Risk lanes (needs-input / review-carefully) are shown as badges on cards.
+ * The Done column is read-only, sourced from the tracker (applications.md).
  * Zero model tokens — pure DOM + fetch.
  */
 
@@ -12,21 +15,24 @@
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let allRoles   = [];
+let doneRows   = []; // tracker-sourced Done column rows (read-only)
 let settings   = { score_threshold: null };
 let query      = '';
 
-// cursor: { laneKey, idx } — which card is highlighted
-let cursor     = { laneKey: 'ready', idx: 0 };
+// cursor: { stageKey, idx } — which card is highlighted (Done column not navigable)
+let cursor     = { stageKey: 'inbox', idx: 0 };
 let activeId   = null; // ID of the role open in inbox
 
 // Bulk selection
 let checkedIds = new Set();
 
-const LANE_ORDER = ['ready', 'needs', 'review'];
-const LANE_KEY   = {
-  ready:  'ready',
-  'needs-input': 'needs',
-  'review-carefully': 'review',
+// Keyboard-navigable stage columns, left to right. 'done' is render-only.
+const STAGE_NAV = ['inbox', 'todo', 'prepared', 'review'];
+
+// Risk-lane badge (orthogonal to stage): how carefully to look at the card.
+const LANE_BADGE = {
+  'needs-input':      '<span class="badge badge-lane-needs"  title="Has unresolved custom/manual fields">⚠ needs input</span>',
+  'review-carefully': '<span class="badge badge-lane-review" title="Eligibility / ambiguity / low confidence — review carefully">🔶 review</span>',
 };
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
@@ -44,6 +50,7 @@ async function loadQueue() {
     const res  = await fetch('/api/queue');
     const data = await res.json();
     allRoles = data.roles || [];
+    doneRows = data.done  || [];
     settings = data.settings || {};
     if (settings.score_threshold) {
       document.getElementById('threshold-input').value = settings.score_threshold;
@@ -58,30 +65,36 @@ async function loadQueue() {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
+function stageMapFor(roles) {
+  const map = { inbox: [], todo: [], prepared: [], review: [] };
+  for (const role of roles) {
+    if (map[role.stage]) map[role.stage].push(role);
+  }
+  for (const k of STAGE_NAV) {
+    map[k].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  }
+  return map;
+}
+
+function filterRoles(roles) {
+  if (!query) return roles;
+  return roles.filter(r =>
+    r.company.toLowerCase().includes(query) ||
+    r.title.toLowerCase().includes(query) ||
+    (r.location || '').toLowerCase().includes(query));
+}
+
 function renderAll(stats) {
   updateStats(stats);
 
-  const filtered = query
-    ? allRoles.filter(r =>
-        r.company.toLowerCase().includes(query) ||
-        r.title.toLowerCase().includes(query) ||
-        (r.location || '').toLowerCase().includes(query))
-    : allRoles;
+  const stageMap = stageMapFor(filterRoles(allRoles));
 
-  const laneMap = { ready: [], needs: [], review: [] };
-  for (const role of filtered) {
-    const k = LANE_KEY[role.lane];
-    if (k) laneMap[k].push(role);
-  }
-
-  // Sort each lane by score desc
-  for (const k of LANE_ORDER) {
-    laneMap[k].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  }
-
-  renderLane('ready',  laneMap.ready);
-  renderLane('needs',  laneMap.needs);
-  renderLane('review', laneMap.review);
+  renderLane('inbox',    stageMap.inbox);
+  renderLane('todo',     stageMap.todo);
+  renderLane('prepared', stageMap.prepared);
+  renderLane('review',   stageMap.review);
+  renderTodoCta(stageMap.todo.length);
+  renderDoneLane();
 
   // Update inbox if one is open
   if (activeId) {
@@ -92,16 +105,32 @@ function renderAll(stats) {
 
 function updateStats(stats) {
   if (!stats) return;
-  document.getElementById('stat-ready').textContent  = stats.ready ?? 0;
-  document.getElementById('stat-needs').textContent  = stats.needsInput ?? 0;
-  document.getElementById('stat-review').textContent = stats.reviewCarefully ?? 0;
-  document.getElementById('stat-new').textContent    = stats.newCount ?? 0;
-  document.getElementById('stat-avg').textContent    = stats.avgScore != null ? stats.avgScore + '/5' : '—';
+  document.getElementById('stat-new').textContent          = stats.newCount ?? 0;
+  document.getElementById('stat-inbox').textContent        = stats.inbox ?? 0;
+  document.getElementById('stat-todo').textContent         = stats.todo ?? 0;
+  document.getElementById('stat-prepared').textContent     = stats.prepared ?? 0;
+  document.getElementById('stat-review-stage').textContent = stats.review ?? 0;
+  document.getElementById('stat-done').textContent         = doneRows.length;
+  document.getElementById('stat-avg').textContent          = stats.avgScore != null ? stats.avgScore + '/5' : '—';
 }
 
-function renderLane(laneKey, roles) {
-  const container = document.getElementById(`cards-${laneKey}`);
-  const countEl   = document.getElementById(`count-${laneKey}`);
+// To Do column call-to-action: these roles are selected but waiting for the
+// agent-driven PREPARE step (tailored CV + cover letter + field drafts) —
+// the dashboard itself cannot generate assets.
+function renderTodoCta(count) {
+  const cta = document.getElementById('cta-todo');
+  if (count > 0) {
+    document.getElementById('cta-todo-text').textContent =
+      `${count} waiting for PREPARE — run /career-ops queue prepare (generates tailored CV + cover letter)`;
+    cta.removeAttribute('hidden');
+  } else {
+    cta.setAttribute('hidden', '');
+  }
+}
+
+function renderLane(stageKey, roles) {
+  const container = document.getElementById(`cards-${stageKey}`);
+  const countEl   = document.getElementById(`count-${stageKey}`);
   countEl.textContent = roles.length;
 
   container.innerHTML = '';
@@ -112,19 +141,75 @@ function renderLane(laneKey, roles) {
   }
 
   roles.forEach((role, idx) => {
-    const card = buildCard(role, laneKey, idx);
+    const card = buildCard(role, stageKey, idx);
     container.appendChild(card);
   });
 
   syncCursorHighlight();
 }
 
-function buildCard(role, laneKey, idx) {
+// Done column — read-only cards from the tracker. Applied-group rows first
+// (Applied / Responded / Interview / Offer), then a collapsed Closed group
+// (Rejected / Discarded / SKIP).
+function renderDoneLane() {
+  const container = document.getElementById('cards-done');
+  const countEl   = document.getElementById('count-done');
+
+  const q = query;
+  const visible = q
+    ? doneRows.filter(r =>
+        r.company.toLowerCase().includes(q) ||
+        r.title.toLowerCase().includes(q))
+    : doneRows;
+
+  const applied = visible.filter(r => r.group === 'applied');
+  const closed  = visible.filter(r => r.group === 'closed');
+
+  countEl.textContent = visible.length;
+  container.innerHTML = '';
+
+  if (visible.length === 0) {
+    container.innerHTML = '<p class="lane-empty">Nothing applied yet</p>';
+    return;
+  }
+
+  for (const row of applied) container.appendChild(buildDoneCard(row));
+
+  if (closed.length > 0) {
+    const details = document.createElement('details');
+    details.className = 'done-closed';
+    details.innerHTML = `<summary>Closed (${closed.length})</summary>`;
+    for (const row of closed) details.appendChild(buildDoneCard(row));
+    container.appendChild(details);
+  }
+}
+
+function buildDoneCard(row) {
+  const card = document.createElement('div');
+  card.className = 'card card-done';
+
+  const statusClass = row.group === 'applied' ? 'badge-done-applied' : 'badge-done-closed';
+  const icon        = row.group === 'applied' ? '✅' : '·';
+
+  card.innerHTML = `
+    <div class="card-body">
+      <div class="card-title">${icon} ${esc(row.title)}</div>
+      <div class="card-company">${esc(row.company)}</div>
+      <div class="card-badges">
+        <span class="badge ${statusClass}">${esc(row.status)}</span>
+        ${row.date ? `<span class="badge badge-flag">${esc(row.date)}</span>` : ''}
+        ${row.score && row.score !== 'N/A' ? `<span class="badge badge-flag">${esc(row.score)}</span>` : ''}
+      </div>
+    </div>`;
+  return card;
+}
+
+function buildCard(role, stageKey, idx) {
   const card = document.createElement('div');
   card.className = 'card';
-  card.dataset.id   = role.id;
-  card.dataset.lane = laneKey;
-  card.dataset.idx  = idx;
+  card.dataset.id    = role.id;
+  card.dataset.stage = stageKey;
+  card.dataset.idx   = idx;
   card.tabIndex = -1;
 
   if (checkedIds.has(role.id)) card.classList.add('checked');
@@ -141,11 +226,14 @@ function buildCard(role, laneKey, idx) {
   const visaText = role.visa_answer || '';
   const visaBadge = visaText ? `<span class="badge badge-visa">${esc(visaText)}</span>` : '';
 
-  // Status badge (filled, prefilled, or prepared)
+  // Status badge — only where the column doesn't already convey it:
+  // filled vs prefilled share the In Review column, so keep that distinction.
   const statusBadge = role.status === 'filled'   ? '<span class="badge badge-filled">Filled</span>'
                     : role.status === 'prefilled' ? '<span class="badge badge-prefilled">Prefilled</span>'
-                    : role.status === 'prepared'  ? '<span class="badge badge-prepared">PDF ready</span>'
                     : '';
+
+  // Risk-lane badge (orthogonal to the stage column)
+  const laneBadge = LANE_BADGE[role.lane] || '';
 
   // Eligibility badge
   const eligBadge = role.eligibility === 'cap'    ? '<span class="badge badge-cap">Cap</span>'
@@ -203,7 +291,7 @@ function buildCard(role, laneKey, idx) {
       <div class="card-company">${esc(role.company)}${role.location ? ' · ' + esc(role.location) : ''}</div>
       <div class="card-url"><a href="${esc(role.url)}" target="_blank" rel="noopener" class="card-url-link" title="${esc(role.url)}">${esc(truncateUrl(role.url))}</a></div>
       <div class="card-badges">
-        ${typeBadge}${visaBadge}${eligBadge}${statusBadge}${loginBadge}${kscBadge}${coverBadge}${koBadge}${deepBadge}${extraFlags}
+        ${laneBadge}${typeBadge}${visaBadge}${eligBadge}${statusBadge}${loginBadge}${kscBadge}${coverBadge}${koBadge}${deepBadge}${extraFlags}
       </div>
       ${provBadge ? `<div class="card-prov">${provBadge}</div>` : ''}
       ${role.requirements_snippet ? `<div class="card-snippet">${esc(role.requirements_snippet.slice(0, 120))}…</div>` : ''}
@@ -220,7 +308,7 @@ function buildCard(role, laneKey, idx) {
   // Card body click → open inbox
   card.addEventListener('click', (e) => {
     if (e.target.closest('.card-checkbox') || e.target.closest('.card-url-link')) return;
-    cursor = { laneKey, idx };
+    cursor = { stageKey, idx };
     syncCursorHighlight();
     openInbox(role.id);
   });
@@ -645,7 +733,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 function toggleCurrentCheck() {
-  const roles = getLaneRoles(cursor.laneKey);
+  const roles = getStageRoles(cursor.stageKey);
   const role  = roles[cursor.idx];
   if (!role) return;
   const checked = !checkedIds.has(role.id);
@@ -656,25 +744,15 @@ function toggleCurrentCheck() {
 }
 
 // ── Cursor management ─────────────────────────────────────────────────────────
+// The cursor moves across the 4 interactive stage columns; the Done column is
+// read-only tracker history and is not keyboard-navigable.
 
-function getLaneRoles(laneKey) {
-  const filtered = query
-    ? allRoles.filter(r =>
-        r.company.toLowerCase().includes(query) ||
-        r.title.toLowerCase().includes(query) ||
-        (r.location || '').toLowerCase().includes(query))
-    : allRoles;
-  const mapped = { ready: [], needs: [], review: [] };
-  for (const r of filtered) {
-    const k = LANE_KEY[r.lane];
-    if (k) mapped[k].push(r);
-  }
-  for (const k of LANE_ORDER) mapped[k].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  return mapped[laneKey] || [];
+function getStageRoles(stageKey) {
+  return stageMapFor(filterRoles(allRoles))[stageKey] || [];
 }
 
 function moveCursor(delta) {
-  const roles = getLaneRoles(cursor.laneKey);
+  const roles = getStageRoles(cursor.stageKey);
   if (roles.length === 0) return;
   cursor.idx = Math.max(0, Math.min(roles.length - 1, cursor.idx + delta));
   syncCursorHighlight();
@@ -682,17 +760,17 @@ function moveCursor(delta) {
 }
 
 function moveLane(delta) {
-  const laneIdx = LANE_ORDER.indexOf(cursor.laneKey);
-  const next    = LANE_ORDER[Math.max(0, Math.min(LANE_ORDER.length - 1, laneIdx + delta))];
-  const roles   = getLaneRoles(next);
-  cursor = { laneKey: next, idx: Math.min(cursor.idx, Math.max(0, roles.length - 1)) };
+  const stageIdx = STAGE_NAV.indexOf(cursor.stageKey);
+  const next     = STAGE_NAV[Math.max(0, Math.min(STAGE_NAV.length - 1, stageIdx + delta))];
+  const roles    = getStageRoles(next);
+  cursor = { stageKey: next, idx: Math.min(cursor.idx, Math.max(0, roles.length - 1)) };
   syncCursorHighlight();
   scrollCursorIntoView();
 }
 
 function syncCursorHighlight() {
   document.querySelectorAll('.card.selected').forEach(c => c.classList.remove('selected'));
-  const roles = getLaneRoles(cursor.laneKey);
+  const roles = getStageRoles(cursor.stageKey);
   if (!roles.length) return;
   const role = roles[cursor.idx];
   if (!role) return;
@@ -701,7 +779,7 @@ function syncCursorHighlight() {
 }
 
 function scrollCursorIntoView() {
-  const roles = getLaneRoles(cursor.laneKey);
+  const roles = getStageRoles(cursor.stageKey);
   if (!roles.length) return;
   const role = roles[cursor.idx];
   if (!role) return;
@@ -710,7 +788,7 @@ function scrollCursorIntoView() {
 }
 
 function openCurrentCard() {
-  const roles = getLaneRoles(cursor.laneKey);
+  const roles = getStageRoles(cursor.stageKey);
   const role  = roles[cursor.idx];
   if (role) openInbox(role.id);
 }
@@ -721,21 +799,21 @@ function openCurrentUrl() {
     if (role?.url) window.open(role.url, '_blank', 'noopener');
     return;
   }
-  const roles = getLaneRoles(cursor.laneKey);
+  const roles = getStageRoles(cursor.stageKey);
   const role  = roles[cursor.idx];
   if (role?.url) window.open(role.url, '_blank', 'noopener');
 }
 
 function advanceCursor() {
-  const roles = getLaneRoles(cursor.laneKey);
+  const roles = getStageRoles(cursor.stageKey);
   if (roles.length > 0) {
     cursor.idx = Math.min(cursor.idx, roles.length - 1);
     syncCursorHighlight();
     scrollCursorIntoView();
   } else {
-    for (const lk of LANE_ORDER) {
-      if (getLaneRoles(lk).length > 0) {
-        cursor = { laneKey: lk, idx: 0 };
+    for (const sk of STAGE_NAV) {
+      if (getStageRoles(sk).length > 0) {
+        cursor = { stageKey: sk, idx: 0 };
         syncCursorHighlight();
         break;
       }

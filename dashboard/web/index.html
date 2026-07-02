@@ -13,20 +13,28 @@
 
   <div class="stats-strip" id="stats-strip">
     <div class="stat">
-      <span class="stat-label">ready</span>
-      <span class="stat-value stat-ready" id="stat-ready">—</span>
-    </div>
-    <div class="stat">
-      <span class="stat-label">needs input</span>
-      <span class="stat-value stat-needs" id="stat-needs">—</span>
-    </div>
-    <div class="stat">
-      <span class="stat-label">review</span>
-      <span class="stat-value stat-review" id="stat-review">—</span>
-    </div>
-    <div class="stat">
-      <span class="stat-label">pending score</span>
+      <span class="stat-label">unscored</span>
       <span class="stat-value stat-pending" id="stat-new">—</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">inbox</span>
+      <span class="stat-value stat-inbox" id="stat-inbox">—</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">to do</span>
+      <span class="stat-value stat-todo" id="stat-todo">—</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">prepared</span>
+      <span class="stat-value stat-prepared" id="stat-prepared">—</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">in review</span>
+      <span class="stat-value stat-inreview" id="stat-review-stage">—</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">done</span>
+      <span class="stat-value stat-done" id="stat-done">—</span>
     </div>
     <div class="stat">
       <span class="stat-label">avg</span>
@@ -63,29 +71,48 @@
 </div>
 
 <div class="main-area">
-  <div class="lanes" id="lanes">
-    <div class="lane" data-lane="ready">
+  <div class="lanes board" id="lanes">
+    <div class="lane" data-stage="inbox">
       <div class="lane-header">
-        Ready
-        <span class="lane-count" id="count-ready">0</span>
+        Inbox
+        <span class="lane-count" id="count-inbox">0</span>
       </div>
-      <div class="lane-cards" id="cards-ready"></div>
+      <div class="lane-cards" id="cards-inbox"></div>
     </div>
 
-    <div class="lane" data-lane="needs">
+    <div class="lane" data-stage="todo">
       <div class="lane-header">
-        Needs Input
-        <span class="lane-count" id="count-needs">0</span>
+        To Do
+        <span class="lane-count" id="count-todo">0</span>
       </div>
-      <div class="lane-cards" id="cards-needs"></div>
+      <div class="lane-cta" id="cta-todo" hidden>
+        <span id="cta-todo-text"></span>
+      </div>
+      <div class="lane-cards" id="cards-todo"></div>
     </div>
 
-    <div class="lane" data-lane="review">
+    <div class="lane" data-stage="prepared">
       <div class="lane-header">
-        Review Carefully
+        Prepared
+        <span class="lane-count" id="count-prepared">0</span>
+      </div>
+      <div class="lane-cards" id="cards-prepared"></div>
+    </div>
+
+    <div class="lane" data-stage="review">
+      <div class="lane-header">
+        In Review
         <span class="lane-count" id="count-review">0</span>
       </div>
       <div class="lane-cards" id="cards-review"></div>
+    </div>
+
+    <div class="lane lane-done" data-stage="done">
+      <div class="lane-header">
+        Done
+        <span class="lane-count" id="count-done">0</span>
+      </div>
+      <div class="lane-cards" id="cards-done"></div>
     </div>
   </div>
 
@@ -126,7 +153,7 @@
 
 <footer class="app-footer">
   <span><span class="footer-key">j/k</span> nav</span>
-  <span><span class="footer-key">←/→</span> lanes</span>
+  <span><span class="footer-key">←/→</span> columns</span>
   <span><span class="footer-key">Enter</span> open</span>
   <span><span class="footer-key">Space</span> check</span>
   <span><span class="footer-key">f</span> fill</span>
