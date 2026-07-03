@@ -354,15 +354,27 @@ export function saveQueue(queue, options = {}) {
     seen_payload: split.seen,
   });
 
-  saveSidecar({
-    version: 1,
-    settings: split.sidecar.settings,
-    roles: {
-      ...existingSidecar.roles,
-      ...split.sidecar.roles,
-    },
-  });
-  saveShadowQueue(queue);
+  // The Supabase RPC above is the durable commit. If a local write fails after
+  // it, throwing would tell callers the whole save failed (a misleading 503
+  // that invites a retry/double-write) when the cloud state already advanced.
+  // Warn loudly instead — the in-memory queue is still correct, and the next
+  // successful save re-persists the sidecar/shadow from it.
+  try {
+    saveSidecar({
+      version: 1,
+      settings: split.sidecar.settings,
+      roles: {
+        ...existingSidecar.roles,
+        ...split.sidecar.roles,
+      },
+    });
+    saveShadowQueue(queue);
+  } catch (err) {
+    console.warn(
+      `WARN: Supabase save committed but local sidecar/shadow write failed (${err.message}). ` +
+      'Local-only fields (drafts, asset paths) from this save are not yet on disk — retry the action or re-save.'
+    );
+  }
 }
 
 // -- Stage computation: pure function, no I/O ---------------------------------
@@ -390,6 +402,42 @@ export function computeStage(role) {
   if (status === 'filled' || status === 'prefilled')  return 'review';
   if (DONE_STATUSES.has(status))                      return 'done';
   return null; // 'new' and anything unknown
+}
+
+// -- Kanban drag transitions: pure function, no I/O ---------------------------
+//
+// Not every column boundary on the dashboard board is a bare relabel — Prepared
+// requires real asset generation (tailored CV + cover letter), In Review requires
+// a real form-fill, and Done requires a real submission. Dragging a card can only
+// ever *write a new status directly* for the handful of transitions below, where
+// moving the card genuinely is the whole action (select / deselect / send back to
+// the PREPARE queue). Forward moves into 'prepared', 'review', or 'done' are never
+// produced here — the dashboard drop handler routes those to the real actions
+// (form-fill.mjs / tracker decision) instead of calling this function.
+const STAGE_DRAG_TARGETS = {
+  todo: {
+    scored:    'prepare-queued', // Inbox → To Do: select for prepare
+    prepared:  'prepare-queued', // Prepared → To Do: un-prepare / send back for redo
+    filled:    'prepare-queued', // In Review → To Do: undo fill / send back for redo
+    prefilled: 'prepare-queued', // In Review → To Do: undo fill / send back for redo
+  },
+  inbox: {
+    'prepare-queued': 'scored',  // To Do → Inbox: deselect
+  },
+};
+
+// The only stages a drag may legally target — derived from the table above so
+// the server's input validation can never drift from the transition rules.
+export const DRAG_TARGET_STAGES = Object.freeze(Object.keys(STAGE_DRAG_TARGETS));
+
+/**
+ * Returns the new status if dragging `role` onto `targetStage` (one of
+ * DRAG_TARGET_STAGES) is a legal bare status flip, or null if the drop must be
+ * rejected (either because it needs a real action — Prepared/In Review/Done —
+ * or isn't a recognized transition at all).
+ */
+export function stageDragTarget(role, targetStage) {
+  return STAGE_DRAG_TARGETS[targetStage]?.[role?.status] ?? null;
 }
 
 // -- Lane computation: pure function, no I/O ---------------------------------
@@ -662,10 +710,13 @@ export async function evictExpiredNewStubsCron({ check, dryRun = false } = {}) {
   return { checked, evicted, kept, errors, dryRun };
 }
 
-// -- Lane stats helper (used by server + SPA) --------------------------------
+// -- Board stats helper (used by server + SPA) --------------------------------
+// Risk lanes (ready / needs-input / review-carefully) became per-card badges
+// when the kanban board replaced the 3-lane view, so their aggregates are gone
+// from the stats payload — computeLane() itself still powers the badges.
 
 export function computeStats(queue) {
-  let ready = 0, needsInput = 0, reviewCarefully = 0, newCount = 0, doneCount = 0;
+  let newCount = 0, doneCount = 0;
   let inbox = 0, todo = 0, prepared = 0, review = 0;
   let scoreSum = 0, scoreCount = 0;
 
@@ -677,16 +728,12 @@ export function computeStats(queue) {
     else if (stage === 'todo')     todo++;
     else if (stage === 'prepared') prepared++;
     else if (stage === 'review')   review++;
-    const lane = computeLane(role);
-    if (lane === 'ready')            ready++;
-    else if (lane === 'needs-input') needsInput++;
-    else if (lane === 'review-carefully') reviewCarefully++;
     if (role.score != null) { scoreSum += role.score; scoreCount++; }
   }
 
   const avgScore = scoreCount > 0 ? Math.round((scoreSum / scoreCount) * 10) / 10 : null;
   return {
-    ready, needsInput, reviewCarefully, newCount, doneCount, avgScore,
+    newCount, doneCount, avgScore,
     inbox, todo, prepared, review,
   };
 }

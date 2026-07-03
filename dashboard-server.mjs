@@ -22,7 +22,8 @@ import yaml from 'js-yaml';
 
 import {
   loadQueue, saveQueue, computeLane, computeStage, computeStats,
-  setStatus, updateById, ACTIVE_STATUSES, DONE_STATUSES,
+  setStatus, updateById, ACTIVE_STATUSES, DONE_STATUSES, stageDragTarget,
+  DRAG_TARGET_STAGES,
 } from './queue-store.mjs';
 import { queueDoneStatusFromTracker, parseTrackerDoneRows } from './tracker-status-map.mjs';
 import { partitionRunRoles, isDeepEval } from './run-partition.mjs';
@@ -69,6 +70,17 @@ const DECISION_STATUS = {
   reviewed:  'Discarded',
 };
 
+// Statuses a single deterministic Fill may run from: first fill after PREPARE
+// ('prepared') or a headed re-open of an existing fill ('prefilled'/'filled').
+const FILLABLE_STATUSES = new Set(['prepared', 'prefilled', 'filled']);
+
+// Tabs/newlines in model-written free text (reason, scraped company/title)
+// would inject extra TSV columns or split the row before merge-tracker's own
+// markdown-side sanitizeCell ever runs — strip them at the write site.
+function tsvCell(value) {
+  return String(value ?? '').replace(/[\t\r\n]+/g, ' ').trim();
+}
+
 function writeTrackerTsv(role, decision) {
   mkdirSync(ADDITIONS_DIR, { recursive: true });
 
@@ -81,6 +93,7 @@ function writeTrackerTsv(role, decision) {
   const notes  = role.reason ? role.reason.slice(0, 120) : '';
 
   const tsv = [num, date, role.company, role.title, status, score, pdf, report, notes]
+    .map(tsvCell)
     .join('\t');
 
   const filename = `${num}-${role.id.replace(/:/g, '-').slice(0, 40)}.tsv`;
@@ -428,6 +441,12 @@ function provenanceSummary(drafts = {}) {
 
 // ── API handlers ─────────────────────────────────────────────────────────────
 
+// Reconciliation-persist backoff: a GET must not become a per-poll write storm
+// when Supabase writes are failing (the reconciled view still renders from
+// memory; only persistence is deferred).
+const RECONCILE_SAVE_COOLDOWN_MS = 5 * 60 * 1000;
+let reconcileSaveFailedAt = 0;
+
 function apiGetQueue(res) {
   let queue;
   try {
@@ -438,11 +457,21 @@ function apiGetQueue(res) {
   const trackerReconciled = reconcileQueueWithTracker(queue);
   let trackerReconcileWarning = null;
   if (trackerReconciled.length > 0) {
-    try {
-      saveQueue(queue);
-    } catch (err) {
-      trackerReconcileWarning = `tracker reconciliation could not persist: ${err.message}`;
-      console.warn(`WARN: ${trackerReconcileWarning}`);
+    // The reconciled statuses are already applied in memory (and rendered
+    // below) either way; the save only persists them. Under a persistent
+    // Supabase write error, retrying on every poll is an unbounded write
+    // storm — back off and let a later poll retry.
+    if (Date.now() - reconcileSaveFailedAt < RECONCILE_SAVE_COOLDOWN_MS) {
+      trackerReconcileWarning = 'tracker reconciliation persist backing off after a recent failure';
+    } else {
+      try {
+        saveQueue(queue);
+        reconcileSaveFailedAt = 0;
+      } catch (err) {
+        reconcileSaveFailedAt = Date.now();
+        trackerReconcileWarning = `tracker reconciliation could not persist: ${err.message}`;
+        console.warn(`WARN: ${trackerReconcileWarning}`);
+      }
     }
   }
   const stats = computeStats(queue);
@@ -536,6 +565,17 @@ function apiRoleFill(req, res, id) {
     });
   }
 
+  // Asset gate (modes/_custom.md): a deterministic fill attaches role.cv_pdf,
+  // so it only makes sense after PREPARE has produced fresh assets. This blocks
+  // filling an unprepared role, and a role sent back for redo from re-attaching
+  // its stale CV. (The agent-path branches above are guidance-only, so they
+  // stay reachable from any status; bulk /api/run keeps its own semantics.)
+  if (!FILLABLE_STATUSES.has(role.status)) {
+    return respond(res, 409, {
+      error: `role is '${role.status}' — run /career-ops queue prepare to generate fresh assets before filling`,
+    });
+  }
+
   // Deterministic fill via form-fill.mjs for GH/Lever/Ashby
   const child = spawn(
     process.execPath,
@@ -585,6 +625,46 @@ function apiRoleDecision(req, res, id) {
     }
 
     respond(res, 200, { id, decision, status: decision });
+  });
+}
+
+// ── Kanban board — drag-to-move ───────────────────────────────────────────────
+//
+// Handles ONLY the drags that are a legal bare status flip: Inbox↔To Do
+// (select/deselect) and Prepared/In Review → To Do (send back for redo).
+// Forward moves into Prepared/In Review/Done are never accepted here — the web
+// UI routes those drops to the existing /fill and /decision endpoints instead,
+// so a card can never claim to be further along than it actually is.
+
+function apiRoleStage(req, res, id) {
+  readBody(req, (body) => {
+    const { stage } = safeJson(body) || {};
+    if (!DRAG_TARGET_STAGES.includes(stage)) {
+      return respond(res, 400, { error: `stage must be ${DRAG_TARGET_STAGES.join(' | ')}` });
+    }
+
+    let queue;
+    try {
+      queue = loadQueue();
+    } catch (err) {
+      return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
+    }
+    const role = queue.roles.find(r => r.id === id);
+    if (!role) return respond(res, 404, { error: 'role not found' });
+
+    const nextStatus = stageDragTarget(role, stage);
+    if (!nextStatus) {
+      return respond(res, 409, { error: `cannot move this role to ${stage} — not a valid drag transition` });
+    }
+
+    setStatus(queue, id, nextStatus);
+    try {
+      saveQueue(queue);
+    } catch (err) {
+      return respond(res, 503, { error: `queue store write failed: ${err.message}` });
+    }
+
+    respond(res, 200, { id, stage, status: nextStatus });
   });
 }
 
@@ -695,6 +775,9 @@ const server = http.createServer((req, res) => {
 
   const decisionMatch = path.match(/^\/api\/role\/([^/]+)\/decision$/);
   if (decisionMatch && method === 'POST') return apiRoleDecision(req, res, decodeURIComponent(decisionMatch[1]));
+
+  const stageMatch = path.match(/^\/api\/role\/([^/]+)\/stage$/);
+  if (stageMatch && method === 'POST') return apiRoleStage(req, res, decodeURIComponent(stageMatch[1]));
 
   const flagMatch = path.match(/^\/api\/role\/([^/]+)\/flag$/);
   if (flagMatch && method === 'POST') return apiRoleFlag(req, res, decodeURIComponent(flagMatch[1]));

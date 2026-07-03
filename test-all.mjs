@@ -5078,10 +5078,17 @@ try {
   const states = readFile('templates/states.yml');
   const sql    = readFile('supabase/migrations/202606060001_queue_store.sql');
 
-  // states.yml must declare prefilled and filled as first-class ids
-  for (const id of ['prefilled', 'filled', 'prepared']) {
+  // states.yml must declare every queue status as a first-class id or alias —
+  // it bills itself as the canonical vocabulary for writer + dashboard, so a
+  // queue status it doesn't know about is silent drift.
+  for (const id of ['scored', 'prefilled', 'filled', 'prepared']) {
     if (states.includes(`id: ${id}`)) pass(`states.yml declares queue status id: ${id}`);
     else fail(`states.yml missing queue status id: ${id}`);
+  }
+  if (/aliases:\s*\[prepare-queued/.test(states)) {
+    pass("states.yml maps 'prepare-queued' as an alias (under prepared)");
+  } else {
+    fail("states.yml does not map 'prepare-queued' as an alias");
   }
 
   // states.yml must register 'new' as an alias (via the 'saved' entry)
@@ -7032,6 +7039,150 @@ try {
   }
 } catch (e) {
   fail(`kanban board tests crashed: ${e.message}`);
+}
+
+console.log('\n32. Kanban board — drag-and-drop transitions');
+try {
+  const {
+    stageDragTarget, DRAG_TARGET_STAGES: dragTargets32, STAGE_ORDER: stageOrder32,
+    ACTIVE_STATUSES: active32, DONE_STATUSES: done32,
+  } = await import(pathToFileURL(join(ROOT, 'queue-store.mjs')).href);
+
+  // All known statuses, derived from the exported vocabulary (plus one bogus
+  // sentinel) so a status added later is automatically swept by the
+  // "everything else -> null" exhaustiveness check below.
+  const ALL_STATUSES = [...new Set([...active32, ...done32]), 'bogus-status'];
+
+  // Only these exact (status, targetStage) pairs may produce a non-null result —
+  // this is the full allowed transition table from the plan (Inbox<->To Do,
+  // and Prepared/In Review -> To Do "send back for redo"). Everything else must
+  // be null: forward moves into 'prepared'/'review'/'done' are never a bare
+  // status flip in this system.
+  const EXPECTED = {
+    todo:  { scored: 'prepare-queued', prepared: 'prepare-queued', filled: 'prepare-queued', prefilled: 'prepare-queued' },
+    inbox: { 'prepare-queued': 'scored' },
+  };
+
+  let matrixFails = [];
+  for (const targetStage of stageOrder32) {
+    for (const status of ALL_STATUSES) {
+      const got  = stageDragTarget({ status }, targetStage);
+      const want = EXPECTED[targetStage]?.[status] ?? null;
+      if (got !== want) matrixFails.push(`(${status} → ${targetStage}): got ${got}, want ${want}`);
+    }
+  }
+  if (matrixFails.length === 0) {
+    pass(`stageDragTarget() full matrix correct (${stageOrder32.length} stages × ${ALL_STATUSES.length} statuses, only the 5 documented transitions produce a status)`);
+  } else {
+    fail(`stageDragTarget() matrix wrong: ${matrixFails.slice(0, 5).join('; ')}${matrixFails.length > 5 ? ` (+${matrixFails.length - 5} more)` : ''}`);
+  }
+
+  // Explicitly re-assert the backward-to-To-Do "send back for redo" moves, so
+  // a future refactor of the transition table can't silently drop them.
+  if (stageDragTarget({ status: 'prepared' }, 'todo') === 'prepare-queued' &&
+      stageDragTarget({ status: 'filled' },   'todo') === 'prepare-queued' &&
+      stageDragTarget({ status: 'prefilled' },'todo') === 'prepare-queued') {
+    pass('stageDragTarget() allows Prepared/In Review → To Do "send back for redo"');
+  } else {
+    fail('stageDragTarget() does not allow the requested Prepared/In Review → To Do reverts');
+  }
+
+  // Forward moves that require a real action (asset generation, fill, submit)
+  // must never be bare status flips.
+  if (stageDragTarget({ status: 'prepare-queued' }, 'prepared') === null &&
+      stageDragTarget({ status: 'prepared' },       'review')   === null &&
+      stageDragTarget({ status: 'filled' },         'done')     === null) {
+    pass('stageDragTarget() never bare-flips into Prepared/In Review/Done — those stay gated behind real actions');
+  } else {
+    fail('stageDragTarget() incorrectly allows a bare flip into an action-gated stage');
+  }
+
+  // Wiring: server registers the endpoint, validates the target stage against
+  // the exported DRAG_TARGET_STAGES (single source of truth — no hardcoded
+  // stage list), and applies the transition via the pure fn.
+  const serverSrc32 = readFile('dashboard-server.mjs');
+  if (serverSrc32.includes('function apiRoleStage') &&
+      serverSrc32.includes('apiRoleStage(req, res,') &&
+      serverSrc32.includes('stageDragTarget(role, stage)') &&
+      serverSrc32.includes('DRAG_TARGET_STAGES.includes(stage)')) {
+    pass('dashboard-server.mjs registers POST /api/role/:id/stage and validates via DRAG_TARGET_STAGES + stageDragTarget');
+  } else {
+    fail('dashboard-server.mjs missing the /stage endpoint or its validation');
+  }
+
+  // The exported target-stage list must stay in lockstep with the table.
+  if (Array.isArray(dragTargets32) &&
+      dragTargets32.includes('inbox') && dragTargets32.includes('todo') &&
+      dragTargets32.every(s => stageOrder32.includes(s))) {
+    pass('DRAG_TARGET_STAGES derives from the transition table (inbox + todo, all valid stages)');
+  } else {
+    fail(`DRAG_TARGET_STAGES wrong: ${JSON.stringify(dragTargets32)}`);
+  }
+
+  // Asset gate on the single deterministic fill: only prepared/prefilled/filled
+  // may launch form-fill.mjs — a reverted (prepare-queued) or unscored role must
+  // 409 instead of re-attaching stale/missing assets. The gate must sit AFTER
+  // the agent-path branches (custom/deep-eval guidance stays reachable).
+  const fillBlock32 = serverSrc32.slice(
+    serverSrc32.indexOf('function apiRoleFill'),
+    serverSrc32.indexOf('function apiRoleDecision')
+  );
+  const gateIdx32   = fillBlock32.indexOf('FILLABLE_STATUSES.has(role.status)');
+  const customIdx32 = fillBlock32.indexOf("ats === 'custom'");
+  if (serverSrc32.includes("FILLABLE_STATUSES = new Set(['prepared', 'prefilled', 'filled'])") &&
+      gateIdx32 !== -1 && customIdx32 !== -1 && customIdx32 < gateIdx32) {
+    pass('apiRoleFill gates the deterministic fill on prepared/prefilled/filled, after the agent-path branches');
+  } else {
+    fail('apiRoleFill is missing the asset-gate status check (or it blocks the agent-path branches)');
+  }
+
+  // GET /api/queue must not turn a persistent reconcile-save failure into a
+  // per-poll Supabase write storm.
+  if (serverSrc32.includes('RECONCILE_SAVE_COOLDOWN_MS') &&
+      serverSrc32.includes('reconcileSaveFailedAt = Date.now()')) {
+    pass('apiGetQueue backs off reconcile persistence after a save failure');
+  } else {
+    fail('apiGetQueue reconcile-save backoff missing');
+  }
+
+  // saveQueue: after the Supabase RPC commits, a local sidecar/shadow failure
+  // must warn, not throw — throwing reports a misleading 503 for a write that
+  // already landed in the durable store.
+  const storeSrc32 = readFile('queue-store.mjs');
+  const rpcIdx32   = storeSrc32.indexOf("rpcSync('save_queue'");
+  const localTry32 = storeSrc32.indexOf('Supabase save committed but local sidecar/shadow write failed');
+  if (rpcIdx32 !== -1 && localTry32 !== -1 && rpcIdx32 < localTry32) {
+    pass('saveQueue() downgrades post-RPC local write failures to a loud warning');
+  } else {
+    fail('saveQueue() still throws (or lost the warning) when local writes fail after the Supabase commit');
+  }
+
+  // Wiring: frontend has draggable cards, the drop-action table, and calls the endpoint
+  const appSrc32 = readFile('dashboard/web/app.js');
+  const frontendChecks = [
+    ['card.draggable = true',        'cards are made draggable'],
+    ['DROP_ACTIONS',                 'drop-action table exists'],
+    ['setupDragAndDrop',             'drag-and-drop wiring is set up'],
+    ['/stage`',                      'drop dispatch calls the /stage endpoint'],
+    ['confirmToast',                 'a non-blocking confirm exists for review→done'],
+  ];
+  const missingFrontend = frontendChecks.filter(([needle]) => !appSrc32.includes(needle));
+  if (missingFrontend.length === 0) {
+    pass('app.js wires draggable cards, drop dispatch, /stage calls, and the submit confirm');
+  } else {
+    fail(`app.js missing: ${missingFrontend.map(([, desc]) => desc).join(', ')}`);
+  }
+
+  // Done cards must never be draggable (they're read-only tracker history) —
+  // confirm buildDoneCard never sets the draggable flag, unlike buildCard.
+  const doneCardSrc = appSrc32.slice(appSrc32.indexOf('function buildDoneCard'), appSrc32.indexOf('function buildCard'));
+  if (!doneCardSrc.includes('draggable')) {
+    pass('buildDoneCard() never sets draggable — Done column stays read-only');
+  } else {
+    fail('buildDoneCard() unexpectedly references draggable — Done cards must not be draggable');
+  }
+} catch (e) {
+  fail(`drag-and-drop tests crashed: ${e.message}`);
 }
 
 // ── SUMMARY ─────────────────────────────────────────────────────

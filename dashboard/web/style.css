@@ -269,6 +269,16 @@ body {
 
 .card:hover { border-color: var(--surface1); }
 
+/* ── Drag-and-drop ───────────────────────────────────────────────────────── */
+
+.card[draggable="true"] { cursor: grab; }
+.card[draggable="true"]:active { cursor: grabbing; }
+.card.dragging { opacity: 0.4; }
+
+.lane { border: 2px solid transparent; transition: border-color 0.12s, background 0.12s; }
+.lane.lane-drop-valid { border-color: var(--green); background: #a6e3a114; }
+.lane.lane-drop-invalid { opacity: 0.55; cursor: not-allowed; }
+
 .card.selected {
   border-color: var(--blue);
   background: var(--surface0);
@@ -562,7 +572,8 @@ body {
 
 /* ── Toast ───────────────────────────────────────────────────────────────── */
 
-#toast {
+#toast,
+#toast-confirm {
   position: fixed;
   bottom: 36px;
   left: 50%;
@@ -579,10 +590,26 @@ body {
   white-space: nowrap;
 }
 
-#toast.show {
+#toast.show,
+#toast-confirm.show {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* Confirm toast (drag-triggered Mark Submitted) — its own element so an
+   informational toast() can never wipe a pending confirm. Sits above #toast
+   and, unlike it, accepts real clicks while shown. */
+#toast-confirm {
+  bottom: 84px;
+  white-space: normal;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#toast-confirm.show { pointer-events: auto; }
+.toast-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.toast-actions .btn-sm { padding: 3px 10px; font-size: 11px; }
+.toast-actions .toast-confirm { background: var(--green); color: var(--base); }
 
 /* ── Scrollbars ──────────────────────────────────────────────────────────── */
 

@@ -35,6 +35,129 @@ const LANE_BADGE = {
   'review-carefully': '<span class="badge badge-lane-review" title="Eligibility / ambiguity / low confidence — review carefully">🔶 review</span>',
 };
 
+// ── Drag-and-drop ────────────────────────────────────────────────────────────
+//
+// Most column boundaries on this board aren't a bare relabel — Prepared needs a
+// real tailored CV + cover letter, In Review needs a real form-fill, Done needs
+// a real submission. So a drop either (a) writes a pure status flip via
+// POST /api/role/:id/stage — only Inbox↔To Do and Prepared/In Review→To Do
+// qualify — or (b) triggers the exact same action the Fill Form / Mark Submitted
+// buttons already call, or (c) is rejected with an explanatory toast. Nothing
+// here ever lets a card claim to be further along than it actually is.
+
+let dragSource = null; // { id, stage } of the card currently being dragged
+
+const STAGE_LABEL = { inbox: 'Inbox', todo: 'To Do', prepared: 'Prepared', review: 'In Review', done: 'Done' };
+
+// target stage → { sourceStage: action }
+const DROP_ACTIONS = {
+  todo:   { inbox: 'stage-flip', prepared: 'stage-flip', review: 'stage-flip' },
+  inbox:  { todo: 'stage-flip' },
+  review: { prepared: 'fill' },
+  done:   { review: 'submit' },
+};
+
+function dropActionFor(fromStage, toStage) {
+  if (fromStage === toStage) return null;
+  return DROP_ACTIONS[toStage]?.[fromStage] ?? null;
+}
+
+function clearDropZoneHighlights() {
+  document.querySelectorAll('.lane').forEach(l => l.classList.remove('lane-drop-valid', 'lane-drop-invalid'));
+}
+
+function setupDragAndDrop() {
+  document.querySelectorAll('.lane[data-stage]').forEach((lane) => {
+    const stage = lane.dataset.stage;
+
+    lane.addEventListener('dragover', (e) => {
+      if (!dragSource) return;
+      const action = dropActionFor(dragSource.stage, stage);
+      if (action) {
+        e.preventDefault(); // permits the drop; otherwise the browser shows its native no-drop cursor
+        e.dataTransfer.dropEffect = 'move';
+        lane.classList.add('lane-drop-valid');
+        lane.classList.remove('lane-drop-invalid');
+      } else if (dragSource.stage !== stage) {
+        lane.classList.add('lane-drop-invalid');
+        lane.classList.remove('lane-drop-valid');
+      }
+    });
+
+    lane.addEventListener('dragleave', (e) => {
+      if (!lane.contains(e.relatedTarget)) {
+        lane.classList.remove('lane-drop-valid', 'lane-drop-invalid');
+      }
+    });
+
+    lane.addEventListener('drop', (e) => {
+      e.preventDefault();
+      lane.classList.remove('lane-drop-valid', 'lane-drop-invalid');
+      if (!dragSource) return;
+      const { id, stage: fromStage } = dragSource;
+      handleDrop(id, fromStage, stage);
+    });
+  });
+}
+
+async function handleDrop(id, fromStage, toStage) {
+  if (fromStage === toStage) return; // dropped back in the same column — no-op
+
+  const action = dropActionFor(fromStage, toStage);
+  const role = allRoles.find(r => r.id === id);
+  const name = role ? `${role.company} – ${role.title}` : 'This role';
+
+  if (!action) {
+    if (toStage === 'prepared') {
+      toast("Prepared requires generating a tailored CV + cover letter — run /career-ops queue prepare (can't skip asset generation)", 5000);
+    } else {
+      toast(`Can't move a role from ${STAGE_LABEL[fromStage]} to ${STAGE_LABEL[toStage]} by dragging — use the existing workflow`, 4000);
+    }
+    return;
+  }
+
+  if (action === 'stage-flip') {
+    try {
+      const res = await fetch(`/api/role/${encodeURIComponent(id)}/stage`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ stage: toStage }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast(err.error || 'Move failed', 3000);
+        return;
+      }
+      // A send-back revert leaves the old CV/cover letter on the role — remind
+      // that PREPARE must regenerate them before the next fill.
+      if (toStage === 'todo' && (fromStage === 'prepared' || fromStage === 'review')) {
+        toast(`${name} sent back to To Do — run /career-ops queue prepare to regenerate assets before filling`, 5000);
+      } else {
+        toast(`${name} moved to ${STAGE_LABEL[toStage]}`);
+      }
+      await loadQueue();
+    } catch {
+      toast('Move failed — check server logs', 4000);
+    }
+    return;
+  }
+
+  if (action === 'fill') {
+    await doFill(id);
+    return;
+  }
+
+  if (action === 'submit') {
+    // Mirror the inbox panel's guard (its Submit button is disabled for
+    // prefilled) — don't offer a confirm the decision path will refuse.
+    if (role?.status === 'prefilled') {
+      toast('Re-open with headed Fill Form and review before marking submitted.', 4000);
+      return;
+    }
+    confirmToast(`Mark ${name} as submitted?`, () => doDecision('submitted', id));
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -211,6 +334,7 @@ function buildCard(role, stageKey, idx) {
   card.dataset.stage = stageKey;
   card.dataset.idx   = idx;
   card.tabIndex = -1;
+  card.draggable = true;
 
   if (checkedIds.has(role.id)) card.classList.add('checked');
 
@@ -311,6 +435,19 @@ function buildCard(role, stageKey, idx) {
     cursor = { stageKey, idx };
     syncCursorHighlight();
     openInbox(role.id);
+  });
+
+  // Drag source
+  card.addEventListener('dragstart', (e) => {
+    dragSource = { id: role.id, stage: stageKey };
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', role.id);
+  });
+  card.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+    dragSource = null;
+    clearDropZoneHighlights();
   });
 
   return card;
@@ -450,6 +587,11 @@ function renderInbox(role) {
     note.textContent = '🔐 Portal requires login — form-fill will handle registration/login automatically.';
   } else if (!role.cv_pdf) {
     note.textContent = 'Run /career-ops queue prepare to generate a tailored CV.';
+  } else if (role.status === 'scored' || role.status === 'prepare-queued') {
+    // A cv_pdf on a pre-PREPARE status means the role was sent back for redo —
+    // the assets on record are from the earlier PREPARE run and must be
+    // regenerated before filling.
+    note.textContent = '↩ Assets are from an earlier PREPARE — run /career-ops queue prepare to regenerate before filling.';
   } else if (role.status === 'filled') {
     note.textContent = 'Form filled — review in browser, then submit manually and click Mark Submitted.';
   } else {
@@ -589,7 +731,18 @@ function connectActivityFeed() {
   };
 }
 
+// A fill runs as a detached child process, so the board can't know when the
+// status actually advances — the SSE terminal events are that signal. Debounced
+// so a bulk run's burst of events triggers one reload, not one per role.
+let activityReloadTimer;
+const ACTIVITY_TERMINAL_EVENTS = new Set(['success', 'failure', 'login-wall', 'knockout-flag']);
+
 function appendActivityEntry(entry) {
+  if (ACTIVITY_TERMINAL_EVENTS.has(entry.event)) {
+    clearTimeout(activityReloadTimer);
+    activityReloadTimer = setTimeout(loadQueue, 1500);
+  }
+
   const body = document.getElementById('activity-body');
 
   const icon = {
@@ -624,40 +777,54 @@ function appendActivityEntry(entry) {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
-async function doFill() {
-  if (!activeId) return;
+async function doFill(roleId = activeId) {
+  if (!roleId) return;
   try {
-    const res  = await fetch(`/api/role/${encodeURIComponent(activeId)}/fill`, { method: 'POST' });
+    const res  = await fetch(`/api/role/${encodeURIComponent(roleId)}/fill`, { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast(err.error || 'Fill failed — check server logs', 4000);
+      return;
+    }
     const data = await res.json();
     if (data.method === 'agent') {
       toast(data.message, 6000);
     } else {
       toast('Playwright fill launched — browser opening…');
     }
+    // The fill runs as a detached child process, so status hasn't advanced yet;
+    // this refresh only picks up stats/settings. The card moves on a later
+    // refresh once form-fill.mjs persists the new status.
+    await loadQueue();
   } catch {
     toast('Fill request failed — check server logs', 4000);
   }
 }
 
-async function doDecision(decision) {
-  if (!activeId) return;
-  const role = allRoles.find(r => r.id === activeId);
+async function doDecision(decision, roleId = activeId) {
+  if (!roleId) return;
+  const role = allRoles.find(r => r.id === roleId);
   if (decision === 'submitted' && role?.status === 'prefilled') {
     toast('Re-open with headed Fill Form and review before marking submitted.', 4000);
     return;
   }
   const label = { submitted: 'Submitted', skipped: 'Skipped', reviewed: 'Reviewed' }[decision];
   try {
-    const res = await fetch(`/api/role/${encodeURIComponent(activeId)}/decision`, {
+    const res = await fetch(`/api/role/${encodeURIComponent(roleId)}/decision`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ decision }),
     });
     if (!res.ok) { toast('Action failed', 3000); return; }
     toast(`${label} — advancing to next role…`);
-    closeInbox();
+    const wasActive = roleId === activeId;
+    if (wasActive) closeInbox();
     await loadQueue();
-    advanceCursor();
+    // Keyboard-driven decisions advance the cursor; a drag-triggered decision
+    // on an unrelated card only restores the highlight renderAll() wiped,
+    // without repositioning or scrolling the user's keyboard cursor.
+    if (wasActive) advanceCursor();
+    else syncCursorHighlight();
   } catch {
     toast('Action failed — check server logs', 4000);
   }
@@ -831,7 +998,7 @@ function setupEventListeners() {
     if (e.key === 'Enter') setThreshold();
   });
 
-  document.getElementById('btn-fill').addEventListener('click', doFill);
+  document.getElementById('btn-fill').addEventListener('click', () => doFill());
   document.getElementById('btn-submit').addEventListener('click', () => doDecision('submitted'));
   document.getElementById('btn-skip').addEventListener('click', () => doDecision('skipped'));
   document.getElementById('btn-reviewed').addEventListener('click', () => doDecision('reviewed'));
@@ -849,6 +1016,8 @@ function setupEventListeners() {
     query = searchInput.value.toLowerCase().trim();
     loadQueue();
   });
+
+  setupDragAndDrop();
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -860,6 +1029,30 @@ function toast(msg, ms = 2500) {
   el.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), ms);
+}
+
+// Non-blocking confirm, used for drag-triggered Mark Submitted (a real tracker
+// write, so it gets one extra deliberate step). Deliberately NOT a native
+// window.confirm() — that blocks the page (and would block any future
+// Playwright verification of this flow); this stays open until the user acts.
+// Renders into its own #toast-confirm element so an informational toast()
+// firing meanwhile can never wipe a pending confirm.
+function confirmToast(msg, onConfirm) {
+  const el = document.getElementById('toast-confirm');
+  el.innerHTML = `
+    <span class="toast-msg">${esc(msg)}</span>
+    <span class="toast-actions">
+      <button type="button" class="btn-sm toast-confirm">Confirm</button>
+      <button type="button" class="btn-sm btn-sm-outline toast-cancel">Cancel</button>
+    </span>`;
+  el.classList.add('show');
+
+  const cleanup = () => {
+    el.classList.remove('show');
+    el.innerHTML = '';
+  };
+  el.querySelector('.toast-confirm').addEventListener('click', () => { cleanup(); onConfirm(); }, { once: true });
+  el.querySelector('.toast-cancel').addEventListener('click', cleanup, { once: true });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
