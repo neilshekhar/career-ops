@@ -6092,6 +6092,7 @@ console.log('\n16. Form-fill submit safety — FINAL_SUBMIT_DENYLIST and NAV_ALL
 
 try {
   const { FINAL_SUBMIT_DENYLIST, NAV_ALLOWLIST } = await import(pathToFileURL(join(ROOT, 'form-fill.mjs')).href);
+  const { formatPhone, formatPhoneWithoutCountryCode } = await import(pathToFileURL(join(ROOT, 'format-au.mjs')).href);
 
   // Every final-submit label must match FINAL_SUBMIT_DENYLIST
   const denyLabels = [
@@ -6129,6 +6130,33 @@ try {
     pass('findNavButton still contains FINAL_SUBMIT_DENYLIST short-circuit guard');
   } else {
     fail('findNavButton FINAL_SUBMIT_DENYLIST guard missing — click path could reach deny labels');
+  }
+
+  const formattedAu = formatPhone('0412 345 678', '+61');
+  if (formattedAu === '+61412345678') {
+    pass('formatPhone normalises AU mobile to +61 when no country-code dropdown exists');
+  } else {
+    fail(`formatPhone AU mobile expected +61412345678, got ${JSON.stringify(formattedAu)}`);
+  }
+
+  const splitAu = formatPhoneWithoutCountryCode('+61 412 345 678', '+61');
+  if (splitAu === '412345678') {
+    pass('formatPhoneWithoutCountryCode strips +61 for split country-code fields');
+  } else {
+    fail(`formatPhoneWithoutCountryCode expected 412345678, got ${JSON.stringify(splitAu)}`);
+  }
+
+  const splitAuLeadingZero = formatPhoneWithoutCountryCode('0412345678', '+61');
+  if (splitAuLeadingZero === '412345678') {
+    pass('formatPhoneWithoutCountryCode drops AU trunk zero beside +61 selector');
+  } else {
+    fail(`formatPhoneWithoutCountryCode expected 412345678 from leading-zero mobile, got ${JSON.stringify(splitAuLeadingZero)}`);
+  }
+
+  if (formFillSrc.includes('formatPhoneWithoutCountryCode') && formFillSrc.includes('hasSelectedCountryCodeControl')) {
+    pass('form-fill strips phone country code only when a matching country-code control is selected');
+  } else {
+    fail('form-fill is not wired to strip +61 beside a separate country-code selector');
   }
 } catch (e) {
   fail(`Form-fill submit safety checks crashed: ${e.message}`);

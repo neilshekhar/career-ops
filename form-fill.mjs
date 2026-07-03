@@ -52,7 +52,7 @@ import {
   classifyLoginState, classifyConfirmation, CONFIRMATION_NUM_RE,
 } from './login-core.mjs';
 import { getOrCreateCredentials } from './credentials-store.mjs';
-import { formatDate, formatPhone, isDateField, isPhoneField } from './format-au.mjs';
+import { formatDate, formatPhone, formatPhoneWithoutCountryCode, isDateField, isPhoneField } from './format-au.mjs';
 import {
   acceptAllowsDocx, acceptAllowsPdf, chooseCoverFormat, formatFallbackOrder,
 } from './cover-format-policy.mjs';
@@ -207,6 +207,7 @@ async function fillRegistrationForm(page, profile, host) {
       value = formatPhone(c.phone, fmt.phone_country || '+61');
     }
 
+    if (value && isPhoneField(text)) value = await phoneValueForInput(input, text, value, profile);
     if (value) await input.fill(String(value)).catch(() => {});
   }
 
@@ -474,6 +475,98 @@ async function applyCheckbox(input, labelText, value, provenance, filled, manual
   }
 }
 
+async function hasSelectedCountryCodeControl(input, countryCode = '+61') {
+  return input.evaluate((el, code) => {
+    const codeText = String(code || '').trim();
+    const codeDigits = codeText.replace(/\D/g, '');
+    if (!codeText || !codeDigits) return false;
+
+    const visible = (node) => {
+      const style = window.getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+    };
+
+    const descriptorFor = (node) => {
+      const labels = [];
+      if (node.id) {
+        for (const label of document.querySelectorAll('label')) {
+          if (label.htmlFor === node.id) labels.push(label.textContent || '');
+        }
+      }
+      if (node.closest('label')) labels.push(node.closest('label').textContent || '');
+      return [
+        node.getAttribute('aria-label'),
+        node.getAttribute('name'),
+        node.getAttribute('id'),
+        node.getAttribute('placeholder'),
+        node.getAttribute('class'),
+        ...labels,
+      ].filter(Boolean).join(' ');
+    };
+
+    const selectedTextFor = (node) => {
+      if (node.tagName === 'SELECT') {
+        return Array.from(node.selectedOptions || [])
+          .map((opt) => `${opt.value || ''} ${opt.textContent || ''}`)
+          .join(' ');
+      }
+      return [
+        node.getAttribute('value'),
+        node.value,
+        node.textContent,
+        node.getAttribute('aria-label'),
+        node.getAttribute('title'),
+      ].filter(Boolean).join(' ');
+    };
+
+    const hasCode = (text, allowBareCode) => {
+      const raw = String(text || '');
+      if (!raw) return false;
+      if (raw.includes(codeText)) return true;
+      if (raw.replace(/\s+/g, '').includes(codeText)) return true;
+      return allowBareCode && raw.replace(/\D/g, '') === codeDigits;
+    };
+
+    const roots = [];
+    let node = el.parentElement;
+    for (let i = 0; node && i < 6; i++) {
+      roots.push(node);
+      node = node.parentElement;
+    }
+    const form = el.closest('form');
+    if (form) roots.push(form);
+
+    const seen = new Set();
+    for (const root of roots) {
+      if (!root || seen.has(root)) continue;
+      seen.add(root);
+      const controls = root.querySelectorAll(
+        'select, [role="combobox"], button[aria-haspopup], input[type="hidden"], input[type="text"]'
+      );
+      for (const control of controls) {
+        if (control === el) continue;
+        const desc = descriptorFor(control);
+        const likelyDialCode = /phone|mobile|telephone|\btel\b|dial|calling|country.?code|prefix/i.test(desc);
+        const hidden = control.tagName === 'INPUT' && control.type === 'hidden';
+        if (hidden && !likelyDialCode) continue;
+        if (!hidden && !visible(control)) continue;
+        if (hasCode(selectedTextFor(control), likelyDialCode)) return true;
+      }
+    }
+    return false;
+  }, countryCode).catch(() => false);
+}
+
+async function phoneValueForInput(input, labelText, value, profile) {
+  if (!isPhoneField(labelText)) return value;
+  const countryCode = profile?.formatting?.phone_country || '+61';
+  if (await hasSelectedCountryCodeControl(input, countryCode)) {
+    return formatPhoneWithoutCountryCode(value, countryCode);
+  }
+  return value;
+}
+
 // ── Confirmation capture ───────────────────────────────────────────────────────
 
 /**
@@ -712,6 +805,7 @@ async function fillByLabels(page, profile, role) {
     }
 
     let applied = false;
+    let appliedValue = r.value;
     if (isReactSelect) {
       const container = await labelEl.evaluateHandle(
         (el) => el.closest('.select__container') || el.parentElement
@@ -723,13 +817,14 @@ async function fillByLabels(page, profile, role) {
       applied  = ok || await input.selectOption(r.value).then(() => true).catch(() => false);
       if (!applied) { manual.push({ label: labelText, reason: `no option matches "${r.value}"` }); continue; }
     } else {
-      await input.fill(String(r.value)).catch(() => {});
+      appliedValue = await phoneValueForInput(input, labelText, r.value, profile);
+      await input.fill(String(appliedValue)).catch(() => {});
       applied = true;
     }
 
     if (applied) {
-      filled.push({ label: labelText, value: r.value, provenance: r.provenance });
-      if (r.firstUse) cacheConfirms.push({ label: labelText, value: r.value });
+      filled.push({ label: labelText, value: appliedValue, provenance: r.provenance });
+      if (r.firstUse) cacheConfirms.push({ label: labelText, value: appliedValue });
     }
   }
 
@@ -767,15 +862,17 @@ async function fillLever(page, profile, role) {
       await applyCheckbox(input, labelText, draft.answer, provenanceLabel(draft.source, draft.rule, draft.score), filled, manual);
       continue;
     }
+    let appliedValue = draft.answer;
     if (tag === 'select') {
       const ok = await input.selectOption({ label: draft.answer }).then(() => true).catch(() => false);
       if (!ok) { manual.push({ label: labelText, reason: `no option matches "${draft.answer}"` }); continue; }
     } else {
-      const ok = await input.fill(String(draft.answer)).then(() => true).catch(() => false);
+      appliedValue = await phoneValueForInput(input, labelText, draft.answer, profile);
+      const ok = await input.fill(String(appliedValue)).then(() => true).catch(() => false);
       if (!ok) { manual.push({ label: labelText, reason: 'text fill failed' }); continue; }
     }
-    filled.push({ label: labelText, value: draft.answer, provenance: provenanceLabel(draft.source, draft.rule, draft.score) });
-    if (draft.source === 'cache' && draft.firstUse) cacheConfirms.push({ label: labelText, value: draft.answer });
+    filled.push({ label: labelText, value: appliedValue, provenance: provenanceLabel(draft.source, draft.rule, draft.score) });
+    if (draft.source === 'cache' && draft.firstUse) cacheConfirms.push({ label: labelText, value: appliedValue });
   }
 
   const { candidate = {}, application_answers = {} } = profile;
@@ -796,8 +893,9 @@ async function fillLever(page, profile, role) {
       if (input) {
         const already = await input.inputValue().catch(() => '');
         if (!already) {
-          await input.fill(String(value)).catch(() => {});
-          filled.push({ label: name, value, provenance: 'deterministic' });
+          const appliedValue = await phoneValueForInput(input, name, value, profile);
+          await input.fill(String(appliedValue)).catch(() => {});
+          filled.push({ label: name, value: appliedValue, provenance: 'deterministic' });
         }
         break;
       }

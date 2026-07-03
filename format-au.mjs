@@ -10,6 +10,7 @@
  * Exports:
  *   formatDate(dateStr, fmt?)  → string
  *   formatPhone(phone, country?) → string
+ *   formatPhoneWithoutCountryCode(phone, country?) → string
  *   isDateField(label)         → boolean
  *   isPhoneField(label)        → boolean
  */
@@ -106,6 +107,40 @@ export function formatPhone(phone, countryCode = '+61') {
   if (/^\d{8,12}$/.test(s)) return countryCode + s;
 
   return phone; // can't safely reformat — return original
+}
+
+/**
+ * Format the phone number for a field that already has a separate country-code
+ * dropdown selected. For Australia, this returns the national significant
+ * number (e.g. +61412345678 or 0412345678 -> 412345678).
+ *
+ * @param {string} phone
+ * @param {string} countryCode - e.g. '+61'
+ * @returns {string}
+ */
+export function formatPhoneWithoutCountryCode(phone, countryCode = '+61') {
+  if (!phone) return '';
+
+  const s = String(phone).replace(/[\s\-().]/g, '').trim();
+  if (!s) return '';
+
+  const code = String(countryCode || '').trim();
+  const digits = code.replace(/\D/g, '');
+
+  if (code === '+61' || digits === '61') {
+    if (s.startsWith('+61')) return s.slice(3);
+    if (s.startsWith('0061')) return s.slice(4);
+    if (/^61\d{9}$/.test(s)) return s.slice(2);
+    if (/^0\d{9}$/.test(s)) return s.slice(1);
+    return s;
+  }
+
+  if (digits) {
+    if (s.startsWith(`+${digits}`)) return s.slice(digits.length + 1);
+    if (s.startsWith(`00${digits}`)) return s.slice(digits.length + 2);
+  }
+
+  return s;
 }
 
 // ── Label detectors ───────────────────────────────────────────────────────────
