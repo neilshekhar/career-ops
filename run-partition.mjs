@@ -1,13 +1,22 @@
 /**
  * run-partition.mjs — pure partition logic for the dashboard's batch "Run" dispatch.
  *
- * Splits a set of queue roles into the three execution lanes the dashboard fills by:
+ * Splits a set of queue roles into the execution lanes the dashboard fills by:
  *   - deterministic: headless parallel form-fill.mjs (GH/Lever/Ashby, no login wall)
  *   - loginGated:    serial headed fill behind a login wall
  *   - agentPath:     notice only — the candidate must run `/career-ops apply`
+ *   - notPrepared:   notice only — asset gate: the role has no fresh PREPARE assets,
+ *                    so launching form-fill.mjs would attach a stale or missing CV
  *
  * deep-eval-marked roles ALWAYS go to agentPath so a full `oferta` runs before any
  * fill (the headless server has no LLM) — see modes/apply.md → "Deep-eval marker".
+ *
+ * The asset gate (FILLABLE_STATUSES) applies to both fill lanes: only a role that
+ * PREPARE has produced assets for ('prepared'), or an existing fill being re-opened
+ * ('prefilled'/'filled'), may launch form-fill.mjs. agentPath is guidance-only, so
+ * it stays reachable from any status — the apply flow runs PREPARE itself.
+ * dashboard-server.mjs imports FILLABLE_STATUSES for the single-card Fill endpoint
+ * too, so single and bulk fills can never drift.
  *
  * Pure + side-effect-free so it can be unit-tested without starting the HTTP server
  * (importing dashboard-server.mjs would call server.listen).
@@ -16,13 +25,19 @@
 export const isDeepEval = (role) => (role.flags || []).includes('deep-eval');
 const isLoginRequired = (role) => (role.flags || []).includes('login-required');
 
+// Statuses a deterministic fill may run from: first fill after PREPARE
+// ('prepared') or a headed re-open of an existing fill ('prefilled'/'filled').
+export const FILLABLE_STATUSES = new Set(['prepared', 'prefilled', 'filled']);
+
 export function partitionRunRoles(roles) {
   const agentPath = roles.filter((r) => r.ats === 'custom' || isDeepEval(r));
-  const deterministic = roles.filter((r) =>
-    r.ats !== 'custom' && !isDeepEval(r) && !isLoginRequired(r)
+  const fillCandidates = roles.filter((r) => r.ats !== 'custom' && !isDeepEval(r));
+  const notPrepared = fillCandidates.filter((r) => !FILLABLE_STATUSES.has(r.status));
+  const deterministic = fillCandidates.filter(
+    (r) => FILLABLE_STATUSES.has(r.status) && !isLoginRequired(r)
   );
-  const loginGated = roles.filter((r) =>
-    isLoginRequired(r) && r.ats !== 'custom' && !isDeepEval(r)
+  const loginGated = fillCandidates.filter(
+    (r) => FILLABLE_STATUSES.has(r.status) && isLoginRequired(r)
   );
-  return { deterministic, loginGated, agentPath };
+  return { deterministic, loginGated, agentPath, notPrepared };
 }

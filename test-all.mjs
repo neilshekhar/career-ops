@@ -6723,15 +6723,17 @@ try {
   try {
     const { partitionRunRoles } = await import(pathToFileURL(join(ROOT, 'run-partition.mjs')).href);
     const sample = [
-      { id: 'gh-plain',   ats: 'greenhouse', flags: [] },
-      { id: 'gh-deep',    ats: 'greenhouse', flags: ['deep-eval'] },
-      { id: 'custom',     ats: 'custom',     flags: [] },
-      { id: 'login',      ats: 'lever',      flags: ['login-required'] },
-      { id: 'login-deep', ats: 'lever',      flags: ['login-required', 'deep-eval'] },
+      { id: 'gh-plain',   ats: 'greenhouse', status: 'prepared',       flags: [] },
+      { id: 'gh-deep',    ats: 'greenhouse', status: 'prepared',       flags: ['deep-eval'] },
+      { id: 'custom',     ats: 'custom',     status: 'scored',         flags: [] },
+      { id: 'login',      ats: 'lever',      status: 'prefilled',      flags: ['login-required'] },
+      { id: 'login-deep', ats: 'lever',      status: 'prepared',       flags: ['login-required', 'deep-eval'] },
+      { id: 'gh-scored',  ats: 'greenhouse', status: 'scored',         flags: [] },
+      { id: 'gh-queued',  ats: 'lever',      status: 'prepare-queued', flags: ['login-required'] },
     ];
-    const { deterministic, loginGated, agentPath } = partitionRunRoles(sample);
+    const { deterministic, loginGated, agentPath, notPrepared } = partitionRunRoles(sample);
     const ids = (arr) => arr.map((r) => r.id);
-    const detIds = ids(deterministic), loginIds = ids(loginGated), agentIds = ids(agentPath);
+    const detIds = ids(deterministic), loginIds = ids(loginGated), agentIds = ids(agentPath), skipIds = ids(notPrepared);
 
     if (detIds.includes('gh-plain') && !detIds.includes('gh-deep') && !detIds.includes('login-deep')) {
       pass('partitionRunRoles: plain ATS role → deterministic; deep-eval roles excluded from deterministic');
@@ -6747,6 +6749,17 @@ try {
       pass('partitionRunRoles: login role → login-gated; a deep-eval login role escalates to agent path');
     } else {
       fail(`partitionRunRoles loginGated bucket wrong: ${JSON.stringify(loginIds)}`);
+    }
+    // Asset gate parity with the single-card Fill endpoint: unprepared roles
+    // land in notPrepared (notice only) and never in a fill lane — regardless
+    // of login flags. A custom-ATS role stays agentPath from any status
+    // (guidance only; the apply flow runs PREPARE itself).
+    if (skipIds.includes('gh-scored') && skipIds.includes('gh-queued') &&
+        !detIds.includes('gh-scored') && !loginIds.includes('gh-queued') &&
+        !skipIds.includes('custom')) {
+      pass('partitionRunRoles: unprepared roles → notPrepared (bulk asset gate), never a fill lane');
+    } else {
+      fail(`partitionRunRoles notPrepared bucket wrong: ${JSON.stringify(skipIds)} (det: ${JSON.stringify(detIds)}, login: ${JSON.stringify(loginIds)})`);
     }
   } catch (err) {
     fail(`partitionRunRoles behavioral test crashed: ${err.message}`);
@@ -8416,18 +8429,34 @@ try {
   // Asset gate on the single deterministic fill: only prepared/prefilled/filled
   // may launch form-fill.mjs — a reverted (prepare-queued) or unscored role must
   // 409 instead of re-attaching stale/missing assets. The gate must sit AFTER
-  // the agent-path branches (custom/deep-eval guidance stays reachable).
+  // the agent-path branches (custom/deep-eval guidance stays reachable). The
+  // status set is imported from run-partition.mjs so the single-card gate and
+  // the bulk-run notPrepared lane can never drift apart.
   const fillBlock32 = serverSrc32.slice(
     serverSrc32.indexOf('function apiRoleFill'),
     serverSrc32.indexOf('function apiRoleDecision')
   );
   const gateIdx32   = fillBlock32.indexOf('FILLABLE_STATUSES.has(role.status)');
   const customIdx32 = fillBlock32.indexOf("ats === 'custom'");
-  if (serverSrc32.includes("FILLABLE_STATUSES = new Set(['prepared', 'prefilled', 'filled'])") &&
+  const partitionSrc32 = readFile('run-partition.mjs');
+  if (partitionSrc32.includes("export const FILLABLE_STATUSES = new Set(['prepared', 'prefilled', 'filled'])") &&
+      serverSrc32.includes('FILLABLE_STATUSES') &&
+      serverSrc32.includes("from './run-partition.mjs'") &&
       gateIdx32 !== -1 && customIdx32 !== -1 && customIdx32 < gateIdx32) {
-    pass('apiRoleFill gates the deterministic fill on prepared/prefilled/filled, after the agent-path branches');
+    pass('apiRoleFill gates the deterministic fill via the shared FILLABLE_STATUSES, after the agent-path branches');
   } else {
-    fail('apiRoleFill is missing the asset-gate status check (or it blocks the agent-path branches)');
+    fail('apiRoleFill is missing the shared asset-gate status check (or it blocks the agent-path branches)');
+  }
+
+  // Bulk Start run must apply the same asset gate: apiRun surfaces the
+  // notPrepared lane (skip notice + count) instead of launching form-fill
+  // for unprepared roles.
+  if (serverSrc32.includes('notPrepared') &&
+      serverSrc32.includes('notPrepared: notPrepared.length') &&
+      serverSrc32.includes('run /career-ops queue prepare to generate fresh assets')) {
+    pass('apiRun surfaces the notPrepared asset-gate lane (bulk parity with single fill)');
+  } else {
+    fail('apiRun does not surface the notPrepared lane — bulk runs may bypass the asset gate');
   }
 
   // GET /api/queue must not turn a persistent reconcile-save failure into a

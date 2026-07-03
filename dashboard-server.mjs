@@ -26,7 +26,7 @@ import {
   DRAG_TARGET_STAGES,
 } from './queue-store.mjs';
 import { queueDoneStatusFromTracker, parseTrackerDoneRows } from './tracker-status-map.mjs';
-import { partitionRunRoles, isDeepEval } from './run-partition.mjs';
+import { partitionRunRoles, isDeepEval, FILLABLE_STATUSES } from './run-partition.mjs';
 
 const ROOT     = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR  = join(ROOT, 'dashboard', 'web');
@@ -69,10 +69,6 @@ const DECISION_STATUS = {
   skipped:   'SKIP',
   reviewed:  'Discarded',
 };
-
-// Statuses a single deterministic Fill may run from: first fill after PREPARE
-// ('prepared') or a headed re-open of an existing fill ('prefilled'/'filled').
-const FILLABLE_STATUSES = new Set(['prepared', 'prefilled', 'filled']);
 
 // Tabs/newlines in model-written free text (reason, scraped company/title)
 // would inject extra TSV columns or split the row before merge-tracker's own
@@ -338,11 +334,14 @@ function apiRun(req, res) {
     }
 
     // Partition the run into execution lanes: deterministic (headless parallel) vs
-    // login-gated (serial headed) vs agent-path (notice only). deep-eval-marked roles
-    // always go to the agent path so a full oferta runs before any fill (the headless
-    // server has no LLM) — see modes/apply.md → "Deep-eval marker". The pure logic lives
-    // in run-partition.mjs so it can be unit-tested without starting the server.
-    const { deterministic, loginGated, agentPath } = partitionRunRoles(roles);
+    // login-gated (serial headed) vs agent-path (notice only) vs not-prepared
+    // (asset gate — same FILLABLE_STATUSES rule as the single-card Fill endpoint,
+    // so bulk runs can't launch form-fill with stale/missing assets either).
+    // deep-eval-marked roles always go to the agent path so a full oferta runs
+    // before any fill (the headless server has no LLM) — see modes/apply.md →
+    // "Deep-eval marker". The pure logic lives in run-partition.mjs so it can be
+    // unit-tested without starting the server.
+    const { deterministic, loginGated, agentPath, notPrepared } = partitionRunRoles(roles);
 
     const runId = `run-${Date.now()}`;
 
@@ -353,8 +352,16 @@ function apiRun(req, res) {
       deterministic: deterministic.length,
       loginGated:  loginGated.length,
       agentPath:   agentPath.length,
+      notPrepared: notPrepared.length,
       concurrency,
     });
+
+    // ── Not-prepared roles — asset gate, notice only (never filled) ───────────
+    for (const role of notPrepared) {
+      emitActivity(runId, role.id, 'failure', role, {
+        message: `Skipped — role is '${role.status}': run /career-ops queue prepare to generate fresh assets before filling`,
+      });
+    }
 
     // ── Agent-path roles — emit notice only (user must run /career-ops apply) ──
     for (const role of agentPath) {
