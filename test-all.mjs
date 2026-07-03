@@ -6843,6 +6843,19 @@ try {
     fail('dashboard UI: auto-fill badge rendering missing');
   }
 
+  // Light/dark theme: pre-paint init in <head>, toggle wired, light palette present,
+  // and no hardcoded dark-only alpha tints left (they must derive via color-mix)
+  const styleCss = readFile('dashboard/web/style.css');
+  if (indexHtml.includes("localStorage.getItem('career-ops-theme')") &&
+      indexHtml.includes('id="btn-theme"') &&
+      appJs.includes('function toggleTheme') &&
+      styleCss.includes('[data-theme="light"]') &&
+      !/#[0-9a-f]{6}(22|14|33|0a)\b/i.test(styleCss)) {
+    pass('dashboard UI: light/dark theme — pre-paint init, toggle, light palette, theme-derived tints');
+  } else {
+    fail('dashboard UI: light/dark theme incomplete (init/toggle/palette/color-mix tints)');
+  }
+
   // Global one-shot default: POST /api/autofill persists settings.auto_fill_all
   // as a marker only (never launches a fill from the server), and the header
   // toggle is present and wired.

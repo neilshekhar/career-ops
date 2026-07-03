@@ -1,5 +1,10 @@
 /* career-ops apply queue dashboard
-   Catppuccin Mocha-inspired palette — matches the Go TUI theme. */
+   Two themes behind one token set (the toggle sets data-theme on <html>):
+     dark  — Catppuccin Mocha, matches the Go TUI theme (the original look)
+     light — Atlassian Design System-inspired: white surfaces, N-series
+             neutrals, #0C66E4 brand blue, dark accent text on soft tints
+   All tinted backgrounds derive from the accent vars via color-mix(), so
+   both themes stay in sync from the same rules. */
 
 :root {
   --base:    #1e1e2e;
@@ -23,11 +28,38 @@
   --lane-needs:     var(--yellow);
   --lane-review:    var(--red);
 
+  --card-shadow: none;
+  --panel-shadow: none;
+  color-scheme: dark;
+
   --font: 'DM Sans', system-ui, -apple-system, sans-serif;
   --font-mono: 'Space Grotesk', ui-monospace, monospace;
 
   --radius: 6px;
   --gap: 12px;
+}
+
+:root[data-theme="light"] {
+  --base:    #ffffff;   /* page + cards */
+  --mantle:  #f7f8f9;   /* header, lanes, side panels (ADS surface.sunken) */
+  --crust:   #f1f2f4;
+  --surface0: #e9ebee;  /* subtle fills + resting borders */
+  --surface1: #d5d9e0;  /* hover borders, small buttons, scrollbars */
+  --overlay0: #626f86;  /* muted text/icons (ADS text.subtlest) */
+  --text:    #172b4d;   /* ADS primary text */
+  --subtext: #44546f;   /* ADS text.subtle */
+  --blue:    #0c66e4;   /* ADS brand blue */
+  --sky:     #227d9b;   /* ADS teal (info) */
+  --teal:    #206a83;
+  --green:   #1f845a;   /* ADS success */
+  --yellow:  #946f00;   /* ADS caution text (readable amber on white) */
+  --peach:   #a54800;   /* ADS orange text accent */
+  --red:     #ae2e24;   /* ADS danger text accent */
+  --mauve:   #5e4db2;   /* ADS purple text accent */
+
+  --card-shadow: 0 1px 2px rgba(9, 30, 66, 0.10);
+  --panel-shadow: 0 0 0 1px rgba(9, 30, 66, 0.04);
+  color-scheme: light;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -226,7 +258,7 @@ body {
 .lane-cta {
   margin: 8px 8px 0;
   padding: 8px 10px;
-  background: #f9e2af14;
+  background: color-mix(in srgb, var(--yellow) 8%, transparent);
   border: 1px dashed var(--yellow);
   border-radius: var(--radius);
   color: var(--yellow);
@@ -274,6 +306,7 @@ body {
   gap: 10px;
   align-items: flex-start;
   outline: none;
+  box-shadow: var(--card-shadow);
 }
 
 .card:hover { border-color: var(--surface1); }
@@ -285,7 +318,7 @@ body {
 .card.dragging { opacity: 0.4; }
 
 .lane { border: 2px solid transparent; transition: border-color 0.12s, background 0.12s; }
-.lane.lane-drop-valid { border-color: var(--green); background: #a6e3a114; }
+.lane.lane-drop-valid { border-color: var(--green); background: color-mix(in srgb, var(--green) 8%, transparent); }
 .lane.lane-drop-invalid { opacity: 0.55; cursor: not-allowed; }
 
 .card.selected {
@@ -348,25 +381,25 @@ body {
   letter-spacing: 0.04em;
 }
 
-.badge-ft      { background: #89b4fa22; color: var(--blue); }
-.badge-pt      { background: #94e2d522; color: var(--teal); }
-.badge-ambig   { background: #f38ba822; color: var(--red); }
-.badge-visa    { background: #cba6f722; color: var(--mauve); }
-.badge-flag    { background: #6c708622; color: var(--overlay0); }
-.badge-cap     { background: #fab38722; color: var(--peach); }
-.badge-blocked { background: #f38ba822; color: var(--red); }
-.badge-prepared { background: #a6e3a122; color: var(--green); }
-.badge-login    { background: #f9e2af22; color: var(--yellow); } /* login-required flag */
+.badge-ft      { background: color-mix(in srgb, var(--blue) 13%, transparent); color: var(--blue); }
+.badge-pt      { background: color-mix(in srgb, var(--teal) 13%, transparent); color: var(--teal); }
+.badge-ambig   { background: color-mix(in srgb, var(--red) 13%, transparent); color: var(--red); }
+.badge-visa    { background: color-mix(in srgb, var(--mauve) 13%, transparent); color: var(--mauve); }
+.badge-flag    { background: color-mix(in srgb, var(--overlay0) 13%, transparent); color: var(--overlay0); }
+.badge-cap     { background: color-mix(in srgb, var(--peach) 13%, transparent); color: var(--peach); }
+.badge-blocked { background: color-mix(in srgb, var(--red) 13%, transparent); color: var(--red); }
+.badge-prepared { background: color-mix(in srgb, var(--green) 13%, transparent); color: var(--green); }
+.badge-login    { background: color-mix(in srgb, var(--yellow) 13%, transparent); color: var(--yellow); } /* login-required flag */
 
 /* Risk-lane badges (orthogonal to the stage column) */
-.badge-lane-needs  { background: #f9e2af22; color: var(--yellow); }
-.badge-lane-review { background: #fab38722; color: var(--peach); }
+.badge-lane-needs  { background: color-mix(in srgb, var(--yellow) 13%, transparent); color: var(--yellow); }
+.badge-lane-review { background: color-mix(in srgb, var(--peach) 13%, transparent); color: var(--peach); }
 
 /* Done column (read-only tracker history) */
 .card-done { cursor: default; opacity: 0.92; }
 .card-done:hover { border-color: var(--surface0); }
-.badge-done-applied { background: #a6e3a122; color: var(--green); }
-.badge-done-closed  { background: #6c708622; color: var(--overlay0); }
+.badge-done-applied { background: color-mix(in srgb, var(--green) 13%, transparent); color: var(--green); }
+.badge-done-closed  { background: color-mix(in srgb, var(--overlay0) 13%, transparent); color: var(--overlay0); }
 
 .done-closed { margin-top: 4px; }
 .done-closed summary {
@@ -619,6 +652,7 @@ body {
   color: var(--text);
   padding: 8px 18px;
   border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(9, 30, 66, 0.22);
   font-size: 12px;
   opacity: 0;
   transition: opacity 0.2s, transform 0.2s;
@@ -657,12 +691,12 @@ body {
 
 /* ── New badges ──────────────────────────────────────────────────────────── */
 
-.badge-filled  { background: #89dceb22; color: var(--sky); }
-.badge-prefilled { background: #f9e2af22; color: var(--yellow); }
-.badge-doc     { background: #cba6f722; color: var(--mauve); }
-.badge-ko      { background: #f38ba822; color: var(--red); }
-.badge-deep    { background: #cba6f722; color: var(--mauve); }
-.badge-auto    { background: #fab38722; color: var(--peach); }
+.badge-filled  { background: color-mix(in srgb, var(--sky) 13%, transparent); color: var(--sky); }
+.badge-prefilled { background: color-mix(in srgb, var(--yellow) 13%, transparent); color: var(--yellow); }
+.badge-doc     { background: color-mix(in srgb, var(--mauve) 13%, transparent); color: var(--mauve); }
+.badge-ko      { background: color-mix(in srgb, var(--red) 13%, transparent); color: var(--red); }
+.badge-deep    { background: color-mix(in srgb, var(--mauve) 13%, transparent); color: var(--mauve); }
+.badge-auto    { background: color-mix(in srgb, var(--peach) 13%, transparent); color: var(--peach); }
 .badge-prov    { background: transparent; color: var(--overlay0); font-size: 9px;
                  text-transform: none; letter-spacing: 0; font-weight: 400; padding: 0; }
 
@@ -710,7 +744,7 @@ body {
 
 .card.checked {
   border-color: var(--blue);
-  background: #89b4fa0a;
+  background: color-mix(in srgb, var(--blue) 4%, transparent);
 }
 
 .card-url {
@@ -864,12 +898,12 @@ button:disabled {
   border: 1px solid var(--surface0);
 }
 
-.activity-success  { border-color: #a6e3a133; }
-.activity-failure  { border-color: #f38ba833; }
-.activity-login-wall { border-color: #f9e2af33; }
-.activity-knockout-flag { border-color: #f38ba833; }
+.activity-success  { border-color: color-mix(in srgb, var(--green) 20%, transparent); }
+.activity-failure  { border-color: color-mix(in srgb, var(--red) 20%, transparent); }
+.activity-login-wall { border-color: color-mix(in srgb, var(--yellow) 20%, transparent); }
+.activity-knockout-flag { border-color: color-mix(in srgb, var(--red) 20%, transparent); }
 .activity-started  { border-color: var(--surface0); }
-.activity-agent-path { border-color: #cba6f733; }
+.activity-agent-path { border-color: color-mix(in srgb, var(--mauve) 20%, transparent); }
 
 .activity-icon    { font-size: 12px; }
 .activity-company { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -879,7 +913,7 @@ button:disabled {
 
 /* flash animation when a card gets an activity event */
 @keyframes activityFlash {
-  0%   { background: #89b4fa22; }
+  0%   { background: color-mix(in srgb, var(--blue) 13%, transparent); }
   100% { background: inherit; }
 }
 .card.activity-flash { animation: activityFlash 2s ease-out; }

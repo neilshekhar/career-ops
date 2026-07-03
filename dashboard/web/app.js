@@ -916,6 +916,25 @@ async function toggleAutoFillAll() {
   }
 }
 
+// ── Theme ─────────────────────────────────────────────────────────────────────
+// data-theme is set before first paint by the inline <head> script; this only
+// handles the toggle and keeps the button glyph in sync.
+
+function syncThemeButton() {
+  const btn = document.getElementById('btn-theme');
+  if (!btn) return;
+  const dark = document.documentElement.dataset.theme === 'dark';
+  btn.textContent = dark ? '☀' : '☾';
+  btn.title = dark ? 'Switch to light theme' : 'Switch to dark theme';
+}
+
+function toggleTheme() {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem('career-ops-theme', next);
+  syncThemeButton();
+}
+
 async function setThreshold() {
   const val = parseFloat(document.getElementById('threshold-input').value);
   if (isNaN(val) || val < 0 || val > 5) { toast('Enter a threshold between 0 and 5'); return; }
@@ -1055,6 +1074,8 @@ function advanceCursor() {
 
 function setupEventListeners() {
   document.getElementById('btn-refresh').addEventListener('click', loadQueue);
+  document.getElementById('btn-theme').addEventListener('click', toggleTheme);
+  syncThemeButton();
   document.getElementById('btn-close-inbox').addEventListener('click', closeInbox);
   document.getElementById('btn-set-threshold').addEventListener('click', setThreshold);
   document.getElementById('threshold-input').addEventListener('keydown', e => {
