@@ -72,9 +72,11 @@ plus the canonical tracker states). Confirm a queue row round-trips:
 node normalize-statuses.mjs && node verify-pipeline.mjs
 ```
 
-### 7. Dashboard launches, three lanes render
-Smoke the dashboard and confirm the review queue renders its three lanes
-(**ready / needs-input / review-carefully**). The Go TUI (`dashboard/`) must also
+### 7. Dashboard launches, kanban board renders
+Smoke the dashboard and confirm the review queue renders its five kanban
+columns (**Inbox / To Do / Prepared / In Review / Done**) with the risk-lane
+badges (needs-input / review-carefully) on cards, and that cards drag between
+columns per the transition rules. The Go TUI (`dashboard/`) must also
 build — `go` must be on PATH (this is why §2 runs outside the sandbox).
 
 ### 8. DOCX cover letter still generates

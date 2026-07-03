@@ -15,6 +15,12 @@ states:
     description: Role saved to queue, pending scoring (maps to Evaluated on decide)
     dashboard_group: evaluated
 
+  - id: scored
+    label: Scored
+    aliases: []
+    description: Role scored, awaiting selection in the dashboard (maps to Evaluated on decide)
+    dashboard_group: evaluated
+
   - id: prepared
     label: Prepared
     aliases: [prepare-queued, ready]

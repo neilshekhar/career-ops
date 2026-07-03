@@ -326,7 +326,7 @@ neilshekhar/career-ops`) and verify the target owner before creating it.
 **Every upstream pull MUST pass the full validation gate in `UPSTREAM_MERGE_CHECKLIST.md`
 before it lands on `main`.** That checklist is standing precedent, not a one-off: engine
 zero-diff, `test-all.mjs` green, `verify-pipeline.mjs` clean, cron RLS 6/6, `jose` mint,
-`states.yml` queue vocabulary intact, dashboard launches (three lanes), DOCX cover letter
+`states.yml` queue vocabulary intact, dashboard launches (kanban board), DOCX cover letter
 generates, and the expected gains present. **No upstream pull lands on `main` until all
 pass.** Any red → stop, report the failure, fix on the merge branch, re-run the whole gate.
 After it lands, cut a release on the maintainer's own version line and update `handover.md`.
