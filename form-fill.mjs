@@ -306,7 +306,7 @@ async function findNavButton(page) {
   for (const btn of btns) {
     const text = (
       (await btn.innerText().catch(() => '')) ||
-      (await btn.getAttribute('value').catch(() => ''))
+      (await btn.getAttribute('value').catch(() => '') ?? '')
     ).trim().toLowerCase().replace(/\s+/g, ' ');
 
     // Never click final-submit buttons
