@@ -6266,6 +6266,14 @@ try {
   } else {
     fail('form-fill is not wired to strip +61 beside a separate country-code selector');
   }
+
+  // Market neutrality: phone/date reformatting must be gated on the profile's
+  // formatting block — no hardcoded market default (e.g. || '+61') may remain.
+  if (!/\|\|\s*'\+61'/.test(formFillSrc) && !/\|\|\s*'DD\/MM\/YYYY'/.test(formFillSrc)) {
+    pass('form-fill has no hardcoded market formatting defaults (phone/date gated on profile)');
+  } else {
+    fail("form-fill still falls back to a hardcoded market default (|| '+61' or || 'DD/MM/YYYY')");
+  }
 } catch (e) {
   fail(`Form-fill submit safety checks crashed: ${e.message}`);
 }

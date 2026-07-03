@@ -57,16 +57,52 @@ const SOURCE_ARG = (() => {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-// Discovery search-query seeds. Source of truth: config/profile.yml
-// target_roles.primary + the Data Scientist archetype. Keep in sync.
-const TITLES = [
-  'data analyst',
-  'data engineer',
-  'analytics engineer',
-  'business intelligence analyst',
-  'data scientist',
-  'forward deployed engineer',
-];
+// Discovery targeting defaults — every value here is overridable per user via
+// the optional `apify_discovery:` block in portals.yml (user layer, and the
+// same file the cron reconstructs from the PORTALS_YML secret), so search
+// queries and market never have to be edited in this system-layer script.
+const DEFAULT_DISCOVERY = {
+  titles: [
+    'data analyst',
+    'data engineer',
+    'analytics engineer',
+    'business intelligence analyst',
+    'data scientist',
+    'forward deployed engineer',
+  ],
+  location: 'Melbourne VIC',   // Seek/Indeed location string
+  country:  'AU',
+  fantastic_locations:  ['Melbourne'],
+  fantastic_taxonomies: ['Data & Analytics'],
+  fantastic_experience: ['0-2', '2-5'],
+};
+
+/**
+ * Load per-user discovery targeting from portals.yml → apify_discovery,
+ * merged over DEFAULT_DISCOVERY. Missing file/block/fields fall back to the
+ * defaults (unlike the title filter, targeting is not a safety gate — the
+ * post-fetch buildTitleFilter gate still decides what survives).
+ */
+function loadDiscoveryConfig() {
+  try {
+    const portalsPath = process.env.CAREER_OPS_PORTALS || 'portals.yml';
+    const cfg = yaml.load(readFileSync(portalsPath, 'utf-8')) || {};
+    const d = cfg.apify_discovery || {};
+    return {
+      titles:   Array.isArray(d.titles) && d.titles.length > 0 ? d.titles : DEFAULT_DISCOVERY.titles,
+      location: typeof d.location === 'string' && d.location ? d.location : DEFAULT_DISCOVERY.location,
+      country:  typeof d.country === 'string' && d.country ? d.country : DEFAULT_DISCOVERY.country,
+      fantastic_locations:  Array.isArray(d.fantastic_locations) && d.fantastic_locations.length > 0
+        ? d.fantastic_locations : DEFAULT_DISCOVERY.fantastic_locations,
+      fantastic_taxonomies: Array.isArray(d.fantastic_taxonomies) && d.fantastic_taxonomies.length > 0
+        ? d.fantastic_taxonomies : DEFAULT_DISCOVERY.fantastic_taxonomies,
+      fantastic_experience: Array.isArray(d.fantastic_experience) && d.fantastic_experience.length > 0
+        ? d.fantastic_experience : DEFAULT_DISCOVERY.fantastic_experience,
+    };
+  } catch {
+    return { ...DEFAULT_DISCOVERY };
+  }
+}
 
 // Apify run-sync can take several minutes for large actors (Fantastic 200-job min).
 const ACTOR_RUN_TIMEOUT_MS = 300_000;
@@ -163,21 +199,22 @@ function makeStub({ source, title, url, company, location, posted_at, valid_thro
  * Incremental mode with a per-title stateKey tracks what was already emitted;
  * changeType NEW or REAPPEARED are the only accepted records.
  */
-async function fetchSeek(token) {
+async function fetchSeek(token, _exclusions, d = DEFAULT_DISCOVERY) {
   const stubs = [];
+  const locationSlug = d.location.toLowerCase().replace(/\s+/g, '-');
 
-  for (const title of TITLES) {
+  for (const title of d.titles) {
     const items = await runApifyActor('blackfalcondata/seek-scraper', {
       query:           title,
-      country:         'AU',
-      location:        'Melbourne VIC',
+      country:         d.country,
+      location:        d.location,
       dateRange:       '1',
       maxResults:      20,
       compact:         true,
       includeDetails:  false,
       incrementalMode: true,
-      // Unique stateKey per title so incremental state is tracked per query.
-      stateKey:        `careerops-seek-melbourne-${title.replace(/\s+/g, '-')}`,
+      // Unique stateKey per location+title so incremental state is tracked per query.
+      stateKey:        `careerops-seek-${locationSlug}-${title.replace(/\s+/g, '-')}`,
     }, token);
 
     for (const item of items) {
@@ -207,14 +244,14 @@ async function fetchSeek(token) {
  *
  * Runs once per title and merges; keeps URL as the dedup key.
  */
-async function fetchIndeed(token) {
+async function fetchIndeed(token, _exclusions, d = DEFAULT_DISCOVERY) {
   const stubs = [];
 
-  for (const title of TITLES) {
+  for (const title of d.titles) {
     const items = await runApifyActor('automation-lab/indeed-scraper', {
       query:              title,
-      location:           'Melbourne VIC',
-      country:            'AU',
+      location:           d.location,
+      country:            d.country,
       datePosted:         '1',   // "1" = last 24 hours (actor enum: "", "1", "3", "7", "14")
       maxItems:           20,
       includeDescription: false,
@@ -246,14 +283,14 @@ async function fetchIndeed(token) {
  * Running it daily would waste Apify credits for diminishing returns.
  * Schedule this actor separately (weekly) once the prototype is promoted to cron.
  */
-async function fetchFantastic(token, exclusions = []) {
+async function fetchFantastic(token, exclusions = [], d = DEFAULT_DISCOVERY) {
   const items = await runApifyActor('fantastic-jobs/workday-jobs-api', {
-    titleSearch:           TITLES,
-    locationSearch:        ['Melbourne'],  // actor requires an array
+    titleSearch:           d.titles,
+    locationSearch:        d.fantastic_locations,  // actor requires an array
     maxJobs:               200,
     descriptionType:       'text',
-    aiTaxonomiesFilter:    ['Data & Analytics'],
-    aiExperienceLevelFilter: ['0-2', '2-5'],
+    aiTaxonomiesFilter:    d.fantastic_taxonomies,
+    aiExperienceLevelFilter: d.fantastic_experience,
     // Derived from portals.yml title_filter.negative.  The caller omits
     // whitespace-sensitive entries here; the post-fetch title filter handles
     // those so Fantastic cannot over-exclude matches like "JavaScript".
@@ -375,10 +412,13 @@ async function main() {
   const allStubs      = [];
   const fetchedCount  = {};
 
+  // Per-user discovery targeting (titles / market) from portals.yml, defaults otherwise.
+  const discovery = loadDiscoveryConfig();
+
   for (const src of sources) {
     try {
       console.log(`  Fetching ${src.name}…`);
-      const stubs = await src.fetch(token, fantasticExclusions);
+      const stubs = await src.fetch(token, fantasticExclusions, discovery);
       fetchedCount[src.name] = stubs.length;
       allStubs.push(...stubs);
       console.log(`    → ${stubs.length} raw record(s)`);

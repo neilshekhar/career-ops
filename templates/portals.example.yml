@@ -1572,3 +1572,19 @@ job_boards:
   #   provider: higheredjobs
   #   cat_id: 68
   #   enabled: true
+
+# ── Apify discovery targeting (optional — used by apify-discover.mjs) ─────────
+# Only relevant if you enable the optional Apify job-board discovery cron
+# (needs your own APIFY_TOKEN; Apify grants ~$5 free credit monthly).
+# Set these to YOUR target roles and market; when the block is absent the
+# script falls back to its shipped example defaults.
+#
+# apify_discovery:
+#   titles:
+#     - senior backend engineer
+#     - platform engineer
+#   location: "Sydney NSW"        # Seek/Indeed location string
+#   country: "AU"
+#   fantastic_locations: ["Sydney"]
+#   fantastic_taxonomies: ["Software Development"]
+#   fantastic_experience: ["2-5", "5-10"]

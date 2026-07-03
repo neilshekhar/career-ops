@@ -204,7 +204,8 @@ async function fillRegistrationForm(page, profile, host) {
     } else if (/\bemail\b/.test(l)) {
       value = email;
     } else if (/\bphone\b|\bmobile\b/.test(l)) {
-      value = formatPhone(c.phone, fmt.phone_country || '+61');
+      // Only reformat when the profile declares a country code — no market default.
+      value = fmt.phone_country ? formatPhone(c.phone, fmt.phone_country) : c.phone;
     }
 
     if (value && isPhoneField(text)) value = await phoneValueForInput(input, text, value, profile);
@@ -475,7 +476,7 @@ async function applyCheckbox(input, labelText, value, provenance, filled, manual
   }
 }
 
-async function hasSelectedCountryCodeControl(input, countryCode = '+61') {
+async function hasSelectedCountryCodeControl(input, countryCode) {
   return input.evaluate((el, code) => {
     const codeText = String(code || '').trim();
     const codeDigits = codeText.replace(/\D/g, '');
@@ -560,7 +561,10 @@ async function hasSelectedCountryCodeControl(input, countryCode = '+61') {
 
 async function phoneValueForInput(input, labelText, value, profile) {
   if (!isPhoneField(labelText)) return value;
-  const countryCode = profile?.formatting?.phone_country || '+61';
+  // Split country-code handling only applies when the profile declares a code —
+  // there is no market default to detect against.
+  const countryCode = profile?.formatting?.phone_country;
+  if (!countryCode) return value;
   if (await hasSelectedCountryCodeControl(input, countryCode)) {
     return formatPhoneWithoutCountryCode(value, countryCode);
   }
@@ -660,22 +664,21 @@ function resolveField(label, tagName, inputType, liveOptions, profile, role) {
   }
 
   const fmt    = profile.formatting ?? {};
-  const isAU   = fmt.phone_country === '+61' || !fmt.phone_country;
 
-  // Phone: apply AU formatting
+  // Phone: reformat only when the profile declares a country code (formatting.phone_country)
   if (isPhoneField(label)) {
     const rule = matchProfileRule(label, inputType, profile, role);
     if (rule) {
-      const v = isAU ? formatPhone(rule.value, '+61') : rule.value;
+      const v = fmt.phone_country ? formatPhone(rule.value, fmt.phone_country) : rule.value;
       return { value: v, widget: 'text', source: 'deterministic', provenance: `deterministic:phone`, firstUse: false };
     }
   }
 
-  // Date: apply AU formatting
+  // Date: reformat only when the profile declares a format (formatting.date_format)
   if (isDateField(label)) {
     const rule = matchProfileRule(label, inputType, profile, role);
     if (rule) {
-      const v = formatDate(rule.value, fmt.date_format || 'DD/MM/YYYY');
+      const v = fmt.date_format ? formatDate(rule.value, fmt.date_format) : rule.value;
       return { value: v, widget: 'text', source: 'deterministic', provenance: `deterministic:date`, firstUse: false };
     }
   }
@@ -880,7 +883,7 @@ async function fillLever(page, profile, role) {
   const nameMap = [
     { names: ['name', 'full_name'],  value: candidate.full_name },
     { names: ['email'],              value: candidate.email },
-    { names: ['phone'],              value: formatPhone(candidate.phone, fmt.phone_country || '+61') },
+    { names: ['phone'],              value: fmt.phone_country ? formatPhone(candidate.phone, fmt.phone_country) : candidate.phone },
     { names: ['urls[LinkedIn]', 'urls[Linkedin]', 'linkedin'], value: candidate.linkedin },
     { names: ['urls[GitHub]', 'github'],  value: candidate.github },
     { names: ['urls[Portfolio]', 'portfolio', 'website'], value: application_answers.website || candidate.github },

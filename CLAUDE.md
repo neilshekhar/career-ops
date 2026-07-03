@@ -350,7 +350,7 @@ Verify a posting is still live before applying — using the cheapest check that
 
 This repo is a personal fork that periodically catches up to santifer's upstream.
 **Never push branches, open PRs, or post PR comments/reviews against
-`santifer/career-ops` without Neil's explicit permission in the current
+`santifer/career-ops` without the maintainer's explicit permission in the current
 conversation.** Routine fork work targets `neilshekhar/career-ops` only. If a PR
 is needed, pass the repository explicitly (for example `--repo
 neilshekhar/career-ops`) and verify the target owner before creating it.
@@ -360,7 +360,7 @@ zero-diff, `test-all.mjs` green, `verify-pipeline.mjs` clean, cron RLS 6/6, `jos
 `states.yml` queue vocabulary intact, dashboard launches (kanban board), DOCX cover letter
 generates, and the expected gains present. **No upstream pull lands on `main` until all
 pass.** Any red → stop, report the failure, fix on the merge branch, re-run the whole gate.
-After it lands, cut a release on Neil's own version line and update `handover.md`.
+After it lands, cut a release on the fork's own version line and update `handover.md`.
 
 ## Community and Governance
 
@@ -445,7 +445,7 @@ It is a **living snapshot, not an append-only log** — keep the whole file unde
 - **Current State** — what is set up, what is working, key config facts
 - **In Progress** — active work, pending evaluations, unfinished tasks
 - **Next Steps** — concrete next actions (ordered by priority)
-- **Open Questions** — decisions Neil needs to make before work continues
+- **Open Questions** — decisions the maintainer needs to make before work continues
 - **Architecture Decisions** — durable choices, but edit *in place* when a decision changes; do not stack contradictions
 
 **ORDERED add-only sections** (do not rewrite existing entries except to correct an obvious ordering mistake):
@@ -479,6 +479,6 @@ Agents (Claude Code, Codex, Gemini, OpenCode, and others) should QC each other's
 
 **Record the outcome:**
 - Clean: add one Session Log line — `QC'd [files] — clean`.
-- Issues found: flag in `handover.md → Open Questions` or `Lessons & Mistakes`; fix only if safe and in scope, otherwise leave for the implementing agent or Neil.
+- Issues found: flag in `handover.md → Open Questions` or `Lessons & Mistakes`; fix only if safe and in scope, otherwise leave for the implementing agent or the maintainer.
 
 **Bidirectional:** any agent both performs QC and is subject to it.
