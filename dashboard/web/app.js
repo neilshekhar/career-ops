@@ -709,7 +709,8 @@ async function startRun() {
     const skippedNote = data.notPrepared > 0
       ? `, ${data.notPrepared} skipped (not prepared — run /career-ops queue prepare)`
       : '';
-    toast(`Run started: ${data.deterministic} headless, ${data.loginGated} headed, ${data.agentPath} agent-path${skippedNote}`, data.notPrepared > 0 ? 5000 : 2500);
+    const headedCount = (data.loginGated ?? 0) + (data.headedReopen ?? 0);
+    toast(`Run started: ${data.deterministic} headless, ${headedCount} headed, ${data.agentPath} agent-path${skippedNote}`, data.notPrepared > 0 ? 5000 : 2500);
     clearAll();
   } catch {
     toast('Failed to start run — check server logs', 4000);

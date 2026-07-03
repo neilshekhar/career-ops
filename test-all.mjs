@@ -6723,17 +6723,20 @@ try {
   try {
     const { partitionRunRoles } = await import(pathToFileURL(join(ROOT, 'run-partition.mjs')).href);
     const sample = [
-      { id: 'gh-plain',   ats: 'greenhouse', status: 'prepared',       flags: [] },
-      { id: 'gh-deep',    ats: 'greenhouse', status: 'prepared',       flags: ['deep-eval'] },
-      { id: 'custom',     ats: 'custom',     status: 'scored',         flags: [] },
-      { id: 'login',      ats: 'lever',      status: 'prefilled',      flags: ['login-required'] },
-      { id: 'login-deep', ats: 'lever',      status: 'prepared',       flags: ['login-required', 'deep-eval'] },
-      { id: 'gh-scored',  ats: 'greenhouse', status: 'scored',         flags: [] },
-      { id: 'gh-queued',  ats: 'lever',      status: 'prepare-queued', flags: ['login-required'] },
+      { id: 'gh-plain',     ats: 'greenhouse', status: 'prepared',       flags: [] },
+      { id: 'gh-deep',      ats: 'greenhouse', status: 'prepared',       flags: ['deep-eval'] },
+      { id: 'custom',       ats: 'custom',     status: 'scored',         flags: [] },
+      { id: 'login',        ats: 'lever',      status: 'prefilled',      flags: ['login-required'] },
+      { id: 'login-deep',   ats: 'lever',      status: 'prepared',       flags: ['login-required', 'deep-eval'] },
+      { id: 'gh-scored',    ats: 'greenhouse', status: 'scored',         flags: [] },
+      { id: 'gh-queued',    ats: 'lever',      status: 'prepare-queued', flags: ['login-required'] },
+      { id: 'gh-filled',    ats: 'greenhouse', status: 'filled',         flags: [] },
+      { id: 'gh-prefilled', ats: 'greenhouse', status: 'prefilled',      flags: [] },
     ];
-    const { deterministic, loginGated, agentPath, notPrepared } = partitionRunRoles(sample);
+    const { deterministic, loginGated, headedReopen, agentPath, notPrepared } = partitionRunRoles(sample);
     const ids = (arr) => arr.map((r) => r.id);
-    const detIds = ids(deterministic), loginIds = ids(loginGated), agentIds = ids(agentPath), skipIds = ids(notPrepared);
+    const detIds = ids(deterministic), loginIds = ids(loginGated), reopenIds = ids(headedReopen),
+          agentIds = ids(agentPath), skipIds = ids(notPrepared);
 
     if (detIds.includes('gh-plain') && !detIds.includes('gh-deep') && !detIds.includes('login-deep')) {
       pass('partitionRunRoles: plain ATS role → deterministic; deep-eval roles excluded from deterministic');
@@ -6760,6 +6763,17 @@ try {
       pass('partitionRunRoles: unprepared roles → notPrepared (bulk asset gate), never a fill lane');
     } else {
       fail(`partitionRunRoles notPrepared bucket wrong: ${JSON.stringify(skipIds)} (det: ${JSON.stringify(detIds)}, login: ${JSON.stringify(loginIds)})`);
+    }
+    // Headless is for FIRST fills only: an existing fill (prefilled/filled)
+    // must re-open HEADED — a headless pass would rewrite a headed-reviewed
+    // 'filled' role back to 'prefilled', silently discarding its reviewed
+    // state (Codex QC 2026-07-03).
+    if (reopenIds.includes('gh-filled') && reopenIds.includes('gh-prefilled') &&
+        !detIds.includes('gh-filled') && !detIds.includes('gh-prefilled') &&
+        !reopenIds.includes('login') && !reopenIds.includes('gh-plain')) {
+      pass('partitionRunRoles: prefilled/filled re-opens → headedReopen, never the headless deterministic lane');
+    } else {
+      fail(`partitionRunRoles headedReopen bucket wrong: ${JSON.stringify(reopenIds)} (det: ${JSON.stringify(detIds)})`);
     }
   } catch (err) {
     fail(`partitionRunRoles behavioral test crashed: ${err.message}`);
@@ -8452,11 +8466,21 @@ try {
   // notPrepared lane (skip notice + count) instead of launching form-fill
   // for unprepared roles.
   if (serverSrc32.includes('notPrepared') &&
-      serverSrc32.includes('notPrepared: notPrepared.length') &&
+      serverSrc32.includes('notPrepared:  notPrepared.length') &&
       serverSrc32.includes('run /career-ops queue prepare to generate fresh assets')) {
     pass('apiRun surfaces the notPrepared asset-gate lane (bulk parity with single fill)');
   } else {
     fail('apiRun does not surface the notPrepared lane — bulk runs may bypass the asset gate');
+  }
+
+  // Bulk re-opens run headed: apiRun must drive the headedReopen lane through
+  // the serial headed runner (spawnFillDetached(role.id, false)), never the
+  // headless deterministic pool.
+  if (serverSrc32.includes('headedReopen: headedReopen.length') &&
+      serverSrc32.includes('for (const role of headedReopen)')) {
+    pass('apiRun runs prefilled/filled re-opens through the serial headed lane');
+  } else {
+    fail('apiRun does not route headedReopen through the serial headed runner');
   }
 
   // GET /api/queue must not turn a persistent reconcile-save failure into a

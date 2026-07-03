@@ -341,18 +341,19 @@ function apiRun(req, res) {
     // before any fill (the headless server has no LLM) — see modes/apply.md →
     // "Deep-eval marker". The pure logic lives in run-partition.mjs so it can be
     // unit-tested without starting the server.
-    const { deterministic, loginGated, agentPath, notPrepared } = partitionRunRoles(roles);
+    const { deterministic, loginGated, headedReopen, agentPath, notPrepared } = partitionRunRoles(roles);
 
     const runId = `run-${Date.now()}`;
 
     // Respond immediately — fill runs asynchronously
     respond(res, 200, {
       runId,
-      total:       roles.length,
+      total:        roles.length,
       deterministic: deterministic.length,
-      loginGated:  loginGated.length,
-      agentPath:   agentPath.length,
-      notPrepared: notPrepared.length,
+      loginGated:   loginGated.length,
+      headedReopen: headedReopen.length,
+      agentPath:    agentPath.length,
+      notPrepared:  notPrepared.length,
       concurrency,
     });
 
@@ -395,11 +396,13 @@ function apiRun(req, res) {
       Promise.all(workers).catch(() => {});
     }
 
-    // ── Login-gated fills — serial, headed, poll-based ───────────────────────
+    // ── Headed fills (login-gated + re-opens) — serial, poll-based ───────────
     // Headed fills are designed to stay open (block) for user review, so we
     // cannot await process exit.  Instead: spawn detached, then poll the queue
     // until the role's status advances to 'filled' (or a DONE status), then
     // launch the next one.  The per-role timeout matches login_timeout_min.
+    // Re-opens of prefilled/filled roles run here too — a headless pass would
+    // rewrite a headed-reviewed 'filled' role back to 'prefilled'.
     const loginTimeoutMs = (loadProfile().automation?.login_timeout_min ?? 10) * 60 * 1000
       + 5 * 60 * 1000; // add 5 min buffer for fill time after login
 
@@ -424,6 +427,17 @@ function apiRun(req, res) {
         const freshRole = loadQueue().roles.find((r) => r.id === role.id) ?? role;
         emitActivity(runId, role.id, ok ? 'success' : 'failure', freshRole, {
           detail: ok ? 'status reached filled' : 'timeout waiting for login',
+        });
+      }
+      for (const role of headedReopen) {
+        emitActivity(runId, role.id, 'started', role, {
+          message: 'Re-opening headed for review — browser stays open; review, then submit manually.',
+        });
+        spawnFillDetached(role.id, false); // headed, stays open for user review
+        const ok = await waitForFilled(role.id);
+        const freshRole = loadQueue().roles.find((r) => r.id === role.id) ?? role;
+        emitActivity(runId, role.id, ok ? 'success' : 'failure', freshRole, {
+          detail: ok ? 'status reached filled' : 'timeout waiting for headed review',
         });
       }
     };
