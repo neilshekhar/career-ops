@@ -178,6 +178,7 @@ async function loadQueue() {
     if (settings.score_threshold) {
       document.getElementById('threshold-input').value = settings.score_threshold;
     }
+    syncAutoFillAllButton();
     renderAll(data.stats);
     syncBatchBar();
   } catch (err) {
@@ -387,11 +388,17 @@ function buildCard(role, stageKey, idx) {
     ? '<span class="badge badge-deep" title="Marked for a full oferta evaluation before applying">★ deep-eval</span>'
     : '';
 
+  // Auto-fill marker badge (set from the inbox ⚡ button; honoured at PREPARE time:
+  // the fill launches right after assets are generated instead of parking at Prepared)
+  const autoBadge = (role.flags || []).includes('auto-fill')
+    ? '<span class="badge badge-auto" title="One-shot: PREPARE chains straight into the fill (still never submits)">⚡ auto-fill</span>'
+    : '';
+
   // Extra flags (first 2, excluding well-known ones)
   const HANDLED_FLAGS = new Set([
     'ambiguous-employment', 'large-co-visa-cap', 'pr-citizenship-required',
     'login-required', 'ksc-required', 'cover-letter-required', 'knockout-flag',
-    'manual-field', 'deep-eval',
+    'manual-field', 'deep-eval', 'auto-fill',
   ]);
   const extraFlags = (role.flags || [])
     .filter(f => !HANDLED_FLAGS.has(f))
@@ -415,7 +422,7 @@ function buildCard(role, stageKey, idx) {
       <div class="card-company">${esc(role.company)}${role.location ? ' · ' + esc(role.location) : ''}</div>
       <div class="card-url"><a href="${esc(role.url)}" target="_blank" rel="noopener" class="card-url-link" title="${esc(role.url)}">${esc(truncateUrl(role.url))}</a></div>
       <div class="card-badges">
-        ${laneBadge}${typeBadge}${visaBadge}${eligBadge}${statusBadge}${loginBadge}${kscBadge}${coverBadge}${koBadge}${deepBadge}${extraFlags}
+        ${laneBadge}${typeBadge}${visaBadge}${eligBadge}${statusBadge}${loginBadge}${kscBadge}${coverBadge}${koBadge}${deepBadge}${autoBadge}${extraFlags}
       </div>
       ${provBadge ? `<div class="card-prov">${provBadge}</div>` : ''}
       ${role.requirements_snippet ? `<div class="card-snippet">${esc(role.requirements_snippet.slice(0, 120))}…</div>` : ''}
@@ -573,6 +580,16 @@ function renderInbox(role) {
     deepBtn.title = marked
       ? 'Marked — a full oferta runs before applying. Click to unmark.'
       : 'Mark this role as worth a full oferta evaluation before applying';
+  }
+
+  const autoBtn = document.getElementById('btn-auto-fill');
+  if (autoBtn) {
+    const marked = (role.flags || []).includes('auto-fill');
+    autoBtn.classList.toggle('active', marked);
+    autoBtn.textContent = marked ? '⚡ Auto-fill ✓' : '⚡ Auto-fill';
+    autoBtn.title = marked
+      ? 'One-shot on — PREPARE chains straight into the fill. Click to unmark.'
+      : 'One-shot: PREPARE chains straight into the fill (still never submits)';
   }
 
   if (role.employment_type === 'ambiguous') {
@@ -834,26 +851,68 @@ async function doDecision(decision, roleId = activeId) {
   }
 }
 
-async function toggleDeepEval() {
+// Shared marker toggle — deep-eval and auto-fill both go through the /flag
+// endpoint (marker only: never touches status, lane, or the fill pipeline).
+async function toggleRoleFlag(flag, { onMsg, offMsg }) {
   if (!activeId) return;
   const role = allRoles.find(r => r.id === activeId);
-  const marked = (role?.flags || []).includes('deep-eval');
+  const marked = (role?.flags || []).includes(flag);
   try {
     const res = await fetch(`/api/role/${encodeURIComponent(activeId)}/flag`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ flag: 'deep-eval', value: !marked }),
+      body: JSON.stringify({ flag, value: !marked }),
     });
     if (!res.ok) { toast('Could not update mark', 3000); return; }
     const data = await res.json();
-    toast(data.marked
-      ? '★ Marked — full oferta will run before applying'
-      : 'Deep-eval mark removed');
+    toast(data.marked ? onMsg : offMsg);
     await loadQueue();
     const updated = allRoles.find(r => r.id === activeId);
     if (updated) renderInbox(updated);
   } catch {
     toast('Mark update failed — check server logs', 4000);
+  }
+}
+
+async function toggleDeepEval() {
+  return toggleRoleFlag('deep-eval', {
+    onMsg:  '★ Marked — full oferta will run before applying',
+    offMsg: 'Deep-eval mark removed',
+  });
+}
+
+async function toggleAutoFill() {
+  return toggleRoleFlag('auto-fill', {
+    onMsg:  '⚡ One-shot on — PREPARE will chain straight into the fill (never submits)',
+    offMsg: 'Auto-fill mark removed — will park at Prepared as usual',
+  });
+}
+
+// Global one-shot default (settings.auto_fill_all): PREPARE chains into the fill
+// for EVERY role, no per-card flag needed. Marker only — nothing launches now.
+function syncAutoFillAllButton() {
+  const btn = document.getElementById('btn-auto-fill-all');
+  if (!btn) return;
+  const on = settings.auto_fill_all === true;
+  btn.classList.toggle('active', on);
+  btn.textContent = on ? '⚡ One-shot: ALL' : '⚡ One-shot: off';
+}
+
+async function toggleAutoFillAll() {
+  const next = !(settings.auto_fill_all === true);
+  try {
+    const res = await fetch('/api/autofill', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ value: next }),
+    });
+    if (!res.ok) { toast('Could not update one-shot setting', 3000); return; }
+    toast(next
+      ? '⚡ One-shot ON for all roles — every PREPARE chains straight into the fill (never submits)'
+      : 'One-shot off — roles park at Prepared unless individually ⚡ flagged', 4000);
+    await loadQueue();
+  } catch {
+    toast('One-shot update failed — check server logs', 4000);
   }
 }
 
@@ -1007,6 +1066,8 @@ function setupEventListeners() {
   document.getElementById('btn-skip').addEventListener('click', () => doDecision('skipped'));
   document.getElementById('btn-reviewed').addEventListener('click', () => doDecision('reviewed'));
   document.getElementById('btn-deep-eval').addEventListener('click', toggleDeepEval);
+  document.getElementById('btn-auto-fill').addEventListener('click', toggleAutoFill);
+  document.getElementById('btn-auto-fill-all').addEventListener('click', toggleAutoFillAll);
 
   document.getElementById('btn-select-all').addEventListener('click', selectAll);
   document.getElementById('btn-clear-all').addEventListener('click', clearAll);

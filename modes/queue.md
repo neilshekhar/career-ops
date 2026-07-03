@@ -229,6 +229,40 @@ EasyGo – Senior Data Analyst – Kick
     never clicks submit.)
 ```
 
+For roles that chained through one-shot auto-fill (Step 5), note it in the
+summary line: `⚡ auto-fill: form-fill launched — review in the open browser`.
+
+### Step 5 — One-shot auto-fill (`auto-fill` flag / `auto_fill_all` setting)
+
+A role is **one-shot** when either holds:
+
+- its `flags[]` contains `auto-fill` (per-card ⚡ Auto-fill toggle in the
+  dashboard inbox), or
+- the queue's `settings.auto_fill_all` is `true` (header-level "⚡ One-shot"
+  toggle — applies to every role this phase prepares).
+
+For each one-shot role, chain straight into the fill after marking it
+`prepared` — do not park it at Prepared waiting for a dashboard Fill click:
+
+- **Deterministic ATS (greenhouse / lever / ashby / …):** launch the same fill
+  the dashboard Fill button runs — `node form-fill.mjs <role-id>`, headed,
+  detached (run it in the background so the open review browser doesn't block
+  you). `form-fill.mjs` handles login walls itself and never clicks Submit.
+- **Custom ATS (`ats: custom`):** after finishing all prepares, continue inline
+  into the agent apply flow (`modes/apply.md`) for that role.
+- **Deep-eval marked too:** the deep-eval rule wins the ordering — full
+  `oferta` first (see `modes/apply.md` → "Deep-eval marker"), then prepare,
+  then fill.
+
+Roles **without** the flag (while `auto_fill_all` is off) keep the existing
+behavior: stop at `prepared` and wait for the candidate's Fill action in the
+dashboard.
+
+Guarantees unchanged: the asset gate holds because the fill runs strictly
+*after* this PREPARE produced fresh CV + cover assets for the role, and nothing
+is ever submitted — every chained fill parks at In Review for the candidate's
+manual review and submit.
+
 ---
 
 ## Login-gated portals
@@ -243,7 +277,9 @@ custom ATSes, the agent apply path handles it interactively.
 
 ## Hard rules (both phases)
 
-- **Never auto-submit.** This mode writes to apply-queue.json only.
+- **Never auto-submit.** The only side effects of this mode are apply-queue.json
+  writes, asset generation, and (for `auto-fill`-flagged roles) launching the
+  never-submitting `form-fill.mjs` — Submit stays manual in every path.
 - **Never modify** cv.md, portals.yml, or the locked scoring rules.
 - **Never duplicate** scoring literals from `_profile.md` into this file.
   Always delegate: "as per `modes/_profile.md`" — not "cap at 3.4".

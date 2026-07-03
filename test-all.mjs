@@ -6695,11 +6695,15 @@ try {
     fail('apiRoleFlag does not behave as a pure flag marker (must toggle flags + save, never setStatus)');
   }
 
-  // Server: only the deep-eval flag may be toggled via this endpoint (safelist)
-  if (flagBlock.includes("flag !== DEEP_EVAL_FLAG") && serverSrc.includes("const DEEP_EVAL_FLAG = 'deep-eval'")) {
-    pass('apiRoleFlag safelists the deep-eval flag (other flags owned by scorer/fill pipeline)');
+  // Server: only the hand-set markers (deep-eval, auto-fill) may be toggled via
+  // this endpoint (safelist) — all other flags stay owned by the scorer/fill pipeline
+  if (flagBlock.includes('!TOGGLEABLE_FLAGS.has(flag)') &&
+      serverSrc.includes("const DEEP_EVAL_FLAG = 'deep-eval'") &&
+      serverSrc.includes("const AUTO_FILL_FLAG = 'auto-fill'") &&
+      serverSrc.includes('new Set([DEEP_EVAL_FLAG, AUTO_FILL_FLAG])')) {
+    pass('apiRoleFlag safelists exactly deep-eval + auto-fill (other flags owned by scorer/fill pipeline)');
   } else {
-    fail('apiRoleFlag does not safelist deep-eval — arbitrary flags could be hand-toggled');
+    fail('apiRoleFlag safelist wrong — must allow exactly deep-eval + auto-fill, nothing else');
   }
 
   // UI: toggle button + handler + dedicated badge
@@ -6714,6 +6718,62 @@ try {
     pass('dashboard UI: deep-eval renders a dedicated badge and is a handled flag');
   } else {
     fail('dashboard UI: deep-eval badge rendering missing');
+  }
+
+  // ── One-shot auto-fill marker: dashboard toggle + PREPARE-time chaining rule ─
+  // UI: toggle button + handler + dedicated badge (mirrors deep-eval)
+  if (indexHtml.includes('id="btn-auto-fill"') && appJs.includes('function toggleAutoFill') &&
+      appJs.includes("getElementById('btn-auto-fill').addEventListener")) {
+    pass('dashboard UI: auto-fill toggle button is present and wired to /flag');
+  } else {
+    fail('dashboard UI: auto-fill toggle button missing or not wired');
+  }
+
+  if (appJs.includes("includes('auto-fill')") && appJs.includes('badge-auto')) {
+    pass('dashboard UI: auto-fill renders a dedicated badge and is a handled flag');
+  } else {
+    fail('dashboard UI: auto-fill badge rendering missing');
+  }
+
+  // Global one-shot default: POST /api/autofill persists settings.auto_fill_all
+  // as a marker only (never launches a fill from the server), and the header
+  // toggle is present and wired.
+  if (serverSrc.includes('function apiSetAutoFillAll') &&
+      serverSrc.includes("path === '/api/autofill'") &&
+      serverSrc.includes('queue.settings.auto_fill_all = value')) {
+    pass('dashboard-server.mjs registers POST /api/autofill (global one-shot setting)');
+  } else {
+    fail('dashboard-server.mjs missing /api/autofill route or apiSetAutoFillAll handler');
+  }
+  const autoAllBlock = serverSrc.slice(serverSrc.indexOf('function apiSetAutoFillAll'), serverSrc.indexOf('function apiRoleFill'));
+  if (autoAllBlock.includes('saveQueue(queue)') && !autoAllBlock.includes('setStatus(') &&
+      !autoAllBlock.includes('form-fill.mjs') && !autoAllBlock.includes('spawn')) {
+    pass('apiSetAutoFillAll persists the setting only — never sets status or launches a fill');
+  } else {
+    fail('apiSetAutoFillAll must be a pure setting write (no setStatus, no fill launch)');
+  }
+  if (indexHtml.includes('id="btn-auto-fill-all"') && appJs.includes('function toggleAutoFillAll') &&
+      appJs.includes("getElementById('btn-auto-fill-all').addEventListener") &&
+      appJs.includes('settings.auto_fill_all')) {
+    pass('dashboard UI: global one-shot header toggle is present, wired, and synced from settings');
+  } else {
+    fail('dashboard UI: global one-shot header toggle missing or not wired');
+  }
+
+  // Honour rule lives in the SYSTEM layer (modes/queue.md Phase 2), so every CLI's
+  // prepare agent sees it: a flagged role (or all roles under auto_fill_all) chains
+  // prepared → form-fill in one shot, an unflagged role parks at prepared, and
+  // Submit stays manual in both paths.
+  const queueMd = readFile('modes/queue.md');
+  const queuePlain = queueMd.replace(/[*_`]/g, '');
+  // (check auto_fill_all against the raw file — the emphasis strip removes underscores)
+  if (queuePlain.includes('auto-fill') && queuePlain.includes('form-fill.mjs') &&
+      queueMd.includes('auto_fill_all') &&
+      /without.{1,20}the flag.{1,80}stop at .?prepared/is.test(queuePlain) &&
+      /never (clicks )?submit/i.test(queuePlain)) {
+    pass('modes/queue.md documents the one-shot chain (per-role flag + global setting, unflagged unchanged, never submits)');
+  } else {
+    fail('modes/queue.md missing the auto-fill one-shot chaining rule (flag + auto_fill_all)');
   }
 
   // Honour rule lives in the SYSTEM layer (modes/apply.md), which the career-ops skill loads

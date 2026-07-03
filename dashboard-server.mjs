@@ -556,6 +556,35 @@ function apiSetThreshold(req, res) {
   });
 }
 
+// Global one-shot default: when settings.auto_fill_all is true, PREPARE chains
+// straight into the fill for EVERY role it prepares (see modes/queue.md →
+// "One-shot auto-fill"), without needing the per-role auto-fill flag. Stored in
+// queue settings so the prepare agent reads it from the same store. Marker only —
+// flipping it never launches anything from the server.
+function apiSetAutoFillAll(req, res) {
+  readBody(req, (body) => {
+    const { value } = safeJson(body) || {};
+    if (typeof value !== 'boolean') {
+      return respond(res, 400, { error: 'value must be a boolean' });
+    }
+
+    let queue;
+    try {
+      queue = loadQueue();
+    } catch (err) {
+      return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
+    }
+    queue.settings.auto_fill_all = value;
+
+    try {
+      saveQueue(queue);
+    } catch (err) {
+      return respond(res, 503, { error: `queue store write failed: ${err.message}` });
+    }
+    respond(res, 200, { auto_fill_all: value });
+  });
+}
+
 function apiRoleFill(req, res, id) {
   let queue;
   try {
@@ -689,26 +718,34 @@ function apiRoleStage(req, res, id) {
   });
 }
 
-// ── Deep-eval marker ──────────────────────────────────────────────────────────
+// ── Toggleable markers (deep-eval, auto-fill) ─────────────────────────────────
 //
-// Toggles the `deep-eval` flag on a role. This is a pre-apply marker only: it
-// records "this role is worth a full oferta evaluation before applying". It does
-// NOT run any evaluation (the server has no LLM) and does NOT change status, lane,
-// or anything in the fill pipeline. The agent honours the flag at apply time
-// (see modes/apply.md → "Deep-eval marker"): a marked role gets a full `oferta`
-// first, then fills as normal. To keep that guarantee, the fill/run dispatch routes
-// deep-eval-marked roles to the agent path (never headless). Unmarked roles unaffected.
+// Toggles a hand-set marker flag on a role. Markers only record intent — the
+// endpoint does NOT run any evaluation or fill (the server has no LLM) and does
+// NOT change status, lane, or anything in the fill pipeline. The agent honours
+// each marker later:
+//   - `deep-eval` (see modes/apply.md → "Deep-eval marker"): a marked role gets a
+//     full `oferta` first, then fills as normal. To keep that guarantee, the
+//     fill/run dispatch routes deep-eval-marked roles to the agent path (never
+//     headless).
+//   - `auto-fill` (see modes/queue.md → "One-shot auto-fill"): PREPARE chains
+//     straight into the fill for a marked role instead of parking at Prepared.
+//     The fill still stops before submit; the asset gate is untouched because the
+//     chain runs fill strictly AFTER prepare has produced fresh assets.
+// Unmarked roles are unaffected.
 
 const DEEP_EVAL_FLAG = 'deep-eval';
+const AUTO_FILL_FLAG = 'auto-fill';
+const TOGGLEABLE_FLAGS = new Set([DEEP_EVAL_FLAG, AUTO_FILL_FLAG]);
 
 function apiRoleFlag(req, res, id) {
   readBody(req, (body) => {
     const parsed = safeJson(body) || {};
     const flag = parsed.flag || DEEP_EVAL_FLAG;
-    // Safelist: this endpoint only manages the deep-eval marker. Other flags are
+    // Safelist: this endpoint only manages the hand-set markers. Other flags are
     // owned by the scorer/fill pipeline and must not be hand-toggled here.
-    if (flag !== DEEP_EVAL_FLAG) {
-      return respond(res, 400, { error: `flag must be ${DEEP_EVAL_FLAG}` });
+    if (!TOGGLEABLE_FLAGS.has(flag)) {
+      return respond(res, 400, { error: `flag must be one of: ${[...TOGGLEABLE_FLAGS].join(' | ')}` });
     }
 
     let queue;
@@ -788,6 +825,7 @@ const server = http.createServer((req, res) => {
   // API routes
   if (path === '/api/queue'    && method === 'GET')  return apiGetQueue(res);
   if (path === '/api/threshold' && method === 'POST') return apiSetThreshold(req, res);
+  if (path === '/api/autofill'  && method === 'POST') return apiSetAutoFillAll(req, res);
   if (path === '/api/run'      && method === 'POST')  return apiRun(req, res);
   if (path === '/api/activity' && method === 'GET')   return apiActivity(req, res);
 

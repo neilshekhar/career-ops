@@ -293,6 +293,7 @@ export function mergeCloudAndLocal(activeRows, sidecar) {
     version: 1,
     settings: {
       score_threshold: normalizedSidecar.settings?.score_threshold ?? null,
+      auto_fill_all: normalizedSidecar.settings?.auto_fill_all ?? false,
       updated_at: normalizedSidecar.settings?.updated_at ?? null,
     },
     roles,
