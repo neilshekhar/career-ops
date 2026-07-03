@@ -131,9 +131,13 @@
     </div>
 
     <div class="inbox-footer">
-      <div class="inbox-actions" id="inbox-actions">
+      <!-- Marker toggles (intent only — never launch anything) on their own row,
+           real actions below, so all buttons stay visible at any panel width -->
+      <div class="inbox-actions inbox-markers">
         <button class="btn btn-deep"   id="btn-deep-eval" title="Mark this role as worth a full oferta evaluation before applying">★ Deep-eval</button>
         <button class="btn btn-auto"   id="btn-auto-fill" title="One-shot: PREPARE chains straight into the fill (still never submits)">⚡ Auto-fill</button>
+      </div>
+      <div class="inbox-actions" id="inbox-actions">
         <button class="btn btn-fill"   id="btn-fill">Fill Form</button>
         <button class="btn btn-submit" id="btn-submit">✓ Mark Submitted</button>
         <button class="btn btn-skip"   id="btn-skip">— Skip</button>

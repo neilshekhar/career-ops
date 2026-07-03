@@ -53,6 +53,8 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
+  row-gap: 6px;
+  flex-wrap: wrap; /* controls drop to a second row instead of clipping */
   flex-shrink: 0;
 }
 
@@ -69,9 +71,11 @@ body {
   gap: 12px;
   font-size: 12px;
   color: var(--subtext);
+  flex-wrap: wrap;
+  row-gap: 2px;
 }
 
-.stats-strip .stat { display: flex; align-items: center; gap: 4px; }
+.stats-strip .stat { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
 .stat-label { color: var(--overlay0); }
 .stat-value { font-weight: 600; }
 .stat-pending  { color: var(--subtext); }
@@ -86,6 +90,8 @@ body {
   align-items: center;
   gap: 10px;
   margin-left: auto;
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
 
 .search-wrap {
@@ -180,7 +186,10 @@ body {
   gap: var(--gap);
   padding: var(--gap);
   flex: 1;
-  overflow: hidden;
+  /* Columns keep a readable width; when the inbox panel is open (or the window
+     is narrow) the board scrolls sideways instead of crushing cards. */
+  overflow-x: auto;
+  overflow-y: hidden;
   min-width: 0;
 }
 
@@ -188,7 +197,7 @@ body {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-width: 0;
+  min-width: 210px;
   background: var(--mantle);
   border-radius: var(--radius);
   overflow: hidden;
@@ -331,6 +340,10 @@ body {
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 3px;
+  white-space: nowrap;    /* wrap between badges, never inside one */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -370,7 +383,7 @@ body {
 /* ── Inbox panel ─────────────────────────────────────────────────────────── */
 
 .inbox {
-  width: 420px;
+  width: clamp(340px, 36vw, 480px);
   min-width: 340px;
   max-width: 480px;
   background: var(--mantle);
@@ -502,7 +515,10 @@ body {
 .inbox-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap; /* every button stays visible at any panel width */
 }
+
+.inbox-markers .btn { flex: 1; }
 
 .btn {
   border: none;
@@ -580,7 +596,11 @@ body {
   align-items: center;
   gap: 16px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  row-gap: 2px;
 }
+
+.app-footer span { white-space: nowrap; }
 
 .footer-key {
   color: var(--subtext);
