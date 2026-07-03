@@ -5928,6 +5928,114 @@ try {
   fail(`queue-store.mjs cron checks crashed: ${e.message}`);
 }
 
+// 15c. queue-store.mjs: local backend (zero-cloud queue for fresh clones)
+try {
+  const { resolveQueueBackend } = await import(pathToFileURL(join(ROOT, 'queue-store.mjs')).href);
+
+  // Pure resolver precedence: env var > profile pin > auto-by-configuration
+  const cases = [
+    [{ env: { CAREER_OPS_QUEUE_BACKEND: 'local' }, profileBackend: 'supabase', supabaseConfigured: true }, 'local',
+     'env override beats profile pin and configured cloud'],
+    [{ env: {}, profileBackend: 'supabase', supabaseConfigured: false }, 'supabase',
+     'profile pin holds supabase even when its env is broken (fail-loud, no silent local fork)'],
+    [{ env: {}, profileBackend: null, supabaseConfigured: true }, 'supabase',
+     'auto resolves supabase when its env is configured'],
+    [{ env: {}, profileBackend: null, supabaseConfigured: false }, 'local',
+     'auto resolves local on a fresh clone (no accounts, no cloud)'],
+  ];
+  for (const [input, want, label] of cases) {
+    const got = resolveQueueBackend(input);
+    if (got === want) pass(`resolveQueueBackend: ${label}`);
+    else fail(`resolveQueueBackend: ${label} — got '${got}', want '${want}'`);
+  }
+
+  // Behavioral: full save/load round-trip on the local backend in an isolated
+  // data dir (CAREER_OPS_DATA_DIR) — proves a clone with zero Supabase env has
+  // a working read/write queue, including settings like auto_fill_all.
+  const localTmp = mkdtempSync(join(tmpdir(), 'career-ops-local-store-'));
+  try {
+    const script = `
+      import { loadQueue, saveQueue, appendRole } from ${JSON.stringify(pathToFileURL(join(ROOT, 'queue-store.mjs')).href)};
+      const q = loadQueue();
+      appendRole(q, { id: 'test:local:1', company: 'LocalCo', title: 'Data Analyst', url: 'https://example.com/j/1', ats: 'greenhouse', status: 'new' });
+      q.settings.auto_fill_all = true;
+      saveQueue(q);
+      const back = loadQueue();
+      console.log(JSON.stringify({
+        roles: back.roles.length,
+        id: back.roles[0]?.id,
+        backend: back.settings.store_backend,
+        autoFillAll: back.settings.auto_fill_all === true,
+      }));
+    `;
+    const out = execFileSync(NODE, ['--input-type=module', '-e', script], {
+      cwd: ROOT,
+      encoding: 'utf-8',
+      timeout: 30000,
+      env: { ...process.env, CAREER_OPS_QUEUE_BACKEND: 'local', CAREER_OPS_DATA_DIR: localTmp },
+    }).trim();
+    const res = JSON.parse(out.split('\n').pop());
+    if (res.roles === 1 && res.id === 'test:local:1' && res.backend === 'local' && res.autoFillAll) {
+      pass('local backend: save/load round-trip works with zero Supabase env (roles + settings persist)');
+    } else {
+      fail(`local backend round-trip wrong: ${JSON.stringify(res)}`);
+    }
+    if (existsSync(join(localTmp, 'apply-queue.json'))) {
+      pass('local backend: queue persisted to CAREER_OPS_DATA_DIR/apply-queue.json');
+    } else {
+      fail('local backend: apply-queue.json not written to the isolated data dir');
+    }
+  } finally {
+    rmSync(localTmp, { recursive: true, force: true });
+  }
+
+  // Behavioral: a supabase-pinned store with a broken env must still REFUSE
+  // local writes (the silent-fork guard) — pin semantics unchanged.
+  const pinTmp = mkdtempSync(join(tmpdir(), 'career-ops-pinned-store-'));
+  try {
+    const script = `
+      import { saveQueue } from ${JSON.stringify(pathToFileURL(join(ROOT, 'queue-store.mjs')).href)};
+      try {
+        saveQueue({ version: 1, settings: {}, roles: [] });
+        console.log(JSON.stringify({ threw: false }));
+      } catch (e) {
+        console.log(JSON.stringify({ threw: true, refusing: e.message.includes('refusing local-only write') }));
+      }
+    `;
+    const out = execFileSync(NODE, ['--input-type=module', '-e', script], {
+      cwd: ROOT,
+      encoding: 'utf-8',
+      timeout: 30000,
+      env: {
+        ...process.env,
+        CAREER_OPS_QUEUE_BACKEND: 'supabase',
+        CAREER_OPS_DATA_DIR: pinTmp,
+        // Present-but-empty so dotenv cannot re-populate them from .env
+        SUPABASE_URL: '',
+        SUPABASE_DASHBOARD_KEY: '',
+      },
+    }).trim();
+    const res = JSON.parse(out.split('\n').pop());
+    if (res.threw && res.refusing && !existsSync(join(pinTmp, 'apply-queue.json'))) {
+      pass('supabase-pinned backend with broken env refuses writes (no silent local fork)');
+    } else {
+      fail(`supabase-pinned broken-env save did not fail loud: ${JSON.stringify(res)}`);
+    }
+  } finally {
+    rmSync(pinTmp, { recursive: true, force: true });
+  }
+
+  // The example profile documents the option for new users
+  const exampleProfile = readFile('config/profile.example.yml');
+  if (exampleProfile.includes('backend: local') && exampleProfile.includes('supabase')) {
+    pass('config/profile.example.yml documents queue.backend (local | supabase)');
+  } else {
+    fail('config/profile.example.yml missing queue.backend documentation');
+  }
+} catch (e) {
+  fail(`queue-store.mjs local backend checks crashed: ${e.message}`);
+}
+
 // 15c. queue-ingest.mjs: --cron and --api-only flags present
 try {
   const qiSrc = readFile('queue-ingest.mjs');

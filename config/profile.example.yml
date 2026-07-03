@@ -158,6 +158,18 @@ automation:
   login_timeout_min: 10 # minutes to wait for post-login form signal
   credentials_path: "data/portal-credentials.json"   # gitignored
 
+# ── Queue store backend (optional) ─────────────────────────────────────────────
+# Where the apply queue lives. Omit for the sensible default:
+#   local    — everything in data/apply-queue.json. Zero accounts, zero cloud.
+#              This is the automatic default when Supabase is not configured.
+#   supabase — cloud store (your OWN free Supabase project) — needed only for
+#              the GitHub discovery crons (scans that run while your laptop is
+#              off) and multi-device sync. If you use Supabase, PIN it here so
+#              a broken env fails loud instead of silently writing locally.
+#
+# queue:
+#   backend: local
+
 # ── Cover Letter Settings ──────────────────────────────────────────────────
 #
 # Used by `/career-ops cover` and the cover letter sub-flow in `/career-ops pdf`.

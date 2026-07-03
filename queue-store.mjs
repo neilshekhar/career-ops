@@ -2,25 +2,42 @@
 /**
  * queue-store.mjs -- Shared read/write/query helpers for the apply queue.
  *
- * Single source of queue I/O. Cloud-safe discovery columns live in Supabase
- * active_roles / seen_urls; candidate-generated fields stay in the local
- * sidecar data/local-enrichments.json.
+ * Single source of queue I/O, with two selectable backends:
+ *
+ *   local    — the whole queue lives in data/apply-queue.json (atomic writes).
+ *              Zero accounts, zero network: the default for a fresh clone.
+ *   supabase — cloud-safe discovery columns live in Supabase active_roles /
+ *              seen_urls; candidate-generated fields stay in the local sidecar
+ *              data/local-enrichments.json. Required for the GitHub discovery
+ *              crons (they need a store reachable while the laptop is off).
+ *
+ * Backend selection (resolveQueueBackend): CAREER_OPS_QUEUE_BACKEND env var,
+ * else `queue.backend` in config/profile.yml, else auto — supabase when its
+ * env is configured, local otherwise. Pin `queue.backend: supabase` in the
+ * profile to fail loud instead of silently falling back to local writes when
+ * the Supabase env breaks (a silent fallback would fork the queue state).
  *
  * Nothing in this file invokes any LLM.
  */
 
 import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
+import yaml from 'js-yaml';
 
 import { createSupabaseClient, isSupabaseConfigured } from './supabase-client.mjs';
 import { checkUrlLivenessHttp } from './liveness-http.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
-export const QUEUE_PATH = join(ROOT, 'data', 'apply-queue.json');
-export const LOCAL_ENRICHMENTS_PATH = join(ROOT, 'data', 'local-enrichments.json');
-const TMP_DIR = join(ROOT, 'data');
+// CAREER_OPS_DATA_DIR redirects the store's files (tests, sandboxes); default
+// is the repo's data/ directory.
+const DATA_DIR = process.env.CAREER_OPS_DATA_DIR
+  ? resolve(process.env.CAREER_OPS_DATA_DIR)
+  : join(ROOT, 'data');
+export const QUEUE_PATH = join(DATA_DIR, 'apply-queue.json');
+export const LOCAL_ENRICHMENTS_PATH = join(DATA_DIR, 'local-enrichments.json');
+const TMP_DIR = DATA_DIR;
 
 // --- Status lifecycle ---
 // new -> scored -> prepare-queued -> prepared -> prefilled -> filled -> submitted | skipped | reviewed | closed
@@ -311,9 +328,66 @@ function loadFromSupabase() {
   return queue;
 }
 
+// -- Backend selection ---------------------------------------------------------
+
+function profileQueueBackend() {
+  const path = join(ROOT, 'config', 'profile.yml');
+  if (!existsSync(path)) return null;
+  try {
+    // js-yaml v4: yaml.load() uses DEFAULT_SCHEMA — no arbitrary constructors.
+    const profile = yaml.load(readFileSync(path, 'utf-8')) ?? {};
+    const backend = profile?.queue?.backend;
+    return backend === 'local' || backend === 'supabase' ? backend : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pure resolver (overridable for tests): which backend should queue I/O use?
+ *   1. CAREER_OPS_QUEUE_BACKEND env var ('local' | 'supabase')
+ *   2. config/profile.yml → queue.backend  — the durable per-user pin
+ *   3. auto: 'supabase' when its env is configured, else 'local'
+ *
+ * A user who runs the cloud store should PIN 'supabase' in their profile: with
+ * the pin, a broken/missing Supabase env keeps the current fail-loud behavior
+ * (read-only shadow + write refusal) instead of silently writing to a local
+ * file that would fork the queue state away from the cloud copy.
+ */
+export function resolveQueueBackend({
+  env = process.env,
+  profileBackend = profileQueueBackend(),
+  supabaseConfigured = isSupabaseConfigured('dashboard'),
+} = {}) {
+  const envBackend = env.CAREER_OPS_QUEUE_BACKEND;
+  if (envBackend === 'local' || envBackend === 'supabase') return envBackend;
+  if (profileBackend) return profileBackend;
+  return supabaseConfigured ? 'supabase' : 'local';
+}
+
+// Resolved once per process: backend flips (env/profile edits) take effect on
+// restart, never mid-run — a mid-run flip could split one logical save across
+// two stores.
+let cachedBackend = null;
+export function queueBackend() {
+  if (cachedBackend === null) cachedBackend = resolveQueueBackend();
+  return cachedBackend;
+}
+
 // -- Load / Save --------------------------------------------------------------
 
 export function loadQueue() {
+  if (queueBackend() === 'local') {
+    const queue = loadShadowQueue() ?? EMPTY_QUEUE();
+    queue.settings = queue.settings ?? {};
+    queue.roles = Array.isArray(queue.roles) ? queue.roles : [];
+    queue.settings.store_backend = 'local';
+    // A queue file inherited from a supabase-mirror era may carry a stale
+    // read-only warning — it does not apply to the local backend.
+    delete queue.settings.store_warning;
+    return queue;
+  }
+
   if (!isSupabaseConfigured('dashboard')) {
     const shadow = loadShadowQueue();
     if (shadow) {
@@ -339,6 +413,17 @@ export function loadQueue() {
 }
 
 export function saveQueue(queue, options = {}) {
+  if (queueBackend() === 'local') {
+    queue.settings = queue.settings ?? {};
+    queue.settings.updated_at = new Date().toISOString();
+    queue.settings.store_backend = 'local';
+    // Whole queue in one atomic file write — done roles stay in the file (the
+    // tracker remains the durable applied/closed record; keeping them here
+    // also keeps buildQueueSeenSets dedup working with zero cloud calls).
+    saveShadowQueue(queue);
+    return;
+  }
+
   if (!isSupabaseConfigured('dashboard')) {
     throw new Error('Supabase env is not configured; refusing local-only write without replay support');
   }
@@ -526,7 +611,14 @@ export function buildQueueSeenSets(queue) {
 
 export function loadQueueSeenSets(queue = loadQueue(), { role = 'dashboard' } = {}) {
   const sets = buildQueueSeenSets(queue);
-  if (!isSupabaseConfigured(role)) return sets;
+  // Cloud dedup rows only apply when the cloud is in play: the cron path checks
+  // its own credentials (it always targets Supabase and ignores the local
+  // backend pin), while the dashboard path skips cloud reads entirely on the
+  // local backend — the local queue file already holds every seen role.
+  const useSupabase = role === 'cron'
+    ? isSupabaseConfigured('cron')
+    : queueBackend() === 'supabase' && isSupabaseConfigured(role);
+  if (!useSupabase) return sets;
 
   const client = createSupabaseClient(role);
   const { ids, urls, companyRoles } = sets;
