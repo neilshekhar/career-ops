@@ -1,7 +1,7 @@
 -- career-ops queue store migration
 --
--- Run this file in the Supabase SQL editor for the Sydney
--- (ap-southeast-2) project. It is intentionally idempotent: safe to re-run.
+-- Run this file in your Supabase project's SQL editor (any region).
+-- It is intentionally idempotent: safe to re-run.
 --
 -- PII boundary: active_roles stores discovery data only. Candidate-generated
 -- fields such as reason, visa_answer, drafts, cv_pdf, cover_letter_path, and

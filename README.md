@@ -112,22 +112,21 @@ Built by someone who used it to evaluate 740+ job offers, generate 100+ tailored
 
 ## Quick Start
 
-**Fastest way — one command:**
-
 ```bash
-npx @santifer/career-ops init
-```
-
-> 💡 `npx` ships with [Node.js](https://nodejs.org) — it runs the installer once,
-> without installing anything globally. No Node yet? Install it first.
-> (Already using a Claude Code / Gemini / Codex CLI? Then you already have it.)
-
-This clones the latest release into `./career-ops` and installs dependencies. Then:
-
-```bash
-cd career-ops
+git clone https://github.com/neilshekhar/career-ops.git
+cd career-ops && npm install
 claude   # or gemini / codex / qwen / opencode / agy / grok — open your AI CLI here
 ```
+
+> 💡 Needs [Node.js](https://nodejs.org) 18+ and git. Already using a Claude Code /
+> Gemini / Codex CLI? Then you already have Node.
+
+**Everything runs on your machine and your own AI subscription — nothing is
+hosted for you, nothing phones home.** By default the whole pipeline (queue,
+dashboard, form-fill, PDFs) is local with zero accounts. Optional cloud
+upgrades — a free Supabase queue + GitHub scan cron, and Apify job-board
+discovery (~$5 free credit monthly) — use *your own* free-tier accounts:
+see [Infrastructure Tiers](docs/TIERS.md).
 
 **On first launch, career-ops walks you through setup — your CV, profile and target roles — just by chatting. Nothing to edit by hand.**
 

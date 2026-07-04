@@ -185,6 +185,21 @@ If `portals.yml` is missing:
 
 Copy `templates/portals.example.yml` → `portals.yml`. If they gave target roles in Step 2, update `title_filter.positive` to match.
 
+#### Step 3b: Infrastructure tier (optional — mention, don't push)
+
+career-ops runs fully local by default (Tier 1): local queue file, on-demand
+scans, zero accounts. After portals are set up, mention once:
+
+> "By default everything runs on your machine — no accounts needed. If you later
+> want job discovery to run on a schedule even while your laptop is off, I can
+> walk you through connecting your own free Supabase project and GitHub fork
+> (Tier 2), and optionally Apify job-board discovery (Tier 3, ~$5 free credit
+> monthly). See docs/TIERS.md — just say 'set me up on Tier 2' any time."
+
+If the user asks for it, follow `docs/TIERS.md` step by step with them (create
+project → run the SQL migration → .env keys → pin `queue.backend: supabase` →
+migrate → fork secrets). Never create accounts on their behalf; guide them.
+
 #### Step 4: Tracker
 If `data/applications.md` doesn't exist, create it:
 ```markdown

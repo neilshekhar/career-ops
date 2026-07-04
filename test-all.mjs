@@ -834,6 +834,21 @@ if (
   fail('update-system does not rebuild dashboard binary after dashboard Go source updates');
 }
 
+// Fork-as-product invariant: the updater must pull from THIS fork's repo, never
+// santifer's upstream — a user accepting an update prompt against upstream would
+// overwrite the fork's system layer. (Upstream catch-ups are a manual gated
+// merge; this test keeps a future merge from silently reverting the constants.)
+if (
+  updateSystemScript.includes('github.com/neilshekhar/career-ops') &&
+  !/CANONICAL_REPO\s*=\s*'https:\/\/github\.com\/santifer/.test(updateSystemScript) &&
+  !/RAW_VERSION_URL\s*=\s*'https:\/\/raw\.githubusercontent\.com\/santifer/.test(updateSystemScript) &&
+  !/RELEASES_API\s*=\s*'https:\/\/api\.github\.com\/repos\/santifer/.test(updateSystemScript)
+) {
+  pass('update-system pulls updates from this fork (neilshekhar/career-ops), not upstream');
+} else {
+  fail('update-system points at santifer upstream — users updating would overwrite this fork\'s system layer');
+}
+
 if (updateSystemScript.includes("'CODEX.md'")) {
   pass('update-system preserves CODEX.md as a system-layer wrapper');
 } else {

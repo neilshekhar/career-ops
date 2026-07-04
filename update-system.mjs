@@ -29,9 +29,14 @@ export { materializeSkillEntrypoints, ensureSkillEntrypoints };
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
 
-const CANONICAL_REPO = 'https://github.com/santifer/career-ops.git';
-const RAW_VERSION_URL = 'https://raw.githubusercontent.com/santifer/career-ops/main/VERSION';
-const RELEASES_API = 'https://api.github.com/repos/santifer/career-ops/releases/latest';
+// This fork distributes as its own product: updates come from the fork's repo,
+// never directly from santifer's upstream. Upstream catch-ups are a manual,
+// gated merge (see UPSTREAM_MERGE_CHECKLIST.md) — if the updater pointed at
+// upstream, a user accepting an update prompt would overwrite this fork's
+// system layer with upstream's.
+const CANONICAL_REPO = 'https://github.com/neilshekhar/career-ops.git';
+const RAW_VERSION_URL = 'https://raw.githubusercontent.com/neilshekhar/career-ops/main/VERSION';
+const RELEASES_API = 'https://api.github.com/repos/neilshekhar/career-ops/releases/latest';
 
 // Matches a semver, with or without a leading `v` and an optional
 // Release Please component prefix (e.g. `career-ops-v1.9.0` → `1.9.0`).
