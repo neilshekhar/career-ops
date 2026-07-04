@@ -568,6 +568,26 @@ async function phoneValueForInput(input, labelText, value, profile) {
   if (await hasSelectedCountryCodeControl(input, countryCode)) {
     return formatPhoneWithoutCountryCode(value, countryCode);
   }
+
+  // intl-tel-input widgets (Greenhouse job-boards and other ATSes wrap the
+  // phone input in .iti with a flag-dropdown button). Fresh forms start with
+  // no country selected ("globe"), so the dial-code detection above finds
+  // nothing and the full +XX number would stay visible in the input next to
+  // the dropdown. Priming the input with the full international number makes
+  // the widget select the matching country (verified live on Greenhouse,
+  // 2026-07-04: flag flips to the country and persists when the value is then
+  // replaced), after which the national number is the correct visible value —
+  // the flag dropdown owns the dial code.
+  const inIti = await input.evaluate((el) => !!el.closest('.iti')).catch(() => false);
+  if (inIti) {
+    const full = formatPhone(value, countryCode);
+    await input.fill(String(full)).catch(() => {});
+    if (await hasSelectedCountryCodeControl(input, countryCode)) {
+      return formatPhoneWithoutCountryCode(value, countryCode);
+    }
+    return full; // widget did not take the country — leave the unambiguous full number
+  }
+
   return value;
 }
 

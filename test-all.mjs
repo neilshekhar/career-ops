@@ -6274,6 +6274,21 @@ try {
   } else {
     fail("form-fill still falls back to a hardcoded market default (|| '+61' or || 'DD/MM/YYYY')");
   }
+
+  // intl-tel-input flag-dropdown widgets (Greenhouse job-boards): a fresh
+  // widget has no country selected, so phoneValueForInput must prime it with
+  // the full international number (selects the flag) and then hand back the
+  // national number — the dropdown owns the dial code, the input never shows it.
+  const pvBlock = formFillSrc.slice(
+    formFillSrc.indexOf('async function phoneValueForInput'),
+    formFillSrc.indexOf('// ── Confirmation capture')
+  );
+  if (pvBlock.includes(".closest('.iti')") && pvBlock.includes('formatPhoneWithoutCountryCode') &&
+      pvBlock.includes('formatPhone(value, countryCode)')) {
+    pass('phoneValueForInput primes intl-tel-input widgets then fills the national number');
+  } else {
+    fail('phoneValueForInput missing the intl-tel-input prime-then-national handling');
+  }
 } catch (e) {
   fail(`Form-fill submit safety checks crashed: ${e.message}`);
 }
