@@ -3,14 +3,20 @@
 [English](README.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md)
 
 <p align="center">
-  <a href="https://x.com/santifer"><img src="docs/hero-banner.jpg" alt="Career-Ops — Wieloagentowy system poszukiwania pracy" width="800"></a>
+  <a href="https://github.com/neilshekhar/career-ops"><img src="docs/hero-banner.jpg" alt="Career-Ops — Wieloagentowy system poszukiwania pracy" width="800"></a>
 </p>
 
 <p align="center">
-  <em>Przez miesiące szukałem pracy po staremu. Więc zbudowałem system, który chciałem mieć od początku.</em><br>
-  Firmy używają AI do filtrowania kandydatów. <strong>Ja dałem kandydatom AI, żeby mogli <em>wybierać</em> firmy.</strong><br>
-  <em>Teraz jest open source.</em>
+  <sub>🍴 To jest <a href="https://github.com/neilshekhar/career-ops"><strong>neilshekhar/career-ops</strong></a>, utrzymywany i rozwijany przez <a href="https://github.com/neilshekhar">Neila Shekhara</a> — fork oryginalnego <a href="https://github.com/santifer/career-ops">career-ops</a> stworzonego przez <a href="https://santifer.io">santifer</a>.</sub>
 </p>
+
+<p align="center">
+  <em>Aplikowanie o pracę po staremu zajmuje miesiące. To system zbudowany, żeby to naprawić.</em><br>
+  Firmy używają AI do filtrowania kandydatów. <strong>To oddaje AI w ręce kandydatów, żeby mogli <em>wybierać</em> firmy.</strong><br>
+  <em>Open source.</em>
+</p>
+
+<p align="center"><sub>★ Prasa i uznanie zdobyte przez oryginalny projekt <a href="https://github.com/santifer/career-ops">career-ops</a></sub></p>
 
 <p align="center">
   <a href="https://trendshift.io/repositories/25195" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25195" alt="santifer%2Fcareer-ops | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
@@ -31,8 +37,6 @@
 </p>
 
 <p align="center"><strong>740+ ocenionych ofert · 100+ spersonalizowanych CV · 1 wymarzona rola zdobyta</strong></p>
-
-<p align="center"><a href="https://discord.gg/8pRpHETxa4"><img src="https://img.shields.io/badge/Dołącz_do_społeczności-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a></p>
 
 <p align="center">
   <a href="https://claude.com/claude-code"><img src="https://img.shields.io/badge/Built_with-Claude_Code-000?style=for-the-badge&logo=anthropic&logoColor=white" alt="Built with Claude Code"></a>
@@ -71,7 +75,7 @@ Career-ops działa agentowo: Claude Code nawiguje po stronach kariery z Playwrig
 
 > **Uwaga: pierwsze oceny nie będą idealne.** System jeszcze cię nie zna. Dostarcz mu kontekstu — swoje CV, historię kariery, przykłady osiągnięć, preferencje, mocne strony, czego chcesz unikać. Im więcej mu dasz, tym lepiej działa. Traktuj to jak wdrożenie nowego rekrutera: w pierwszym tygodniu musi się nauczyć, kim jesteś — potem staje się nieoceniony.
 
-Zbudowany przez kogoś, kto użył go do oceny 740+ ofert pracy, wygenerowania 100+ spersonalizowanych CV i zdobycia roli Head of Applied AI. [Przeczytaj pełne case study](https://santifer.io/career-ops-system).
+Pierwotnie stworzony przez [santifer](https://santifer.io), który użył go do oceny 740+ ofert pracy, wygenerowania 100+ spersonalizowanych CV i zdobycia roli Head of Applied AI. [Przeczytaj pełne case study](https://santifer.io/career-ops-system).
 
 ## Funkcje
 
@@ -93,7 +97,7 @@ Zbudowany przez kogoś, kto użył go do oceny 740+ ofert pracy, wygenerowania 1
 **Najszybszy sposób — jedno polecenie:**
 
 ```bash
-npx @santifer/career-ops init
+npx @neilshekhar/career-ops init
 ```
 
 > 💡 `npx` jest dołączone do [Node.js](https://nodejs.org) — uruchamia instalator jednorazowo, bez instalowania czegokolwiek globalnie. Nie masz jeszcze Node.js? Najpierw go zainstaluj.
@@ -112,7 +116,7 @@ claude   # lub gemini / codex / qwen / opencode — otwórz tutaj swój AI CLI
 <summary><b>Wolisz skonfigurować ręcznie? (git clone)</b></summary>
 
 ```bash
-git clone https://github.com/santifer/career-ops.git
+git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
 npx playwright install chromium   # wymagane tylko do generowania PDF
 claude   # otwórz swój AI CLI — przy pierwszym uruchomieniu przeprowadzi Cię przez onboarding
@@ -278,21 +282,11 @@ career-ops/
 
 - **[cv-santiago](https://github.com/santifer/cv-santiago)** — Strona portfolio (santifer.io) z chatbotem AI, dashboardem LLMOps i case studies. Jeśli potrzebujesz portfolio do swojego poszukiwania pracy, sforkuj i dostosuj do siebie.
 
-## O autorze
+## Uznanie i pochodzenie
 
-Jestem Santiago — Head of Applied AI, były founder (zbudowałem i sprzedałem firmę, która nadal działa z moim nazwiskiem). Zbudowałem career-ops do zarządzania własnym poszukiwaniem pracy. Zadziałało: użyłem go do zdobycia swojej obecnej roli.
+career-ops zostało **pierwotnie stworzone przez [Santiago Fernándeza de Valderramę (santifer)](https://santifer.io)** — Head of Applied AI i byłego founder (zbudował i sprzedał firmę, która nadal działa pod jego nazwiskiem). Stworzył career-ops, żeby zarządzać własnym poszukiwaniem pracy, i użył go do zdobycia obecnej roli. Jego portfolio i inne projekty open source → [santifer.io](https://santifer.io).
 
-Moje portfolio i inne projekty open source → [santifer.io](https://santifer.io)
-
-## Historia gwiazdek
-
-<a href="https://www.star-history.com/?repos=santifer%2Fcareer-ops&type=timeline&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&legend=top-left" />
- </picture>
-</a>
+**To repozytorium, [neilshekhar/career-ops](https://github.com/neilshekhar/career-ops), jest forkiem utrzymywanym i rozwijanym przez [Neila Shekhara](https://github.com/neilshekhar)** — z dodatkowymi poprawkami i funkcjami nałożonymi na oryginalną pracę santifer, okresowo synchronizowanym z upstreamem.
 
 ## Zastrzeżenie prawne
 
@@ -307,11 +301,11 @@ Szczegóły: [LEGAL_DISCLAIMER.md](LEGAL_DISCLAIMER.md). Oprogramowanie jest udo
 
 ## Współtwórcy
 
-<a href="https://github.com/santifer/career-ops/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=santifer/career-ops" alt="Współtwórcy" />
+<a href="https://github.com/neilshekhar/career-ops/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=neilshekhar/career-ops" alt="Współtwórcy" />
 </a>
 
-Znalazłeś pracę dzięki career-ops? [Podziel się swoją historią!](https://github.com/santifer/career-ops/issues/new?template=i-got-hired.yml)
+Znalazłeś pracę dzięki career-ops? [Podziel się swoją historią!](https://github.com/neilshekhar/career-ops/issues/new?template=i-got-hired.yml)
 
 ## Licencja i znak towarowy
 
@@ -319,8 +313,9 @@ Kod jest licencjonowany na [MIT](LICENSE). Nazwa i marka „career-ops" są regu
 
 ## Bądźmy w kontakcie
 
-[![Website](https://img.shields.io/badge/santifer.io-000?style=for-the-badge&logo=safari&logoColor=white)](https://santifer.io)
+**Ten fork** — [![GitHub](https://img.shields.io/badge/GitHub-neilshekhar-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/neilshekhar/career-ops)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-neil--shekhar-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/neil-shekhar/)
+
+**Autor oryginału (santifer)** — [![Website](https://img.shields.io/badge/santifer.io-000?style=for-the-badge&logo=safari&logoColor=white)](https://santifer.io)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/in/santifer)
 [![X](https://img.shields.io/badge/X-000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/santifer)
-[![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/8pRpHETxa4)
-[![Email](https://img.shields.io/badge/Email-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:hi@santifer.io)

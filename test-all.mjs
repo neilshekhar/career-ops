@@ -13,7 +13,7 @@
 
 
 import { execSync, execFileSync, spawn } from 'child_process';
-import { readFileSync, existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, statSync, unlinkSync, realpathSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, statSync, symlinkSync, unlinkSync, realpathSync } from 'fs';
 import { join, dirname, delimiter } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -847,6 +847,119 @@ if (
   pass('update-system pulls updates from this fork (neilshekhar/career-ops), not upstream');
 } else {
   fail('update-system points at santifer upstream — users updating would overwrite this fork\'s system layer');
+}
+
+// The interactive update mode (modes/update.md) previews the diff by fetching a
+// repo URL before applying. It must match the repo update-system.mjs actually
+// pulls from (this fork), or the "what changed" / compatibility preview shows an
+// unrelated upstream diff while apply installs the fork's version.
+if (fileExists('modes/update.md')) {
+  const updateMode = readFile('modes/update.md');
+  if (
+    /git fetch https:\/\/github\.com\/neilshekhar\/career-ops\.git/.test(updateMode) &&
+    !/git fetch https:\/\/github\.com\/santifer\/career-ops\.git/.test(updateMode)
+  ) {
+    pass('update mode previews the diff from this fork (neilshekhar/career-ops)');
+  } else {
+    fail('update mode (modes/update.md) fetches a repo that is not this fork — the diff preview would not match what apply installs');
+  }
+} else {
+  fail('modes/update.md missing — cannot verify update-mode diff preview target');
+}
+
+// The scaffolder is published to npm as this fork's installer; it must clone the
+// fork, not upstream, or `npx` users are silently pointed back to santifer.
+if (fileExists('scaffolder/bin/cli.mjs')) {
+  const scaffolder = readFile('scaffolder/bin/cli.mjs');
+  if (
+    scaffolder.includes('github.com/neilshekhar/career-ops') &&
+    !/github\.com\/santifer\/career-ops/.test(scaffolder)
+  ) {
+    pass('scaffolder clones this fork (neilshekhar/career-ops)');
+  } else {
+    fail('scaffolder (scaffolder/bin/cli.mjs) points at santifer upstream — npx users would get the wrong repo');
+  }
+}
+
+// Release-channel selection: both the scaffolder (clone target) and the updater
+// (release fallback) must filter to core `career-ops-v*` tags and ignore other
+// Release Please components. Regression guard for the QC finding where GitHub's
+// /releases/latest returned `web-v1.0.0` — npx would have cloned the wrong tag.
+try {
+  const { pickLatestTag } = await import(pathToFileURL(join(ROOT, 'scaffolder/bin/cli.mjs')).href);
+  const mixed = [
+    { tag_name: 'web-v1.0.0' },
+    { tag_name: 'career-ops-v1.16.0' },
+    { tag_name: 'career-ops-v1.15.0' },
+    { tag_name: 'career-ops-v1.9.0' },
+  ];
+  if (pickLatestTag(mixed) === 'career-ops-v1.16.0') {
+    pass('scaffolder pickLatestTag ignores web-v* and picks newest career-ops-v* tag');
+  } else {
+    fail(`scaffolder pickLatestTag picked "${pickLatestTag(mixed)}" — expected career-ops-v1.16.0`);
+  }
+  if (pickLatestTag([{ tag_name: 'web-v2.0.0' }]) === null) {
+    pass('scaffolder pickLatestTag returns null when only non-core (web-v*) releases exist');
+  } else {
+    fail('scaffolder pickLatestTag should return null when no career-ops-v* release is present');
+  }
+} catch (e) {
+  fail(`scaffolder pickLatestTag import/test failed: ${e.message}`);
+}
+
+try {
+  const tmp = mkdtempSync(join(tmpdir(), 'career-ops-bin-'));
+  const link = join(tmp, 'career-ops');
+  symlinkSync(join(ROOT, 'scaffolder/bin/cli.mjs'), link);
+  const out = run(NODE, [link, '--help']);
+  rmSync(tmp, { recursive: true, force: true });
+  if (out && /npx @neilshekhar\/career-ops init/.test(out)) {
+    pass('scaffolder npm bin runs through a .bin symlink');
+  } else {
+    fail('scaffolder npm bin produced no help through a .bin symlink — npx entrypoint would be inert');
+  }
+} catch (e) {
+  fail(`scaffolder symlinked npm-bin smoke failed: ${e.message}`);
+}
+
+try {
+  const { pickLatestRelease } = await import(pathToFileURL(join(ROOT, 'update-system.mjs')).href);
+  // web-v9.9.9 outranks core by raw semver — proves selection is by COMPONENT,
+  // not by highest version overall.
+  const picked = pickLatestRelease([
+    { tag_name: 'web-v9.9.9', body: 'web notes' },
+    { tag_name: 'career-ops-v1.16.0', body: 'core notes' },
+    { tag_name: 'career-ops-v1.12.1', body: 'old' },
+  ]);
+  if (picked && picked.version === '1.16.0' && picked.changelog === 'core notes') {
+    pass('updater pickLatestRelease ignores web-v* (even higher-versioned) and picks newest core release + changelog');
+  } else {
+    fail(`updater pickLatestRelease returned ${JSON.stringify(picked)} — expected {version:"1.16.0", changelog:"core notes"}`);
+  }
+  if (pickLatestRelease([{ tag_name: 'web-v1.0.0' }]) === null) {
+    pass('updater pickLatestRelease returns null when only non-core releases exist');
+  } else {
+    fail('updater pickLatestRelease should return null when no career-ops-v* release is present');
+  }
+} catch (e) {
+  fail(`updater pickLatestRelease import/test failed: ${e.message}`);
+}
+
+const readmeFiles = readdirSync(ROOT).filter((name) => /^README(?:\..+)?\.md$/.test(name));
+const releaseBadgeLeaks = readmeFiles.filter((name) => {
+  const doc = readFile(name);
+  return (
+    /github\.com\/neilshekhar\/career-ops\/releases\/latest/.test(doc) ||
+    /img\.shields\.io\/npm\/v\/%40neilshekhar%2Fcareer-ops/.test(doc)
+  );
+});
+if (
+  releaseBadgeLeaks.length === 0 &&
+  /img\.shields\.io\/github\/v\/tag\/neilshekhar\/career-ops\?filter=career-ops-v%2A/.test(readFile('README.md'))
+) {
+  pass('README release badges use the filtered career-ops tag channel, not npm or GitHub releases/latest');
+} else {
+  fail(`README release badge channel is unsafe for this multi-component repo: ${releaseBadgeLeaks.join(', ') || 'README.md missing filtered tag badge'}`);
 }
 
 if (updateSystemScript.includes("'CODEX.md'")) {
@@ -1859,6 +1972,16 @@ if (
 } else {
   fail('docs/SETUP.md is missing Codex invocation guidance');
 }
+if (
+  /npx @neilshekhar\/career-ops init/.test(setupDoc) &&
+  /git clone https:\/\/github\.com\/neilshekhar\/career-ops\.git/.test(setupDoc) &&
+  !/@santifer\/career-ops/.test(setupDoc) &&
+  !/git clone https:\/\/github\.com\/santifer\/career-ops\.git/.test(setupDoc)
+) {
+  pass('docs/SETUP.md install commands target this fork');
+} else {
+  fail('docs/SETUP.md contains stale upstream install commands');
+}
 
 const agentsDoc = readFile('AGENTS.md');
 if (
@@ -2134,6 +2257,32 @@ if (fileExists('VERSION')) {
     pass(`VERSION is valid semver: ${version}`);
   } else {
     fail(`VERSION is not valid semver: "${version}"`);
+  }
+
+  // Version single-source-of-truth: VERSION (what `update-system.mjs check` reads),
+  // package.json, and the Release Please manifest must all agree. When they drift,
+  // `update check` can report up-to-date at an older version than main actually
+  // shipped (VERSION lagged package.json/manifest at 1.15 vs 1.16 — see fork QC).
+  const versionSources = [['VERSION', version]];
+  if (fileExists('package.json')) {
+    try {
+      versionSources.push(['package.json', JSON.parse(readFile('package.json')).version]);
+    } catch {
+      fail('package.json is not valid JSON — cannot check version consistency');
+    }
+  }
+  if (fileExists('.release-please-manifest.json')) {
+    try {
+      versionSources.push(['.release-please-manifest.json', JSON.parse(readFile('.release-please-manifest.json'))['.']]);
+    } catch {
+      fail('.release-please-manifest.json is not valid JSON — cannot check version consistency');
+    }
+  }
+  const distinctVersions = [...new Set(versionSources.map(([, v]) => v))];
+  if (distinctVersions.length === 1) {
+    pass(`version is consistent across ${versionSources.map(([n]) => n).join(', ')}: ${distinctVersions[0]}`);
+  } else {
+    fail(`version mismatch across sources — ${versionSources.map(([n, v]) => `${n}=${v}`).join(', ')}`);
   }
 } else {
   fail('VERSION file missing');
@@ -6170,37 +6319,62 @@ try {
   fail(`api-cron.yml checks crashed: ${e.message}`);
 }
 
-// 15f. release.yml: npm publish must not fail fork releases without NPM_TOKEN
+// 15f. release.yml: npm publish should use trusted publishing/OIDC, not a long-lived token
 try {
   const wfPath = '.github/workflows/release.yml';
   if (fileExists(wfPath)) {
     const wf = readFile(wfPath);
 
-    if (wf.includes('NPM_TOKEN: ${{ secrets.NPM_TOKEN }}')) {
-      pass('release.yml maps NPM_TOKEN through job env for conditional checks');
+    if (wf.includes('id-token: write')) {
+      pass('release.yml grants id-token: write for npm trusted publishing');
     } else {
-      fail('release.yml missing job env NPM_TOKEN mapping for conditional publish guard');
+      fail('release.yml missing id-token: write for npm trusted publishing');
     }
 
-    if (wf.includes("env.NPM_TOKEN == ''") && wf.includes('skipping npm publish')) {
-      pass('release.yml emits a skip notice when NPM_TOKEN is unavailable');
+    if (wf.includes('workflow_dispatch:') && wf.includes('publish_scaffolder:')) {
+      pass('release.yml exposes manual scaffolder publish for trusted-publisher smoke runs');
     } else {
-      fail('release.yml missing missing-NPM_TOKEN skip notice');
+      fail('release.yml lacks workflow_dispatch scaffolder publish path');
     }
 
     if (
-      wf.includes("steps.release.outputs.release_created == 'true' && env.NPM_TOKEN != ''") &&
-      wf.includes('npm publish --provenance --access public')
+      wf.includes('NPM_TOKEN') ||
+      wf.includes('NODE_AUTH_TOKEN') ||
+      wf.includes('secrets.NPM_TOKEN')
     ) {
-      pass('release.yml gates npm publish on release_created and non-empty NPM_TOKEN');
+      fail('release.yml still references NPM_TOKEN — trusted publishing should be tokenless');
     } else {
-      fail('release.yml npm publish is not guarded by release_created + non-empty NPM_TOKEN');
+      pass('release.yml publishes without long-lived npm tokens');
     }
 
-    if (wf.includes('NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}')) {
-      pass('release.yml publishes with the guarded NPM_TOKEN env value');
+    if (
+      wf.includes("steps.release.outputs.release_created == 'true'") &&
+      wf.includes("github.event_name == 'workflow_dispatch'") &&
+      wf.includes('npm publish --access public') &&
+      !wf.includes('npm publish --provenance')
+    ) {
+      pass('release.yml gates trusted npm publish on release_created/manual dispatch');
     } else {
-      fail('release.yml publish step does not use the guarded NPM_TOKEN env value');
+      fail('release.yml npm publish is not guarded by release_created/manual dispatch, or still uses --provenance');
+    }
+
+    if (
+      wf.includes('npm view "${{ steps.scaffolder.outputs.name }}@${{ steps.scaffolder.outputs.version }}" version') &&
+      wf.includes("steps.npm_package.outputs.exists != 'true'") &&
+      wf.includes('already published; skipping npm publish')
+    ) {
+      pass('release.yml skips npm publish when the exact scaffolder version already exists');
+    } else {
+      fail('release.yml missing duplicate-version npm publish guard');
+    }
+
+    if (
+      wf.includes('npm install -g npm@latest') &&
+      wf.includes('package-manager-cache: false')
+    ) {
+      pass('release.yml pins release-time npm freshness and disables package-manager cache');
+    } else {
+      fail('release.yml missing trusted-publishing npm freshness/cache hardening');
     }
   } else {
     fail('release.yml workflow file missing');

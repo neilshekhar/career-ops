@@ -3,14 +3,20 @@
 [English](README.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md)
 
 <p align="center">
-  <a href="https://x.com/santifer"><img src="docs/hero-banner.jpg" alt="Career-Ops Sistema Multi-Agente de Busqueda de Empleo" width="800"></a>
+  <a href="https://github.com/neilshekhar/career-ops"><img src="docs/hero-banner.jpg" alt="Career-Ops Sistema Multi-Agente de Busqueda de Empleo" width="800"></a>
 </p>
 
 <p align="center">
-  <em>Meses mandando CVs al vacio. Asi que me construi el sistema que echaba en falta.</em><br>
-  Las empresas usan IA para descartarte. <strong>Yo le di a los candidatos IA para <em>elegirlas</em>.</strong><br>
-  <em>Ahora es open source.</em>
+  <sub>🍴 Este es <a href="https://github.com/neilshekhar/career-ops"><strong>neilshekhar/career-ops</strong></a>, mantenido y ampliado por <a href="https://github.com/neilshekhar">Neil Shekhar</a> — un fork del <a href="https://github.com/santifer/career-ops">career-ops</a> original creado por <a href="https://santifer.io">santifer</a>.</sub>
 </p>
+
+<p align="center">
+  <em>Aplicar a empleos a la manera tradicional se lleva meses. Este es el sistema construido para arreglarlo.</em><br>
+  Las empresas usan IA para filtrar candidatos. <strong>Esto pone la IA en manos de los candidatos para <em>elegir</em> empresas.</strong><br>
+  <em>Open source.</em>
+</p>
+
+<p align="center"><sub>★ Reconocimiento y prensa obtenidos por el proyecto original <a href="https://github.com/santifer/career-ops">career-ops</a></sub></p>
 
 <p align="center">
   <a href="https://trendshift.io/repositories/25195" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25195" alt="santifer%2Fcareer-ops | Trendshift" style="width: 245px; height: 54px; vertical-align: middle;" width="245" height="54"/></a>
@@ -33,21 +39,6 @@
 </p>
 
 <p align="center"><strong>740+ ofertas evaluadas · 100+ CVs personalizados · 1 trabajo soñado conseguido</strong></p>
-
-<p align="center">
-  <a href="https://warpchart.dev/hq">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://warpchart.dev/api/chart?theme=dark&v=3">
-      <img alt="Live star telemetry of santifer/career-ops" src="https://warpchart.dev/api/chart?theme=light&v=3" loading="lazy">
-    </picture>
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://discord.gg/8pRpHETxa4"><img src="https://img.shields.io/badge/Unete_a_la_comunidad-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
-  &nbsp;
-  <a href="https://www.npmjs.com/package/@santifer/career-ops"><img src="https://img.shields.io/npm/dt/@santifer/career-ops?style=for-the-badge&logo=npm&color=CB3837&label=npx%20installs" alt="npm installs"></a>
-</p>
 
 <p align="center">
   <a href="https://claude.com/claude-code"><img src="https://img.shields.io/badge/Built_with-Claude_Code-000?style=for-the-badge&logo=anthropic&logoColor=white" alt="Built with Claude Code"></a>
@@ -84,7 +75,7 @@ Career-Ops convierte cualquier CLI de IA en un centro de mando de busqueda de em
 
 > **Aviso: las primeras evaluaciones no seran buenas.** El sistema no te conoce todavia. Dale contexto -- tu CV, tu historia profesional, tus proof points, tus preferencias, en que eres bueno, que quieres evitar. Cuanto mas lo nutras, mejor filtra. Piensa en ello como hacer onboarding a un recruiter nuevo: la primera semana necesita conocerte, luego se vuelve invaluable.
 
-Construido por alguien que lo uso para evaluar 740+ ofertas, generar 100+ CVs personalizados, y conseguir un rol de Head of Applied AI. [Lee el case study completo](https://santifer.io/career-ops).
+Originalmente construido por [santifer](https://santifer.io), quien lo uso para evaluar 740+ ofertas, generar 100+ CVs personalizados, y conseguir un rol de Head of Applied AI. [Lee el case study completo](https://santifer.io/career-ops-system).
 
 ## Features
 
@@ -106,7 +97,7 @@ Construido por alguien que lo uso para evaluar 740+ ofertas, generar 100+ CVs pe
 **La forma mas rapida — un solo comando:**
 
 ```bash
-npx @santifer/career-ops init
+npx @neilshekhar/career-ops init
 ```
 
 > 💡 `npx` viene incluido con [Node.js](https://nodejs.org) — ejecuta el instalador una vez, sin instalar nada de forma global. ¿No tienes Node? Instalalo primero. (¿Ya usas un CLI como Claude Code / Gemini / Codex? Entonces ya lo tienes.)
@@ -124,7 +115,7 @@ claude   # o gemini / codex / qwen / opencode — abre tu CLI de IA aqui
 <summary><b>¿Prefieres instalarlo manualmente? (git clone)</b></summary>
 
 ```bash
-git clone https://github.com/santifer/career-ops.git
+git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
 npx playwright install chromium   # solo para generar PDFs
 claude   # abre tu CLI de IA — te guiara en el primer arranque
@@ -250,11 +241,11 @@ career-ops/
 - **Dashboard**: Go + Bubble Tea + Lipgloss (tema Catppuccin Mocha)
 - **Datos**: Tablas Markdown + config YAML + ficheros TSV batch
 
-## Sobre el autor
+## Creditos y Origen
 
-Soy Santiago -- Head of Applied AI, ex-fundador (monte y vendi un negocio que sigue funcionando con mi nombre). Construi career-ops para gestionar mi propia busqueda de empleo. Funciono: lo use para conseguir mi puesto actual.
+career-ops fue **creado originalmente por [Santiago Fernandez de Valderrama (santifer)](https://santifer.io)** -- Head of Applied AI y ex-fundador (monto y vendio un negocio que sigue funcionando con su nombre). Lo construyo para gestionar su propia busqueda de empleo, y lo uso para conseguir su puesto actual. Su portfolio y otros proyectos open source → [santifer.io](https://santifer.io).
 
-Mi portfolio y otros proyectos open source → [santifer.io](https://santifer.io)
+**Este repositorio, [neilshekhar/career-ops](https://github.com/neilshekhar/career-ops), es un fork mantenido y ampliado por [Neil Shekhar](https://github.com/neilshekhar)** -- con arreglos y funcionalidades adicionales sobre el trabajo original de santifer, y sincronizado periodicamente con el upstream.
 
 ## Documentacion
 
@@ -284,8 +275,9 @@ MIT
 
 ## Conecta
 
-[![Website](https://img.shields.io/badge/santifer.io-000?style=for-the-badge&logo=safari&logoColor=white)](https://santifer.io)
+**Este fork** — [![GitHub](https://img.shields.io/badge/GitHub-neilshekhar-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/neilshekhar/career-ops)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-neil--shekhar-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/neil-shekhar/)
+
+**Autor original (santifer)** — [![Website](https://img.shields.io/badge/santifer.io-000?style=for-the-badge&logo=safari&logoColor=white)](https://santifer.io)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/in/santifer)
 [![X](https://img.shields.io/badge/X-000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/santifer)
-[![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/8pRpHETxa4)
-[![Email](https://img.shields.io/badge/Email-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:hola@santifer.io)

@@ -1,6 +1,6 @@
 {
-  "name": "@santifer/career-ops",
-  "version": "1.16.0",
+  "name": "@neilshekhar/career-ops",
+  "version": "1.16.1",
   "description": "One-command installer for career-ops — the AI-powered job search pipeline built on Claude Code.",
   "bin": {
     "career-ops": "bin/cli.mjs"
@@ -22,15 +22,15 @@
     "create",
     "cli"
   ],
-  "author": "Santiago Fernández de Valderrama <hi@santifer.io> (https://santifer.io)",
-  "homepage": "https://github.com/santifer/career-ops#readme",
+  "author": "Neil Shekhar <neil.shekhar@gmail.com>",
+  "homepage": "https://github.com/neilshekhar/career-ops#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/santifer/career-ops.git",
+    "url": "git+https://github.com/neilshekhar/career-ops.git",
     "directory": "scaffolder"
   },
   "bugs": {
-    "url": "https://github.com/santifer/career-ops/issues"
+    "url": "https://github.com/neilshekhar/career-ops/issues"
   },
   "license": "MIT",
   "dependencies": {}

@@ -3,14 +3,20 @@
 [English](README.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md)
 
 <p align="center">
-  <a href="https://x.com/santifer"><img src="docs/hero-banner.jpg" alt="Career-Ops Мультиагентная система поиска работы" width="800"></a>
+  <a href="https://github.com/neilshekhar/career-ops"><img src="docs/hero-banner.jpg" alt="Career-Ops Мультиагентная система поиска работы" width="800"></a>
 </p>
 
 <p align="center">
-  <em>Я месяцами откликался на вакансии вручную. И создал систему, которую хотел бы иметь с самого начала.</em><br>
-  Компании используют ИИ для фильтрации кандидатов. <strong>Я дал кандидатам ИИ, чтобы <em>выбирать</em> компании.</strong><br>
-  <em>Теперь это open source.</em>
+  <sub>🍴 Это <a href="https://github.com/neilshekhar/career-ops"><strong>neilshekhar/career-ops</strong></a> — форк, который поддерживает и развивает <a href="https://github.com/neilshekhar">Neil Shekhar</a>, на основе оригинального <a href="https://github.com/santifer/career-ops">career-ops</a>, созданного <a href="https://santifer.io">santifer</a>.</sub>
 </p>
+
+<p align="center">
+  <em>Отклик на вакансии вручную занимает месяцы. Эта система создана, чтобы это исправить.</em><br>
+  Компании используют ИИ для фильтрации кандидатов. <strong>Эта система отдаёт ИИ в руки кандидатам, чтобы <em>выбирать</em> компании.</strong><br>
+  <em>Open source.</em>
+</p>
+
+<p align="center"><sub>★ Признание и упоминания в прессе получены оригинальным проектом <a href="https://github.com/santifer/career-ops">career-ops</a></sub></p>
 
 <p align="center">
   <a href="https://trendshift.io/repositories/25195" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25195" alt="santifer%2Fcareer-ops | Trendshift" style="width: 245px; height: 54px; vertical-align: middle;" width="245" height="54"/></a>
@@ -35,9 +41,7 @@
 <p align="center"><strong>740+ вакансий оценено · 100+ персонализированных резюме · 1 позиция мечты получена</strong></p>
 
 <p align="center">
-  <a href="https://discord.gg/8pRpHETxa4"><img src="https://img.shields.io/badge/Присоединиться_к_сообществу-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
-  &nbsp;
-  <a href="https://www.npmjs.com/package/@santifer/career-ops"><img src="https://img.shields.io/npm/dt/@santifer/career-ops?style=for-the-badge&logo=npm&color=CB3837&label=npx%20installs" alt="npm installs"></a>
+  <a href="https://github.com/neilshekhar/career-ops/releases"><img src="https://img.shields.io/github/v/tag/neilshekhar/career-ops?filter=career-ops-v%2A&style=for-the-badge&labelColor=2b3137&color=2ea44f&label=release" alt="Последний релиз"></a>
 </p>
 
 <p align="center">
@@ -93,7 +97,7 @@ Career-Ops превращает любой AI-CLI в полноценный ко
 **Самый быстрый способ — одна команда:**
 
 ```bash
-npx @santifer/career-ops init
+npx @neilshekhar/career-ops init
 ```
 
 > 💡 `npx` поставляется вместе с [Node.js](https://nodejs.org) — он один раз запускает
@@ -113,7 +117,7 @@ claude   # или gemini / codex / qwen / opencode — открой здесь �
 <summary><b>Предпочитаешь настроить вручную? (git clone)</b></summary>
 
 ```bash
-git clone https://github.com/santifer/career-ops.git
+git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
 npx playwright install chromium   # нужно только для генерации PDF
 claude   # открой свой AI-CLI — он проведёт онбординг при первом запуске
