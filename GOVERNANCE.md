@@ -2,7 +2,9 @@
 
 ## Overview
 
-career-ops is maintained by [@santifer](https://github.com/santifer) under a **BDFL (Benevolent Dictator for Life)** model with a clear path for community members to earn trust and take on responsibilities.
+This fork is maintained by [@neilshekhar](https://github.com/neilshekhar). The original upstream project, [santifer/career-ops](https://github.com/santifer/career-ops), is maintained by [@santifer](https://github.com/santifer) under a **BDFL (Benevolent Dictator for Life)** model with a clear path for community members to earn trust and take on responsibilities.
+
+Fork-specific releases, packaging, documentation, and fixes are handled in this repository. Upstream architecture, scoring, trademark, and community-governance decisions should continue to credit and follow the original project.
 
 The goal is to build a self-sustaining community where the project thrives even when the maintainer is offline.
 

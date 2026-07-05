@@ -4,7 +4,7 @@
 
 **Do NOT open a public issue for security vulnerabilities.**
 
-Instead, please email **hi@santifer.io** with:
+For this fork, please email **neil.shekhar@gmail.com** with:
 
 1. Description of the vulnerability
 2. Steps to reproduce
@@ -12,6 +12,8 @@ Instead, please email **hi@santifer.io** with:
 4. Suggested fix (if any)
 
 You will receive a response within 72 hours. We will work with you to understand and address the issue before any public disclosure.
+
+If the issue also affects the original upstream project, we will coordinate credit and disclosure with [santifer/career-ops](https://github.com/santifer/career-ops).
 
 ## Scope
 

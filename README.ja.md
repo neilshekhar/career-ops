@@ -267,6 +267,16 @@ career-opsは、**[Santiago Fernández de Valderrama (santifer)](https://santife
 
 詳細は [LEGAL_DISCLAIMER.md](LEGAL_DISCLAIMER.md) を参照してください。本ソフトウェアは [MITライセンス](LICENSE) のもと「現状のまま」提供され、いかなる保証もありません。
 
+## コントリビューター
+
+<p align="center">
+  <a href="https://github.com/neilshekhar">
+    <img src="https://github.com/neilshekhar.png?size=96" width="96" height="96" alt="Neil Shekhar" />
+  </a>
+  <br>
+  <sub><b><a href="https://github.com/neilshekhar">Neil Shekhar</a></b></sub>
+</p>
+
 ## ライセンス
 
 MIT

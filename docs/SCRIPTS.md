@@ -15,8 +15,8 @@ All scripts live in the project root as `.mjs` modules and are exposed via `npm 
 | `npm run build:latex` | `build-cv-latex.mjs` | Build .tex from structured JSON payload |
 | `npm run sync-check` | `cv-sync-check.mjs` | Validate CV/profile consistency |
 | `npm run patterns` | `analyze-patterns.mjs` | Analyze tracker outcomes and report patterns |
-| `npm run update:check` | `update-system.mjs check` | Check for upstream updates |
-| `npm run update` | `update-system.mjs apply` | Apply upstream update |
+| `npm run update:check` | `update-system.mjs check` | Check for fork release updates |
+| `npm run update` | `update-system.mjs apply` | Apply fork release update |
 | `npm run rollback` | `update-system.mjs rollback` | Rollback last update |
 | `npm run liveness` | `check-liveness.mjs` | Test if job URLs are still active |
 | `npm run scan` | `scan.mjs` | Zero-token portal scanner |
@@ -169,7 +169,7 @@ node analyze-patterns.mjs --self-test
 
 ## update:check
 
-Checks whether a newer version of career-ops is available upstream. Outputs JSON to stdout:
+Checks whether a newer version of career-ops is available from this fork's configured release source. Outputs JSON to stdout:
 
 ```bash
 npm run update:check
@@ -190,7 +190,7 @@ Possible JSON responses:
 
 ## update
 
-Applies the upstream update. Creates a timestamped backup branch (`backup-pre-update-<version>-<YYYYMMDDTHHMMSSZ>`), fetches from the canonical repo, checks out only system-layer files, runs `npm install`, and commits. The timestamp is derived from UTC ISO time with separators and milliseconds removed (for example, `backup-pre-update-1.8.1-20260608T071302Z`). User-layer files (`cv.md`, `config/profile.yml`, `data/`, etc.) are never touched.
+Applies the fork release update. Creates a timestamped backup branch (`backup-pre-update-<version>-<YYYYMMDDTHHMMSSZ>`), fetches from the configured canonical repo, checks out only system-layer files, runs `npm install`, and commits. The timestamp is derived from UTC ISO time with separators and milliseconds removed (for example, `backup-pre-update-1.8.1-20260608T071302Z`). User-layer files (`cv.md`, `config/profile.yml`, `data/`, etc.) are never touched.
 
 ```bash
 npm run update

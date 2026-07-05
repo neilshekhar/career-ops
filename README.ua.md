@@ -265,6 +265,14 @@ career-ops був **спочатку створений [Сантьяго Фер
 
 ## Контриб'ютори
 
+<p align="center">
+  <a href="https://github.com/neilshekhar">
+    <img src="https://github.com/neilshekhar.png?size=96" width="96" height="96" alt="Neil Shekhar" />
+  </a>
+  <br>
+  <sub><b><a href="https://github.com/neilshekhar">Neil Shekhar</a></b></sub>
+</p>
+
 <a href="https://github.com/neilshekhar/career-ops/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=neilshekhar/career-ops" alt="Контриб'ютори neilshekhar/career-ops" />
 </a>

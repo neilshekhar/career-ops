@@ -269,6 +269,16 @@ career-ops fue **creado originalmente por [Santiago Fernandez de Valderrama (san
 
 Ver [LEGAL_DISCLAIMER.md](LEGAL_DISCLAIMER.md) para mas detalles. Este software se proporciona bajo la [Licencia MIT](LICENSE) "tal cual", sin garantia de ningun tipo.
 
+## Colaboradores
+
+<p align="center">
+  <a href="https://github.com/neilshekhar">
+    <img src="https://github.com/neilshekhar.png?size=96" width="96" height="96" alt="Neil Shekhar" />
+  </a>
+  <br>
+  <sub><b><a href="https://github.com/neilshekhar">Neil Shekhar</a></b></sub>
+</p>
+
 ## Licencia
 
 MIT

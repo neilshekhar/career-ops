@@ -1,12 +1,13 @@
 # Maintainers
 
-This file lists who maintains career-ops and how contributors grow into review and maintenance roles. It exists so the project doesn't depend on any single person and so the path forward is legible to everyone.
+This file lists who maintains this fork of career-ops and how contributors grow into review and maintenance roles. It exists so the project doesn't depend on any single person and so the path forward is legible to everyone.
 
 ## Current maintainers
 
 | Role | Who | Areas |
 |------|-----|-------|
-| Lead maintainer | [@santifer](https://github.com/santifer) | All areas; final say on architecture, scoring, and the data contract |
+| Fork maintainer | [@neilshekhar](https://github.com/neilshekhar) | Fork releases, packaging, docs, installer, and fork-specific fixes |
+| Original project lead | [@santifer](https://github.com/santifer) | Original project architecture, scoring, trademark, and upstream data-contract direction |
 
 Reviewers and additional maintainers are added as the contributor ladder below produces them. If you're reviewing this and the list is short — that's the honest current state, and the ladder is how it grows.
 
@@ -15,7 +16,7 @@ Reviewers and additional maintainers are added as the contributor ladder below p
 Career-ops grows its team in the open. There are three rungs:
 
 ### 1. Contributor
-Anyone who opens a PR or a helpful issue. No permissions needed — just contribute. Good first contributions: a new open-API scanner provider (`providers/`), a translation, a docs fix, or a [good first issue](https://github.com/santifer/career-ops/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). See [CONTRIBUTING.md](CONTRIBUTING.md).
+Anyone who opens a PR or a helpful issue. No permissions needed — just contribute. Good first contributions: a new open-API scanner provider (`providers/`), a translation, a docs fix, or a [good first issue](https://github.com/neilshekhar/career-ops/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### 2. Reviewer
 Trusted contributors who help triage and review incoming PRs. A reviewer is invited after a track record of **several merged, high-quality PRs** across more than one area, plus consistently helpful review comments on others' PRs. Reviewers help label, reproduce, and give first-pass feedback; merges still go through a maintainer.
@@ -46,8 +47,8 @@ Because career-ops handles people's personal career data, access is granted care
 ## Decision-making
 
 - Day-to-day: lowest-friction path — a maintainer reviews and merges.
-- Significant or breaking changes: an [RFC](https://github.com/santifer/career-ops/discussions/categories/rfc) first (see [CONTRIBUTING.md](CONTRIBUTING.md) → "Proposing big changes").
-- Architecture, scoring rules, and the data contract: lead maintainer has final say, informed by RFC discussion.
+- Significant or breaking changes: discuss in this fork first; changes intended for upstream should also follow the upstream [RFC](https://github.com/santifer/career-ops/discussions/categories/rfc) process.
+- Architecture, scoring rules, and the data contract: fork maintainer has final say for this release line; upstream alignment stays anchored to santifer's original project direction.
 
 ## Want to help maintain?
 
