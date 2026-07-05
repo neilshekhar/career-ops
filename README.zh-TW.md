@@ -3,14 +3,20 @@
 [English](README.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md)
 
 <p align="center">
-  <a href="https://x.com/santifer"><img src="docs/hero-banner.jpg" alt="Career-Ops 多代理求職系統" width="800"></a>
+  <a href="https://github.com/neilshekhar/career-ops"><img src="docs/hero-banner.jpg" alt="Career-Ops 多代理求職系統" width="800"></a>
 </p>
 
 <p align="center">
-  <em>我花了好幾個月用最費力的方式找工作。所以我打造了一個當初就希望能擁有的系統。</em><br>
-  企業用 AI 篩選候選人。<strong>我把 AI 交給候選人，讓他們來<em>挑選</em>企業。</strong><br>
-  <em>現在，它開源了。</em>
+  <sub>🍴 這是 <a href="https://github.com/neilshekhar/career-ops"><strong>neilshekhar/career-ops</strong></a>，由 <a href="https://github.com/neilshekhar">Neil Shekhar</a> 維護與擴充 — fork 自 <a href="https://santifer.io">santifer</a> 打造的原始 <a href="https://github.com/santifer/career-ops">career-ops</a>。</sub>
 </p>
+
+<p align="center">
+  <em>用最費力的方式求職要花上好幾個月。這是為了解決這個問題而打造的系統。</em><br>
+  企業用 AI 篩選候選人。<strong>這套系統把 AI 交到候選人手中，讓他們來<em>挑選</em>企業。</strong><br>
+  <em>開源。</em>
+</p>
+
+<p align="center"><sub>★ 原始 <a href="https://github.com/santifer/career-ops">career-ops</a> 專案獲得的媒體報導與肯定</sub></p>
 
 <p align="center">
   <a href="https://trendshift.io/repositories/25195" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25195" alt="santifer%2Fcareer-ops | Trendshift" style="width: 245px; height: 54px; vertical-align: middle;" width="245" height="54"/></a>
@@ -33,12 +39,6 @@
 </p>
 
 <p align="center"><strong>評估超過 740 份職缺 · 生成超過 100 份個人化履歷 · 成功獲得理想職位</strong></p>
-
-<p align="center">
-  <a href="https://discord.gg/8pRpHETxa4"><img src="https://img.shields.io/badge/加入社群-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
-  &nbsp;
-  <a href="https://www.npmjs.com/package/@santifer/career-ops"><img src="https://img.shields.io/npm/dt/@santifer/career-ops?style=for-the-badge&logo=npm&color=CB3837&label=npx%20installs" alt="npm installs"></a>
-</p>
 
 <p align="center">
   <a href="https://claude.com/claude-code"><img src="https://img.shields.io/badge/Built_with-Claude_Code-000?style=for-the-badge&logo=anthropic&logoColor=white" alt="Built with Claude Code"></a>
@@ -77,7 +77,7 @@ career-ops 具有代理能力：Claude Code 透過 Playwright 瀏覽求職頁面
 
 > **注意：最初幾次評估的品質可能不盡理想。** 因為系統還不了解你。請提供更多背景資訊 — 你的履歷、職涯故事、成就佐證、個人偏好、你的專長以及希望避免的事情。你餵給它的資訊越多，它就越準確。把它當作招募新人的招募顧問：第一週需要學習認識你，之後就會成為不可或缺的夥伴。
 
-這個系統由一位親身使用它評估超過 740 份職缺、生成超過 100 份客製化履歷、並成功獲得 Head of Applied AI 職位的人所打造。[閱讀完整案例研究](https://santifer.io/career-ops-system)。
+career-ops 最初由 [santifer](https://santifer.io) 打造，他親身用它評估超過 740 份職缺、生成超過 100 份客製化履歷，並成功獲得 Head of Applied AI 職位。[閱讀完整案例研究](https://santifer.io/career-ops-system)。
 
 ## 功能特色
 
@@ -99,7 +99,7 @@ career-ops 具有代理能力：Claude Code 透過 Playwright 瀏覽求職頁面
 **最快的方式 — 一行指令：**
 
 ```bash
-npx @santifer/career-ops init
+npx @neilshekhar/career-ops init
 ```
 
 > 💡 `npx` 隨 [Node.js](https://nodejs.org) 一起提供 — 它會執行安裝程式一次，
@@ -119,7 +119,7 @@ claude   # 或 gemini / codex / qwen / opencode — 在此開啟你的 AI CLI
 <summary><b>偏好手動設定？（git clone）</b></summary>
 
 ```bash
-git clone https://github.com/santifer/career-ops.git
+git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
 npx playwright install chromium   # 僅 PDF 生成所需
 claude   # 開啟你的 AI CLI — 首次啟動時會帶你完成設定
@@ -250,21 +250,11 @@ career-ops/
 
 - **[cv-santiago](https://github.com/santifer/cv-santiago)** — 作者的作品集網站（santifer.io），包含 AI 聊天機器人、LLMOps 儀表板與案例研究。如果你需要一個在求職過程中展示的作品集，可以 fork 它並改造成你自己的。
 
-## 關於作者
+## 致謝與源起
 
-我是 Santiago — Head of Applied AI，前創業者（創建並出售了一家至今仍以我名字營運的公司）。我打造 career-ops 是為了管理自己的求職過程，並成功用它找到了現在這份工作。
+career-ops **最初由 [Santiago Fernández de Valderrama（santifer）](https://santifer.io) 打造** — 他是 Head of Applied AI，也是前創業者（創建並出售了一家至今仍以他名字營運的公司）。他打造 career-ops 是為了管理自己的求職過程，並成功用它找到了現在這份工作。他的個人作品集與其他開源專案 → [santifer.io](https://santifer.io)。
 
-個人作品集與其他開源專案 → [santifer.io](https://santifer.io)
-
-## Star 歷史
-
-<a href="https://www.star-history.com/?repos=santifer%2Fcareer-ops&type=timeline&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&legend=top-left" />
- </picture>
-</a>
+**本儲存庫 [neilshekhar/career-ops](https://github.com/neilshekhar/career-ops) 是由 [Neil Shekhar](https://github.com/neilshekhar) 維護與擴充的 fork** — 在 santifer 原始作品的基礎上加入額外的修正與功能，並定期與上游同步。
 
 ## 免責聲明
 
@@ -279,20 +269,21 @@ career-ops/
 
 ## 貢獻者
 
-<a href="https://github.com/santifer/career-ops/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=santifer/career-ops" />
+<a href="https://github.com/neilshekhar/career-ops/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=neilshekhar/career-ops" />
 </a>
 
-使用 career-ops 找到工作了嗎？[分享你的故事！](https://github.com/santifer/career-ops/issues/new?template=i-got-hired.yml)
+使用 career-ops 找到工作了嗎？[分享你的故事！](https://github.com/neilshekhar/career-ops/issues/new?template=i-got-hired.yml)
 
 ## 授權條款
 
 MIT
 
-## 聯絡我
+## 聯絡我們
 
-[![Website](https://img.shields.io/badge/santifer.io-000?style=for-the-badge&logo=safari&logoColor=white)](https://santifer.io)
+**本 Fork** — [![GitHub](https://img.shields.io/badge/GitHub-neilshekhar-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/neilshekhar/career-ops)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-neil--shekhar-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/neil-shekhar/)
+
+**原作者（santifer）** — [![Website](https://img.shields.io/badge/santifer.io-000?style=for-the-badge&logo=safari&logoColor=white)](https://santifer.io)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/in/santifer)
 [![X](https://img.shields.io/badge/X-000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/santifer)
-[![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/8pRpHETxa4)
-[![Email](https://img.shields.io/badge/Email-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:hi@santifer.io)

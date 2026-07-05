@@ -3,13 +3,17 @@
 [English](README.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md)
 
 <p align="right" dir="rtl">
-  <a href="https://x.com/santifer"><img src="docs/hero-banner.jpg" alt="Career-Ops — نظام البحث عن وظائف القائم على عدة وكلاء ذكاء اصطناعي" width="800"></a>
+  <a href="https://github.com/neilshekhar/career-ops"><img src="docs/hero-banner.jpg" alt="Career-Ops — نظام البحث عن وظائف القائم على عدة وكلاء ذكاء اصطناعي" width="800"></a>
 </p>
 
 <p align="center" dir="rtl">
-  <em>لقد قضيت شهوراً في التقديم على الوظائف بالطريقة التقليدية الصعبة. لذا قمت ببناء وتطوير النظام الذي تمنيت لو كان لدي.</em><br>
-  تستخدم الشركات الذكاء الاصطناعي لتصفية المرشحين. <strong>أنا ببساطة أعطيت المرشحين الذكاء الاصطناعي ليختاروا هم الشركات المناسبة.</strong><br>
-  <em>الآن، هذا النظام مفتوح المصدر بالكامل.</em>
+  <sub>🍴 هذا هو مستودع <a href="https://github.com/neilshekhar/career-ops"><strong>neilshekhar/career-ops</strong></a>، الذي يتولى صيانته وتطويره <a href="https://github.com/neilshekhar">Neil Shekhar</a> — وهو نسخة مشتقة (fork) من مشروع <a href="https://github.com/santifer/career-ops">career-ops</a> الأصلي الذي أنشأه <a href="https://santifer.io">santifer</a>.</sub>
+</p>
+
+<p align="center" dir="rtl">
+  <em>التقديم على الوظائف بالطريقة التقليدية الصعبة يستغرق أشهراً. هذا هو النظام الذي بُني لحل هذه المشكلة.</em><br>
+  تستخدم الشركات الذكاء الاصطناعي لتصفية المرشحين. <strong>هذا النظام يضع الذكاء الاصطناعي في يد المرشحين ليختاروا هم الشركات المناسبة.</strong><br>
+  <em>مفتوح المصدر بالكامل.</em>
 </p>
 
 <p align="center">
@@ -41,8 +45,6 @@
 
 <p align="center" dir="rtl"><strong>أكثر من 740 عرض عمل تم تقييمه · أكثر من 100 سيرة ذاتية مخصصة وموجهة · الحصول على الوظيفة الحلم</strong></p>
 
-<p align="center"><a href="https://discord.gg/8pRpHETxa4"><img src="https://img.shields.io/badge/Join_the_community-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a></p>
-
 ## ما هو هذا المشروع؟ (What Is This)
 
 يقوم **Career-Ops** ([career-ops.org](https://career-ops.org)) بتحويل أي واجهة سطر أوامر للبرمجة بالذكاء الاصطناعي (AI coding CLI) إلى مركز قيادة كامل للبحث عن الوظائف. بدلاً من تتبع طلبات التوظيف يدوياً في جداول البيانات، تحصل على مسار عمل مدعوم بالذكاء الاصطناعي يقوم بـ:
@@ -59,7 +61,7 @@
 
 > **تنبيه: التقييمات الأولى لن تكون مثالية.** النظام لا يعرفك بعد. يجب أن تغذيه بالمعلومات الكافية — سيرتك الذاتية، قصتك المهنية، نقاط الإثبات والإنجازات الخاصة بك، تفضيلاتك، وما تبرع فيه وما تود تجنبه. كلما زدت من تدريبه وتخصيصه، أصبح أفضل. فكر في الأمر كأنك تقوم بتدريب مسؤول توظيف جديد يعمل لصالحك: في الأسبوع الأول يحتاج ليتعلم عنك، ثم يصبح لا غنى عنه.
 
-تم تطوير هذا النظام بواسطة مهندس برمجيات وريادي أعمال استخدمه شخصياً لتقييم أكثر من 740 عرض عمل، وتوليد أكثر من 100 سيرة ذاتية مخصصة، حتى حصل على منصب "رئيس قسم الذكاء الاصطناعي التطبيقي". [اقرأ دراسة الحالة الكاملة](https://santifer.io/career-ops-system).
+تم بناء هذا النظام في الأصل بواسطة [santifer](https://santifer.io)، الذي استخدمه لتقييم أكثر من 740 عرض عمل، وتوليد أكثر من 100 سيرة ذاتية مخصصة، حتى حصل على منصب "رئيس قسم الذكاء الاصطناعي التطبيقي". [اقرأ دراسة الحالة الكاملة](https://santifer.io/career-ops-system).
 
 ---
 
@@ -84,7 +86,7 @@
 
 ```bash
 # 1. استنساخ المشروع وتثبيت الاعتماديات
-git clone https://github.com/santifer/career-ops.git
+git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
 npx playwright install chromium   # مطلوب لتوليد ملفات الـ PDF وسحب البيانات
 
@@ -274,8 +276,8 @@ career-ops/
 
 نرحب بكافة المساهمات والمقترحات لتطوير هذا النظام ودعمه! انضم إلى مجتمعنا على Discord وشارك تجربتك وقصتك معنا.
 
-<a href="https://github.com/santifer/career-ops/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=santifer/career-ops" alt="Contributors" />
+<a href="https://github.com/neilshekhar/career-ops/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=neilshekhar/career-ops" alt="Contributors" />
 </a>
 
-هل نجحت في الحصول على وظيفة أحلامك باستخدام هذا النظام؟ [شارك قصتك معنا لتلهم الآخرين!](https://github.com/santifer/career-ops/issues/new?template=i-got-hired.yml)
+هل نجحت في الحصول على وظيفة أحلامك باستخدام هذا النظام؟ [شارك قصتك معنا لتلهم الآخرين!](https://github.com/neilshekhar/career-ops/issues/new?template=i-got-hired.yml)

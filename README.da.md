@@ -3,14 +3,20 @@
 [English](README.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md)
 
 <p align="center">
-  <a href="https://x.com/santifer"><img src="docs/hero-banner.jpg" alt="Career-Ops — Multi-agent jobsøgningssystem" width="800"></a>
+  <a href="https://github.com/neilshekhar/career-ops"><img src="docs/hero-banner.jpg" alt="Career-Ops — Multi-agent jobsøgningssystem" width="800"></a>
 </p>
 
 <p align="center">
-  <em>I månedsvis søgte jeg job på den gammeldags måde. Så byggede jeg det system, jeg ønskede, jeg havde haft fra start.</em><br>
-  Virksomheder bruger AI til at filtrere kandidater. <strong>Jeg gav kandidaterne AI, så de kan <em>vælge</em> virksomhederne.</strong><br>
-  <em>Nu er det open source.</em>
+  <sub>🍴 Dette er <a href="https://github.com/neilshekhar/career-ops"><strong>neilshekhar/career-ops</strong></a>, vedligeholdt og videreudviklet af <a href="https://github.com/neilshekhar">Neil Shekhar</a> — en fork af det oprindelige <a href="https://github.com/santifer/career-ops">career-ops</a>, skabt af <a href="https://santifer.io">santifer</a>.</sub>
 </p>
+
+<p align="center">
+  <em>At søge job på den gammeldags måde tager måneder. Dette er systemet, der blev bygget for at løse det.</em><br>
+  Virksomheder bruger AI til at filtrere kandidater. <strong>Dette lægger AI i kandidaternes hænder, så de kan <em>vælge</em> virksomhederne.</strong><br>
+  <em>Open source.</em>
+</p>
+
+<p align="center"><sub>★ Presseomtale og anerkendelse optjent af det oprindelige <a href="https://github.com/santifer/career-ops">career-ops</a>-projekt</sub></p>
 
 <p align="center">
   <a href="https://trendshift.io/repositories/25195" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25195" alt="santifer%2Fcareer-ops | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
@@ -31,8 +37,6 @@
 </p>
 
 <p align="center"><strong>740+ vurderede stillinger · 100+ skræddersyede CV'er · 1 drømmerolle landet</strong></p>
-
-<p align="center"><a href="https://discord.gg/8pRpHETxa4"><img src="https://img.shields.io/badge/Bliv_en_del_af_fællesskabet-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a></p>
 
 <p align="center">
   <a href="https://claude.com/claude-code"><img src="https://img.shields.io/badge/Built_with-Claude_Code-000?style=for-the-badge&logo=anthropic&logoColor=white" alt="Built with Claude Code"></a>
@@ -71,7 +75,7 @@ Career-ops arbejder agentisk: Claude Code navigerer karrieresider med Playwright
 
 > **Bemærk: de første vurderinger bliver ikke perfekte.** Systemet kender dig endnu ikke. Giv det kontekst — dit CV, din karrierehistorik, eksempler på resultater, præferencer, styrker, hvad du vil undgå. Jo mere du giver det, jo bedre virker det. Betragt det som onboarding af en ny rekrutter: i den første uge skal den lære, hvem du er — derefter bliver den uvurderlig.
 
-Bygget af en, der brugte det til at vurdere 740+ stillinger, generere 100+ skræddersyede CV'er og lande en rolle som Head of Applied AI. [Læs hele case-studiet](https://santifer.io/career-ops-system).
+Oprindeligt bygget af [santifer](https://santifer.io), som brugte det til at vurdere 740+ stillinger, generere 100+ skræddersyede CV'er og lande en rolle som Head of Applied AI. [Læs hele case-studiet](https://santifer.io/career-ops-system).
 
 ## Funktioner
 
@@ -93,7 +97,7 @@ Bygget af en, der brugte det til at vurdere 740+ stillinger, generere 100+ skræ
 **Hurtigste måde — én kommando:**
 
 ```bash
-npx @santifer/career-ops init
+npx @neilshekhar/career-ops init
 ```
 
 > 💡 `npx` følger med [Node.js](https://nodejs.org) — det kører installationsprogrammet én gang uden at installere noget globalt. Har du ikke Node.js endnu? Installer det først.
@@ -112,7 +116,7 @@ claude   # eller gemini / codex / qwen / opencode — åbn dit AI-CLI her
 <summary><b>Foretrækker du manuel opsætning? (git clone)</b></summary>
 
 ```bash
-git clone https://github.com/santifer/career-ops.git
+git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
 npx playwright install chromium   # kun nødvendigt til PDF-generering
 claude   # åbn dit AI-CLI — første kørsel guider dig gennem onboarding
@@ -253,21 +257,11 @@ career-ops/
 
 - **[cv-santiago](https://github.com/santifer/cv-santiago)** — Porteføljeside (santifer.io) med AI-chatbot, LLMOps-dashboard og case-studier. Har du brug for en portefølje til din jobsøgning, så fork den og tilpas den til dig selv.
 
-## Om forfatteren
+## Kreditering og oprindelse
 
-Jeg hedder Santiago — Head of Applied AI, tidligere founder (jeg byggede og solgte en virksomhed, der stadig kører med mit navn). Jeg byggede career-ops til at styre min egen jobsøgning. Det virkede: jeg brugte det til at lande min nuværende rolle.
+career-ops blev **oprindeligt skabt af [Santiago Fernández de Valderrama (santifer)](https://santifer.io)** — Head of Applied AI og tidligere founder (byggede og solgte en virksomhed, der stadig kører med hans navn). Han byggede career-ops til at styre sin egen jobsøgning og brugte det til at lande sin nuværende rolle. Hans portefølje og andre open source-projekter → [santifer.io](https://santifer.io).
 
-Min portefølje og andre open source-projekter → [santifer.io](https://santifer.io)
-
-## Stjernehistorik
-
-<a href="https://www.star-history.com/?repos=santifer%2Fcareer-ops&type=timeline&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&legend=top-left" />
- </picture>
-</a>
+**Dette repository, [neilshekhar/career-ops](https://github.com/neilshekhar/career-ops), er en fork vedligeholdt og videreudviklet af [Neil Shekhar](https://github.com/neilshekhar)** — med yderligere rettelser og funktioner oven på santifers oprindelige arbejde, og løbende synkroniseret med upstream.
 
 ## Juridisk ansvarsfraskrivelse
 
@@ -282,11 +276,11 @@ Detaljer: [LEGAL_DISCLAIMER.md](LEGAL_DISCLAIMER.md). Softwaren leveres under [M
 
 ## Bidragydere
 
-<a href="https://github.com/santifer/career-ops/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=santifer/career-ops" alt="Bidragydere" />
+<a href="https://github.com/neilshekhar/career-ops/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=neilshekhar/career-ops" alt="Bidragydere" />
 </a>
 
-Fandt du job med career-ops? [Del din historie!](https://github.com/santifer/career-ops/issues/new?template=i-got-hired.yml)
+Fandt du job med career-ops? [Del din historie!](https://github.com/neilshekhar/career-ops/issues/new?template=i-got-hired.yml)
 
 ## Licens og varemærke
 
@@ -294,8 +288,9 @@ Koden er licenseret under [MIT](LICENSE). Navnet og brandet "career-ops" er regu
 
 ## Lad os forbinde
 
-[![Website](https://img.shields.io/badge/santifer.io-000?style=for-the-badge&logo=safari&logoColor=white)](https://santifer.io)
+**Denne fork** — [![GitHub](https://img.shields.io/badge/GitHub-neilshekhar-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/neilshekhar/career-ops)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-neil--shekhar-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/neil-shekhar/)
+
+**Oprindelig forfatter (santifer)** — [![Website](https://img.shields.io/badge/santifer.io-000?style=for-the-badge&logo=safari&logoColor=white)](https://santifer.io)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/in/santifer)
 [![X](https://img.shields.io/badge/X-000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/santifer)
-[![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/8pRpHETxa4)
-[![Email](https://img.shields.io/badge/Email-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:hi@santifer.io)

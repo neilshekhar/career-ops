@@ -2,6 +2,12 @@ name: Release Please
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish_scaffolder:
+        description: Publish the current scaffolder package to npm
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -11,31 +17,46 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: googleapis/release-please-action@v5
         id: release
+        if: ${{ github.event_name == 'push' }}
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      # Publish the npm scaffolder only when a release was just created.
+      # Publish the npm scaffolder with npm Trusted Publishing/OIDC when a
+      # release was just created, or when manually dispatched.
       # Runs in the same job because a release created via GITHUB_TOKEN does
       # not trigger separate `on: release` workflows.
-      - name: Skip npm publish when NPM_TOKEN is unavailable
-        if: ${{ steps.release.outputs.release_created == 'true' && env.NPM_TOKEN == '' }}
-        run: echo "::notice::NPM_TOKEN is not configured; skipping npm publish."
       - uses: actions/checkout@v7
-        if: ${{ steps.release.outputs.release_created == 'true' && env.NPM_TOKEN != '' }}
+        if: ${{ steps.release.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.publish_scaffolder) }}
       - uses: actions/setup-node@v6
-        if: ${{ steps.release.outputs.release_created == 'true' && env.NPM_TOKEN != '' }}
+        if: ${{ steps.release.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.publish_scaffolder) }}
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - name: Ensure npm supports trusted publishing
+        if: ${{ steps.release.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.publish_scaffolder) }}
+        run: npm install -g npm@latest
+      - name: Read scaffolder package metadata
+        id: scaffolder
+        if: ${{ steps.release.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.publish_scaffolder) }}
+        run: |
+          echo "name=$(node -p "require('./scaffolder/package.json').name")" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./scaffolder/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Check npm package version
+        id: npm_package
+        if: ${{ steps.release.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.publish_scaffolder) }}
+        run: |
+          if npm view "${{ steps.scaffolder.outputs.name }}@${{ steps.scaffolder.outputs.version }}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ steps.scaffolder.outputs.name }}@${{ steps.scaffolder.outputs.version }} is already published; skipping npm publish."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish scaffolder to npm
-        if: ${{ steps.release.outputs.release_created == 'true' && env.NPM_TOKEN != '' }}
-        run: npm publish --provenance --access public
+        if: ${{ (steps.release.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.publish_scaffolder)) && steps.npm_package.outputs.exists != 'true' }}
+        run: npm publish --access public
         working-directory: scaffolder
-        env:
-          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}

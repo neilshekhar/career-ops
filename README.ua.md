@@ -3,14 +3,20 @@
 [English](README.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md)
 
 <p align="center">
-  <a href="https://x.com/santifer"><img src="docs/hero-banner.jpg" alt="Career-Ops Multi-Agent Система Пошуку Роботи" width="800"></a>
+  <a href="https://github.com/neilshekhar/career-ops"><img src="docs/hero-banner.jpg" alt="Career-Ops Multi-Agent Система Пошуку Роботи" width="800"></a>
 </p>
 
 <p align="center">
-  <em>Я провів місяці у пошуках роботи, роблячи все самотужки. Тому я створив систему, яку хотів би мати з самого початку.</em><br>
-  Компанії використовують AI для фільтрації кандидатів. <strong>Я дав кандидатам AI, щоб вони могли <em>вибирати</em> компанії.</strong><br>
-  <em>Тепер це open source.</em>
+  <sub>🍴 Це <a href="https://github.com/neilshekhar/career-ops"><strong>neilshekhar/career-ops</strong></a>, підтримується та розвивається <a href="https://github.com/neilshekhar">Neil Shekhar</a> — форк оригінального <a href="https://github.com/santifer/career-ops">career-ops</a>, створеного <a href="https://santifer.io">santifer</a>.</sub>
 </p>
+
+<p align="center">
+  <em>Пошук роботи вручну займає місяці. Ця система створена, щоб це виправити.</em><br>
+  Компанії використовують AI для фільтрації кандидатів. <strong>Ця система дає AI кандидатам, щоб вони могли <em>вибирати</em> компанії.</strong><br>
+  <em>Відкритий код.</em>
+</p>
+
+<p align="center"><sub>★ Визнання та згадки в пресі, отримані оригінальним проєктом <a href="https://github.com/santifer/career-ops">career-ops</a></sub></p>
 
 <p align="center">
   <a href="https://trendshift.io/repositories/25195" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25195" alt="santifer%2Fcareer-ops | Trendshift" style="width: 245px; height: 54px; vertical-align: middle;" width="245" height="54"/></a>
@@ -35,9 +41,7 @@
 <p align="center"><strong>740+ вакансій оцінено · 100+ персоналізованих резюме · 1 роботу мрії отримано</strong></p>
 
 <p align="center">
-  <a href="https://discord.gg/8pRpHETxa4"><img src="https://img.shields.io/badge/Приєднатися_до_спільноти-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
-  &nbsp;
-  <a href="https://www.npmjs.com/package/@santifer/career-ops"><img src="https://img.shields.io/npm/dt/@santifer/career-ops?style=for-the-badge&logo=npm&color=CB3837&label=npx%20installs" alt="npm installs"></a>
+  <a href="https://github.com/neilshekhar/career-ops/releases"><img src="https://img.shields.io/github/v/tag/neilshekhar/career-ops?filter=career-ops-v%2A&style=for-the-badge&labelColor=2b3137&color=2ea44f&label=release" alt="Latest release"></a>
 </p>
 
 <p align="center">
@@ -77,7 +81,7 @@ Career-ops працює агентно: Claude Code переходить на к
 
 > **Зверніть увагу: перші оцінки будуть не ідеальними.** Система ще не знає вас. Дайте їй контекст — ваше резюме, вашу кар'єрну історію, ваші досягнення, уподобання, сильні сторони, що хочете уникати. Чим більше ви її "навчаєте", тим краще вона стає. Уявіть, що ви вводите в курс справ нового рекрутера: перший тиждень він вивчає вас, а потім стає незамінним.
 
-Створено людиною, яка використовувала систему для оцінки 740+ вакансій, генерації 100+ персоналізованих резюме та отримання посади Head of Applied AI. [Читати повний кейс](https://santifer.io/career-ops-system).
+Спочатку створено [santifer](https://santifer.io), який використав систему для оцінки 740+ вакансій, генерації 100+ персоналізованих резюме та отримання посади Head of Applied AI. [Читати повний кейс](https://santifer.io/career-ops-system).
 
 ## Що система вміє
 
@@ -96,23 +100,14 @@ Career-ops працює агентно: Claude Code переходить на к
 
 ## Швидкий старт
 
-**Найшвидший спосіб — одна команда:**
-
 ```bash
-npx @santifer/career-ops init
-```
-
-> 💡 `npx` постачається разом із [Node.js](https://nodejs.org) — він запускає
-> інсталятор один раз, нічого не встановлюючи глобально. Ще немає Node?
-> Спочатку встановіть його.
-> (Уже користуєтеся Claude Code / Gemini / Codex CLI? Тоді він у вас уже є.)
-
-Це клонує останній реліз у `./career-ops` та встановлює залежності. Потім:
-
-```bash
-cd career-ops
+git clone https://github.com/neilshekhar/career-ops.git
+cd career-ops && npm install
 claude   # or gemini / codex / qwen / opencode — open your AI CLI here
 ```
+
+> 💡 Потрібен [Node.js](https://nodejs.org) 18+ і git. Уже користуєтеся Claude Code /
+> Gemini / Codex CLI? Тоді він у вас уже є.
 
 **Під час першого запуску career-ops проведе вас через налаштування — ваше резюме, профіль і цільові ролі — просто у форматі діалогу. Нічого не треба редагувати вручну.**
 
@@ -120,7 +115,7 @@ claude   # or gemini / codex / qwen / opencode — open your AI CLI here
 <summary><b>Бажаєте налаштувати вручну? (git clone)</b></summary>
 
 ```bash
-git clone https://github.com/santifer/career-ops.git
+git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
 npx playwright install chromium   # only needed for PDF generation
 claude
@@ -251,23 +246,11 @@ career-ops/
 
 - **[cv-santiago](https://github.com/santifer/cv-santiago)** — Портфоліо-сайт (santifer.io) з AI-чатботом, LLMOps-дашбордом та кейсами. Якщо вам потрібне портфоліо для демонстрації під час пошуку роботи, форкніть його та зробіть своїм.
 
-## Про автора
+## Кредити та походження
 
-Я Сантьяго — Head of Applied AI, колишній засновник (побудував і продав бізнес, який досі працює під моїм ім'ям). Я створив career-ops для управління власним пошуком роботи. Це спрацювало: я використав його, щоб отримати свою поточну посаду.
+career-ops був **спочатку створений [Сантьяго Фернандесом де Вальдеррамою (santifer)](https://santifer.io)** — Head of Applied AI та колишнім засновником (побудував і продав бізнес, який досі працює під його ім'ям). Він створив career-ops для управління власним пошуком роботи і використав його, щоб отримати свою поточну посаду. Його портфоліо та інші open source проєкти → [santifer.io](https://santifer.io).
 
-Моє портфоліо та інші open source проєкти → [santifer.io](https://santifer.io)
-
-☕ [Пригостіть мене кавою](https://buymeacoffee.com/santifer), якщо career-ops допоміг у вашому пошуку роботи.
-
-## Історія зірок
-
-<a href="https://www.star-history.com/?repos=santifer%2Fcareer-ops&type=timeline&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&legend=top-left" />
-   <img alt="Графік історії зірок" src="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&legend=top-left" />
- </picture>
-</a>
+**Цей репозиторій, [neilshekhar/career-ops](https://github.com/neilshekhar/career-ops), є форком, який підтримує та розвиває [Neil Shekhar](https://github.com/neilshekhar)** — з додатковими виправленнями та функціями поверх оригінальної роботи santifer, періодично синхронізованим з upstream.
 
 ## Застереження
 
@@ -282,11 +265,11 @@ career-ops/
 
 ## Контриб'ютори
 
-<a href="https://github.com/santifer/career-ops/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=santifer/career-ops" alt="Контриб'ютори santifer/career-ops" />
+<a href="https://github.com/neilshekhar/career-ops/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=neilshekhar/career-ops" alt="Контриб'ютори neilshekhar/career-ops" />
 </a>
 
-Отримали роботу завдяки career-ops? [Поділіться своєю історією!](https://github.com/santifer/career-ops/issues/new?template=i-got-hired.yml)
+Отримали роботу завдяки career-ops? [Поділіться своєю історією!](https://github.com/neilshekhar/career-ops/issues/new?template=i-got-hired.yml)
 
 ## Ліцензія
 
@@ -294,9 +277,9 @@ MIT
 
 ## Контакти
 
-[![Вебсайт](https://img.shields.io/badge/santifer.io-000?style=for-the-badge&logo=safari&logoColor=white)](https://santifer.io)
+**Цей форк** — [![GitHub](https://img.shields.io/badge/GitHub-neilshekhar-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/neilshekhar/career-ops)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-neil--shekhar-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/neil-shekhar/)
+
+**Оригінальний автор (santifer)** — [![Вебсайт](https://img.shields.io/badge/santifer.io-000?style=for-the-badge&logo=safari&logoColor=white)](https://santifer.io)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/in/santifer)
 [![X](https://img.shields.io/badge/X-000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/santifer)
-[![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/8pRpHETxa4)
-[![Email](https://img.shields.io/badge/Email-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:hi@santifer.io)
-[![Пригостити кавою](https://img.shields.io/badge/Buy_Me_a_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/santifer)

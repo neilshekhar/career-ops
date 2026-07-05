@@ -36,13 +36,45 @@ const ROOT = __dirname;
 // system layer with upstream's.
 const CANONICAL_REPO = 'https://github.com/neilshekhar/career-ops.git';
 const RAW_VERSION_URL = 'https://raw.githubusercontent.com/neilshekhar/career-ops/main/VERSION';
-const RELEASES_API = 'https://api.github.com/repos/neilshekhar/career-ops/releases/latest';
+// List endpoint (not /releases/latest): Release Please publishes one tag series
+// per component — core is `career-ops-v*`, the dashboard is `web-v*`. GitHub's
+// "latest" is whichever component shipped most recently (currently `web-v1.0.0`),
+// so we fetch the list and pick the newest CORE release ourselves (see #QC).
+const RELEASES_API = 'https://api.github.com/repos/neilshekhar/career-ops/releases?per_page=30';
 
 // Matches a semver, with or without a leading `v` and an optional
 // Release Please component prefix (e.g. `career-ops-v1.9.0` → `1.9.0`).
 // Anchoring on `(?:^|-)` lets the releases-API fallback parse our tags,
 // which Release Please always prefixes with the component name.
 export const SEMVER_RE = /(?:^|-)v?(\d+\.\d+\.\d+)$/i;
+
+// Component-anchored tag matcher: ONLY core releases, never `web-v*` or any other
+// Release Please component. Used to filter the /releases list.
+export const RELEASE_TAG_RE = /^career-ops-v?(\d+\.\d+\.\d+)$/i;
+
+function cmpSemver(a, b) {
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
+
+/**
+ * Pick the newest core (`career-ops-v*`) release from a GitHub /releases array,
+ * ignoring other components (e.g. `web-v*`). Tolerates a single-object response
+ * (the old /releases/latest shape) by wrapping it in an array.
+ *
+ * @param {Array|object} parsed - Parsed JSON body from the GitHub releases API.
+ * @returns {{version: string, changelog: string}|null} Newest core release, or null.
+ */
+export function pickLatestRelease(parsed) {
+  const releases = Array.isArray(parsed) ? parsed : [parsed];
+  let best = null; // { ver: number[], changelog: string }
+  for (const release of releases) {
+    const m = String(release?.tag_name || '').trim().match(RELEASE_TAG_RE);
+    if (!m) continue;
+    const ver = m[1].split('.').map(Number);
+    if (!best || cmpSemver(ver, best.ver) > 0) best = { ver, changelog: release.body || '' };
+  }
+  return best ? { version: best.ver.join('.'), changelog: best.changelog } : null;
+}
 
 // System layer paths — ONLY these files get updated
 const SYSTEM_PATHS = [
@@ -516,11 +548,11 @@ async function check() {
 
   if (releaseRaw !== null) {
     try {
-      const release = JSON.parse(releaseRaw);
-      changelog = release.body || '';
-      const rawTag = String(release.tag_name || '').trim();
-      const match = rawTag.match(SEMVER_RE);
-      releaseVersion = match ? match[1] : '';
+      const picked = pickLatestRelease(JSON.parse(releaseRaw));
+      if (picked) {
+        releaseVersion = picked.version;
+        changelog = picked.changelog;
+      }
     } catch {
       // Unparseable body; treat as no release source
     }

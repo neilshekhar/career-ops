@@ -3,14 +3,20 @@
 [English](README.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md)
 
 <p align="center">
-  <a href="https://x.com/santifer"><img src="docs/hero-banner.jpg" alt="Career-Ops 멀티 에이전트 취업 시스템" width="800"></a>
+  <a href="https://github.com/neilshekhar/career-ops"><img src="docs/hero-banner.jpg" alt="Career-Ops 멀티 에이전트 취업 시스템" width="800"></a>
 </p>
 
 <p align="center">
-  <em>수개월간의 비효율적인 수동 지원 끝에, 직접 구직 파이프라인 시스템을 설계했습니다.</em><br>
-  기업은 AI로 지원자를 걸러냅니다. <strong>저는 지원자에게 AI를 줘서 <em>기업을 고르게</em> 했습니다.</strong><br>
+  <sub>🍴 이 저장소는 <a href="https://github.com/neilshekhar/career-ops"><strong>neilshekhar/career-ops</strong></a>이며, <a href="https://github.com/neilshekhar">Neil Shekhar</a>가 유지 관리 및 확장하고 있습니다 — <a href="https://santifer.io">santifer</a>가 만든 원본 <a href="https://github.com/santifer/career-ops">career-ops</a>의 포크입니다.</sub>
+</p>
+
+<p align="center">
+  <em>수개월간의 비효율적인 수동 지원 끝에, 이 구직 파이프라인 시스템이 만들어졌습니다.</em><br>
+  기업은 AI로 지원자를 걸러냅니다. <strong>이 시스템은 지원자 손에 AI를 쥐여줘서 <em>기업을 고르게</em> 합니다.</strong><br>
   <em>이제 오픈소스입니다.</em>
 </p>
+
+<p align="center"><sub>★ 원본 <a href="https://github.com/santifer/career-ops">career-ops</a> 프로젝트가 받은 언론 보도 및 인지도</sub></p>
 
 <p align="center">
   <a href="https://trendshift.io/repositories/25195" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25195" alt="santifer%2Fcareer-ops | Trendshift" style="width: 245px; height: 54px; vertical-align: middle;" width="245" height="54"/></a>
@@ -33,10 +39,6 @@
 </p>
 
 <p align="center"><strong>740개 이상의 채용 공고 평가 · 100개 이상의 맞춤형 이력서 생성 · 꿈의 직장 1곳 합격</strong></p>
-
-<p align="center"><a href="https://discord.gg/8pRpHETxa4"><img src="https://img.shields.io/badge/커뮤니티_참여하기-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
-  &nbsp;
-  <a href="https://www.npmjs.com/package/@santifer/career-ops"><img src="https://img.shields.io/npm/dt/@santifer/career-ops?style=for-the-badge&logo=npm&color=CB3837&label=npx%20installs" alt="npm installs"></a></p>
 
 <p align="center">
   <a href="https://claude.com/claude-code"><img src="https://img.shields.io/badge/Built_with-Claude_Code-000?style=for-the-badge&logo=anthropic&logoColor=white" alt="Built with Claude Code"></a>
@@ -75,7 +77,7 @@ Career-ops는 에이전트 기반으로 작동합니다: Claude Code가 Playwrig
 
 > **참고: 처음 몇 번의 평가는 정확하지 않을 수 있습니다.** 시스템이 아직 당신을 모르기 때문입니다. 이력서, 커리어 스토리, 주요 성과, 선호도, 잘하는 것, 피하고 싶은 것 등 맥락을 알려주세요. 정보를 줄수록 더 정확해집니다. 새로운 리크루터를 온보딩한다고 생각하세요: 첫 주는 당신을 파악하는 시간이고, 그 이후부터 진가를 발휘합니다.
 
-740개 이상의 채용 공고를 평가하고, 100개 이상의 맞춤 이력서를 생성하여, Head of Applied AI 포지션에 합격한 사람이 직접 만들었습니다. [전체 케이스 스터디 읽기](https://santifer.io/career-ops-system).
+원래 [santifer](https://santifer.io)가 만들었으며, 740개 이상의 채용 공고를 평가하고 100개 이상의 맞춤 이력서를 생성하여 Head of Applied AI 포지션에 합격했습니다. [전체 케이스 스터디 읽기](https://santifer.io/career-ops-system).
 
 ## 주요 기능
 
@@ -97,7 +99,7 @@ Career-ops는 에이전트 기반으로 작동합니다: Claude Code가 Playwrig
 **가장 빠른 방법 — 명령어 하나:**
 
 ```bash
-npx @santifer/career-ops init
+npx @neilshekhar/career-ops init
 ```
 
 > 💡 `npx`는 [Node.js](https://nodejs.org)에 함께 제공됩니다 — 전역으로 아무것도
@@ -117,7 +119,7 @@ claude   # or gemini / codex / qwen / opencode — open your AI CLI here
 <summary><b>수동으로 설정하고 싶으신가요? (git clone)</b></summary>
 
 ```bash
-git clone https://github.com/santifer/career-ops.git
+git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
 npx playwright install chromium   # only needed for PDF generation
 claude   # open your AI CLI — it onboards you on first launch
@@ -247,21 +249,11 @@ career-ops/
 
 - **[cv-santiago](https://github.com/santifer/cv-santiago)** -- 포트폴리오 웹사이트 (santifer.io). AI 챗봇, LLMOps 대시보드, 케이스 스터디가 포함되어 있습니다. 취업 활동과 함께 포트폴리오가 필요하다면, 포크해서 자유롭게 활용하세요.
 
-## 저자 소개
+## 출처 및 크레딧
 
-Santiago입니다 -- Head of Applied AI, 전직 창업자 (직접 사업을 만들고 매각했으며, 아직도 제 이름으로 운영되고 있습니다). 제 취업 활동을 관리하기 위해 career-ops를 만들었습니다. 효과가 있었습니다: 이 시스템으로 현재 포지션에 합격했습니다.
+career-ops는 **[Santiago Fernández de Valderrama (santifer)](https://santifer.io)가 원래 만들었습니다** -- Head of Applied AI이자 전직 창업자 (직접 사업을 만들고 매각했으며, 아직도 그의 이름으로 운영되고 있습니다). 그는 자신의 취업 활동을 관리하기 위해 career-ops를 만들었고, 이 시스템으로 현재 포지션에 합격했습니다. 포트폴리오 및 기타 오픈소스 프로젝트 → [santifer.io](https://santifer.io)
 
-포트폴리오 및 기타 오픈소스 프로젝트 → [santifer.io](https://santifer.io)
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=santifer%2Fcareer-ops&type=timeline&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&legend=top-left" />
-   <img alt="Star History 차트" src="https://api.star-history.com/chart?repos=santifer/career-ops&type=timeline&legend=top-left" />
- </picture>
-</a>
+**이 저장소, [neilshekhar/career-ops](https://github.com/neilshekhar/career-ops)는 [Neil Shekhar](https://github.com/neilshekhar)가 유지 관리 및 확장하는 포크입니다** -- santifer의 원본 작업에 추가 수정 및 기능을 더했으며, 주기적으로 업스트림과 동기화됩니다.
 
 ## 면책 조항
 
@@ -280,8 +272,9 @@ MIT
 
 ## 소통하기
 
-[![Website](https://img.shields.io/badge/santifer.io-000?style=for-the-badge&logo=safari&logoColor=white)](https://santifer.io)
+**이 포크** — [![GitHub](https://img.shields.io/badge/GitHub-neilshekhar-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/neilshekhar/career-ops)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-neil--shekhar-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/neil-shekhar/)
+
+**원저자 (santifer)** — [![Website](https://img.shields.io/badge/santifer.io-000?style=for-the-badge&logo=safari&logoColor=white)](https://santifer.io)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/in/santifer)
 [![X](https://img.shields.io/badge/X-000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/santifer)
-[![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/8pRpHETxa4)
-[![Email](https://img.shields.io/badge/Email-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:hi@santifer.io)

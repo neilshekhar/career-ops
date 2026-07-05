@@ -7,13 +7,45 @@
 // being absent. Pre-creating them from the examples would suppress that
 // onboarding and leave the user with placeholder data.
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, realpathSync, readdirSync } from "node:fs";
 import { join, delimiter } from "node:path";
+import { pathToFileURL } from "node:url";
 import { ensureSkillEntrypoints } from "./skill-entrypoints.mjs";
 
-const REPO = "https://github.com/santifer/career-ops.git";
-const LATEST_RELEASE = "https://api.github.com/repos/santifer/career-ops/releases/latest";
+const REPO = "https://github.com/neilshekhar/career-ops.git";
+// List endpoint (not /releases/latest): Release Please tags core releases as
+// `career-ops-v*` and the dashboard as `web-v*`. GitHub's "latest" can be a
+// `web-v*` tag, which would clone the wrong tree — so we list and pick the
+// newest CORE release ourselves.
+const RELEASES_API = "https://api.github.com/repos/neilshekhar/career-ops/releases?per_page=30";
+// ONLY core releases — never `web-v*` or any other component.
+const RELEASE_TAG_RE = /^career-ops-v?(\d+\.\d+\.\d+)$/i;
 const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
+
+function cmpSemver(a, b) {
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
+
+/**
+ * Pick the newest core (`career-ops-v*`) release tag from a GitHub /releases
+ * array, ignoring other components (e.g. `web-v*`). Returns the FULL tag string
+ * (e.g. "career-ops-v1.16.0") so it can be passed to `git clone --branch`.
+ *
+ * @param {Array<{tag_name?: string}>} releases - Parsed GitHub /releases array.
+ * @returns {string|null} Newest core release tag, or null if none match.
+ */
+export function pickLatestTag(releases) {
+  if (!Array.isArray(releases)) return null;
+  let best = null; // { tag: string, ver: number[] }
+  for (const release of releases) {
+    const tag = String(release?.tag_name || "").trim();
+    const m = tag.match(RELEASE_TAG_RE);
+    if (!m) continue;
+    const ver = m[1].split(".").map(Number);
+    if (!best || cmpSemver(ver, best.ver) > 0) best = { tag, ver };
+  }
+  return best ? best.tag : null;
+}
 
 // career-ops is AI-agnostic: every one of these CLIs reads AGENTS.md and works
 // out of the box. We only detect them to tailor the final message — we never
@@ -32,10 +64,10 @@ const SUPPORTED_CLIS = [
 const USAGE = `career-ops — set up an AI job search workspace.
 
 Usage:
-  npx career-ops init [folder]    Create a new workspace (default: ./career-ops)
+  npx @neilshekhar/career-ops init [folder]    Create a new workspace (default: ./career-ops)
 
 After setup, open your AI coding tool inside the folder and paste a job offer.
-Docs: https://github.com/santifer/career-ops`;
+Docs: https://github.com/neilshekhar/career-ops`;
 
 function die(msg) {
   console.error(`\n✗ ${msg}\n`);
@@ -72,12 +104,11 @@ function detectClis() {
 
 async function latestTag() {
   try {
-    const res = await fetch(LATEST_RELEASE, {
+    const res = await fetch(RELEASES_API, {
       headers: { "User-Agent": "career-ops-cli", Accept: "application/vnd.github+json" },
     });
     if (!res.ok) return null;
-    const data = await res.json();
-    return data.tag_name || null;
+    return pickLatestTag(await res.json());
   } catch {
     return null;
   }
@@ -152,4 +183,18 @@ async function main() {
   console.log("  npx playwright install chromium\n");
 }
 
-main().catch((err) => die(err?.message || String(err)));
+function isDirectRun() {
+  if (!process.argv[1]) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return import.meta.url === pathToFileURL(process.argv[1]).href;
+  }
+}
+
+// Only run the CLI when executed directly, so importing this module (e.g. from
+// test-all.mjs to exercise pickLatestTag) does not trigger a real install. npm
+// invokes bins through a .bin symlink, so compare the real path when possible.
+if (isDirectRun()) {
+  main().catch((err) => die(err?.message || String(err)));
+}
