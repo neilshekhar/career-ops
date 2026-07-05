@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.17.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.16.0...career-ops-v1.17.0) (2026-07-05)
+
+
+### Features
+
+* **dashboard:** light/dark theme with Atlassian-inspired light palette ([3e785c4](https://github.com/neilshekhar/career-ops/commit/3e785c4a86a90277eb55d28d603eda2ddaf50e29))
+* **queue:** local-first store backend — zero-cloud queue for fresh clones ([5473e8b](https://github.com/neilshekhar/career-ops/commit/5473e8b54655bf68beec9c6e93cd2f5948bdf832))
+* **share:** remove personal targeting/market assumptions from system layer ([5461af2](https://github.com/neilshekhar/career-ops/commit/5461af284e0f81c94c519adc8798165bb8051f2e))
+* **share:** tiered setup docs, fork-pointed updater, onboarding tier offer ([576d829](https://github.com/neilshekhar/career-ops/commit/576d8292ccdb62cddd67c9a017ffb32f22602919))
+
+
+### Bug Fixes
+
+* **fill:** national number beside intl-tel-input country dropdowns ([771442c](https://github.com/neilshekhar/career-ops/commit/771442cac54cd36aa88f5c322aef8ffb2f208432))
+* **release:** fork-pointing consistency + tokenless OIDC publish ([#13](https://github.com/neilshekhar/career-ops/issues/13)) ([69382c2](https://github.com/neilshekhar/career-ops/commit/69382c2334b470a0454712a1b780ec370845decd))
+* **release:** restore x-release-please-version marker in VERSION ([#14](https://github.com/neilshekhar/career-ops/issues/14)) ([60b08d8](https://github.com/neilshekhar/career-ops/commit/60b08d885f1006d2797b2c525cbe3f643bf74e67))
+
 ## [1.16.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.15.0...career-ops-v1.16.0) (2026-07-03)
 
 
