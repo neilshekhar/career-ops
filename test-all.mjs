@@ -1962,6 +1962,27 @@ if (
   fail('README is missing required Codex usage guidance');
 }
 
+if (
+  /Local Kanban Dashboard/.test(readmeDoc) &&
+  /npm run launch/.test(readmeDoc) &&
+  /primary review UI/.test(readmeDoc) &&
+  /localhost-only|127\.0\.0\.1/.test(readmeDoc)
+) {
+  pass('README presents the local kanban dashboard as the primary review UI');
+} else {
+  fail('README must present npm run launch as the primary local kanban dashboard');
+}
+
+const allReadmes = readdirSync(ROOT).filter((file) => /^README(?:\..+)?\.md$/.test(file)).sort();
+for (const file of allReadmes) {
+  const content = readFile(file);
+  if (/npm run launch/.test(content) && !/\|\s*\*\*Dashboard TUI\*\*|^## Dashboard TUI$/m.test(content)) {
+    pass(`${file} presents the local kanban dashboard instead of the old TUI-first copy`);
+  } else {
+    fail(`${file} must include npm run launch and avoid old Dashboard TUI-first wording`);
+  }
+}
+
 const setupDoc = readFile('docs/SETUP.md');
 if (
   /codex exec/.test(setupDoc) &&
@@ -1981,6 +2002,16 @@ if (
   pass('docs/SETUP.md install commands target this fork');
 } else {
   fail('docs/SETUP.md contains stale upstream install commands');
+}
+if (
+  /Local Kanban Dashboard/.test(setupDoc) &&
+  /npm run launch/.test(setupDoc) &&
+  /primary review/.test(setupDoc) &&
+  /localhost-only|127\.0\.0\.1/.test(setupDoc)
+) {
+  pass('docs/SETUP.md makes the local kanban dashboard first-class');
+} else {
+  fail('docs/SETUP.md must make npm run launch the first-class local dashboard');
 }
 
 const agentsDoc = readFile('AGENTS.md');

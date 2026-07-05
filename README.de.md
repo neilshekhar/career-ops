@@ -99,7 +99,7 @@ Ursprünglich entwickelt von [santifer](https://santifer.io), der damit 740+ Ste
 | **Anschreiben-Generator** | Recherchegestützte Anschreiben mit Keyword-Mirroring, interaktiven Angle-Prompts, Freigabe im Chat und A4-PDF über dieselbe HTML- und Playwright-Pipeline wie Lebensläufe |
 | **Portal-Scanner** | 45+ vorkonfigurierte Unternehmen (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) plus eigene Queries über Ashby, Greenhouse, Lever und Wellfound |
 | **Batch Processing** | Parallele Bewertung mit headless CLI-Workern (`claude -p` / `opencode run`) |
-| **Dashboard TUI** | Terminal-UI zum Durchsuchen, Filtern und Sortieren deiner Pipeline |
+| **Lokales Kanban-Dashboard** | Browser-Dashboard zum Prüfen, Priorisieren, Vorbereiten und Ausfüllen von Bewerbungen |
 | **Human-in-the-Loop** | KI bewertet und empfiehlt, du entscheidest. Das System sendet niemals automatisch Bewerbungen ab |
 | **Pipeline-Integrität** | Automatisches Mergen, Deduplizieren, Status-Normalisierung und Health Checks |
 
@@ -211,17 +211,24 @@ Standardmäßig vertraut `node scan.mjs` (alias `npm run scan`) den Rückgaben d
 node scan.mjs --verify          # Zero-Token-Discovery + Playwright-Liveness-Check
 ```
 
-## Dashboard TUI
+## Lokales Kanban-Dashboard
 
-Das integrierte Terminal-Dashboard lässt dich deine Pipeline visuell durchsuchen:
+Das lokale Kanban-Dashboard ist die primäre Review-Oberfläche von career-ops. Es läuft nur auf deinem Rechner, öffnet sich im Browser und zeigt Rollen in Inbox, To Do, Prepared, In Review und Done.
 
 ```bash
-cd dashboard
-go build -o career-dashboard .
-./career-dashboard --path ..
+npm run launch   # öffnet http://127.0.0.1:7777
 ```
 
-Features: 6 Filter-Tabs, 4 Sortiermodi, gruppierte/flache Ansicht, lazy-loaded Previews, Statusänderungen inline.
+Nutze es, um Fit-Scores zu prüfen, Rollen zur Vorbereitung auszuwählen, Form-Fill zu starten, Entwürfe/Assets zu kontrollieren und die menschliche Prüfung vor dem Absenden zu behalten. Das Dashboard sendet nie Bewerbungen für dich ab.
+
+### Terminal Tracker TUI
+
+Das Terminal-Dashboard bleibt als sekundäre Tracker-/Report-Ansicht verfügbar:
+
+```bash
+npm run serve:dashboard
+npm run build:dashboard
+```
 
 ## Projektstruktur
 
@@ -238,7 +245,7 @@ career-ops/
 ├── modes/                       # Skill-Modi
 ├── templates/                   # CV-Template, Portal-Template, Statuswerte
 ├── batch/                       # Batch-Orchestrierung
-├── dashboard/                   # Go-TUI für die Pipeline
+├── dashboard/                   # Lokales Kanban-Dashboard + Go-TUI-Tracker
 ├── data/                        # deine Tracking-Daten (gitignored)
 ├── reports/                     # Bewertungsberichte (gitignored)
 ├── output/                      # generierte PDFs (gitignored)

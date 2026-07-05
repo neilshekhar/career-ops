@@ -90,7 +90,7 @@ career-ops 最初由 [santifer](https://santifer.io) 打造，他親身用它評
 | **ATS PDF 生成** | 注入關鍵字的履歷，採用 Space Grotesk + DM Sans 設計                                                                    |
 | **平台掃描器**   | 預設超過 45 家企業（Anthropic、OpenAI、ElevenLabs、Retool、n8n...）+ 跨 Ashby、Greenhouse、Lever、Wellfound 的自訂查詢 |
 | **批次處理**     | 使用 `claude -p` 工作器並行評估                                                                                        |
-| **儀表板 TUI**   | 在終端機 UI 中瀏覽、篩選及排序你的求職管道                                                                             |
+| **本地 Kanban 儀表板** | 在瀏覽器中用本地看板審閱、篩選、準備和填寫申請                                                                |
 | **人機協作**     | AI 負責評估與建議，你負責決策與行動。系統絕不自動送出應徵 — 最終決定永遠在你手上                                       |
 | **管道完整性**   | 自動合併、去重、狀態正規化、健康檢查                                                                                   |
 
@@ -189,16 +189,24 @@ career-ops 是一個具有多種模式的單一斜線指令：
 
 **搜尋的求職平台：** Ashby、Greenhouse、Lever、Wellfound、Workable、RemoteFront
 
-## 儀表板 TUI
+## 本地 Kanban 儀表板
 
-內建的終端機儀表板讓你以視覺化方式瀏覽求職管道：
+本地 Kanban 儀表板是 career-ops 的主要審閱介面。它只在你的機器上執行，在瀏覽器中開啟，並用 Inbox、To Do、Prepared、In Review、Done 管理申請流程。
 
 ```bash
-npm run serve:dashboard   # launch the TUI
-npm run build:dashboard   # optional: build the standalone binary
+npm run launch   # 開啟 http://127.0.0.1:7777
 ```
 
-功能：6 個篩選分頁、4 種排序模式、分組/平鋪檢視、延遲載入預覽、內嵌狀態修改。
+用它審閱匹配分數、選擇要準備的職缺、啟動表單填寫、檢查草稿和檔案，並在提交前保留人工確認。儀表板不會替你送出申請。
+
+### Terminal Tracker TUI
+
+終端機儀表板仍可作為輔助的 tracker/報告檢視：
+
+```bash
+npm run serve:dashboard
+npm run build:dashboard
+```
 
 ## 專案結構
 
@@ -223,7 +231,7 @@ career-ops/
 ├── batch/
 │   ├── batch-prompt.md          # 自包含工作器提示
 │   └── batch-runner.sh          # 協調器腳本
-├── dashboard/                   # Go TUI 管道檢視器
+├── dashboard/                   # 本地 Kanban 儀表板 + Go TUI tracker 檢視器
 ├── data/                        # 你的追蹤資料（已 gitignore）
 ├── reports/                     # 評估報告（已 gitignore）
 ├── output/                      # 生成的 PDF（已 gitignore）

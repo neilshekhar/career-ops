@@ -4,7 +4,7 @@
 
 - An AI coding CLI — [Claude Code](https://claude.ai/code), Gemini CLI, Codex, Qwen Code, OpenCode, GitHub Copilot CLI, Antigravity CLI, or Grok Build CLI (see [Supported CLIs](SUPPORTED_CLIS.md))
 - [Node.js](https://nodejs.org) 18+ and `git` (`npx` ships with Node — the installer refuses to run without them) — note: the Gemini CLI integration requires Node.js 20+
-- (Optional) Go 1.21+ (for the dashboard TUI)
+- (Optional) Go 1.21+ (for the secondary terminal tracker TUI)
 
 ## Quick Start
 
@@ -21,7 +21,7 @@ cd career-ops
 claude   # or gemini / codex / qwen / opencode / agy / grok
 ```
 
-**On first launch, career-ops walks you through setup by chatting** — it asks for your CV, your details (name, target roles, salary), and sets up the job scanner with pre-configured companies. Nothing to edit by hand: just answer its questions. Then paste a job offer URL or description and it evaluates it, writes a report, generates a tailored PDF, and tracks it.
+**On first launch, career-ops walks you through setup by chatting** — it asks for your CV, your details (name, target roles, salary), and sets up the job scanner with pre-configured companies. Nothing to edit by hand: just answer its questions. Keep the local kanban dashboard open as your main review UI while the agent evaluates roles, writes reports, generates tailored PDFs, and tracks applications.
 
 If you are using Codex, start the interactive session with `codex`. Slash commands are not guaranteed in Codex, so use the same mode names in a prompt if `/career-ops` is unavailable:
 
@@ -75,6 +75,7 @@ npx playwright install chromium
 | Process pending URLs | `/career-ops pipeline` or ask the agent to run `pipeline` |
 | Generate a PDF | `/career-ops pdf` or ask the agent to run `pdf` |
 | Batch evaluate | `/career-ops batch` or use `codex exec "Run career-ops batch mode ..."` |
+| Review application queue | `npm run launch` opens the local kanban dashboard |
 | Check tracker status | `/career-ops tracker` or ask the agent to run `tracker` |
 | Fill application form | `/career-ops apply` or ask the agent to run `apply` |
 
@@ -85,9 +86,21 @@ node cv-sync-check.mjs      # Check configuration
 node verify-pipeline.mjs     # Check pipeline integrity
 ```
 
-## Build Dashboard (Optional)
+## Local Kanban Dashboard
+
+The local kanban dashboard is the primary review surface. It is localhost-only
+and opens in your browser:
 
 ```bash
-npm run serve:dashboard     # Opens TUI pipeline viewer
+npm run launch              # Opens http://127.0.0.1:7777
+```
+
+Use it to review scored roles, choose what to prepare, inspect generated assets,
+launch form-fill, and keep final submission under human control.
+
+## Terminal Tracker TUI (Optional)
+
+```bash
+npm run serve:dashboard     # Opens terminal tracker/report viewer
 npm run build:dashboard     # Optional: build the standalone binary
 ```

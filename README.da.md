@@ -88,7 +88,7 @@ Oprindeligt bygget af [santifer](https://santifer.io), som brugte det til at vur
 | **ATS-optimeret PDF**          | CV med søgeordsindsprøjtning, Space Grotesk + DM Sans-design                                                                                    |
 | **Portalskanner**              | 45+ virksomheder konfigureret (Anthropic, OpenAI, ElevenLabs, Retool, n8n…) + forespørgsler via Ashby, Greenhouse, Lever, Wellfound            |
 | **Batch-behandling**           | Parallel vurdering via `claude -p`-workers                                                                                                      |
-| **TUI-dashboard**              | Terminal-UI til at gennemse, filtrere og sortere pipelinen                                                                                       |
+| **Lokalt kanban-dashboard**    | Browser-dashboard til at gennemgå, triagere, forberede og udfylde ansøgninger lokalt                                                            |
 | **Human-in-the-Loop**          | AI vurderer og anbefaler, du beslutter og handler. Systemet sender aldrig ansøgninger — det sidste ord er altid dit                            |
 | **Pipeline-integritet**        | Automatisk merge, deduplikering, statusnormalisering, datakvalitetstjek                                                                          |
 
@@ -194,17 +194,24 @@ node scan.mjs --verify          # token-fri søgning + liveness-verifikation via
 
 Verifikationen er sekventiel og gælder kun nye stillinger (efter deduplikering), så omkostningen er begrænset.
 
-## Dashboard TUI
+## Lokalt kanban-dashboard
 
-Indbygget terminal-dashboard til visuel gennemgang af pipelinen:
+Det lokale kanban-dashboard er den primære review-UI i career-ops. Det kører kun på din maskine, åbner i browseren og viser roller i Inbox, To Do, Prepared, In Review og Done.
 
 ```bash
-cd dashboard
-go build -o career-dashboard .
-./career-dashboard --path ..
+npm run launch   # åbner http://127.0.0.1:7777
 ```
 
-Funktioner: 6 filterfaner, 4 sorteringstilstande, grupperet/flad visning, doven indlæsning af forhåndsvisninger, statusændring inline.
+Brug det til at gennemgå fit-scores, vælge roller til forberedelse, starte form-fill, kontrollere udkast/aktiver og bevare menneskelig review før indsendelse. Dashboardet indsender aldrig ansøgninger for dig.
+
+### Terminal Tracker TUI
+
+Terminal-dashboardet findes stadig som sekundær tracker-/rapportvisning:
+
+```bash
+npm run serve:dashboard
+npm run build:dashboard
+```
 
 ## Projektstruktur
 
@@ -230,7 +237,7 @@ career-ops/
 ├── batch/
 │   ├── batch-prompt.md          # Selvstændig worker-prompt
 │   └── batch-runner.sh          # Orkestratorscript
-├── dashboard/                   # Go TUI-viewer til pipelinen
+├── dashboard/                   # Lokalt kanban-dashboard + Go TUI-tracker
 ├── data/                        # Dine sporingsdata (gitignored)
 ├── reports/                     # Vurderingsrapporter (gitignored)
 ├── output/                      # Genererede PDF'er (gitignored)

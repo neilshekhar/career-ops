@@ -176,8 +176,11 @@ async function main() {
     console.log(`  2. Open your AI coding tool here, e.g.:  ${SUPPORTED_CLIS.map((c) => c.cmd).join(", ")}`);
   }
 
+  console.log("  3. After onboarding, keep the local dashboard open:  npm run launch");
+
   console.log("\nOn first launch it walks you through setup — your CV, profile and target");
   console.log("roles — just by chatting. Nothing to configure by hand.");
+  console.log("The local kanban dashboard is the main review UI for deciding what to prepare, fill, and submit.");
   console.log("\ncareer-ops is AI-agnostic — Claude Code, Codex, Qwen, OpenCode, Copilot, Antigravity and Grok all work.");
   console.log("\nOptional (for PDF generation):");
   console.log("  npx playwright install chromium\n");

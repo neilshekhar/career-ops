@@ -90,7 +90,7 @@ Originalmente criado por [santifer](https://santifer.io), que o usou para avalia
 | **Geração de PDF ATS**               | CVs com injeção de palavras-chave usando design com Space Grotesk + DM Sans                                                                    |
 | **Scanner de portais**               | 45+ empresas pré-configuradas (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + consultas customizadas em Ashby, Greenhouse, Lever e Wellfound |
 | **Processamento em lote**            | Avaliação paralela com workers `claude -p`                                                                                                     |
-| **Dashboard TUI**                    | Interface no terminal para navegar, filtrar e ordenar seu pipeline                                                                             |
+| **Dashboard kanban local**           | Dashboard no navegador para revisar, priorizar, preparar e preencher candidaturas localmente                                                   |
 | **Humano no loop**                   | A IA avalia e recomenda, você decide e age. O sistema nunca envia candidatura automaticamente -- a decisão final é sempre sua                  |
 | **Integridade do pipeline**          | Merge automatizado, deduplicação, normalização de status e health checks                                                                       |
 
@@ -189,16 +189,24 @@ O scanner já vem com **45+ empresas** prontas para escanear e **19 consultas de
 
 **Job boards pesquisados:** Ashby, Greenhouse, Lever, Wellfound, Workable, RemoteFront
 
-## Dashboard TUI
+## Dashboard kanban local
 
-O dashboard de terminal integrado permite navegar visualmente pelo seu pipeline:
+O dashboard kanban local é a principal interface de revisão do career-ops. Ele roda apenas na sua máquina, abre no navegador e organiza vagas em Inbox, To Do, Prepared, In Review e Done.
 
 ```bash
-npm run serve:dashboard   # launch the TUI
-npm run build:dashboard   # optional: build the standalone binary
+npm run launch   # abre http://127.0.0.1:7777
 ```
 
-Recursos: 6 abas de filtro, 4 modos de ordenação, visualização agrupada/plana, prévias com carregamento sob demanda e alterações de status inline.
+Use para revisar scores, escolher vagas para preparar, iniciar o form-fill, conferir rascunhos/arquivos e manter revisão humana antes do envio. O dashboard nunca envia candidaturas por você.
+
+### Terminal Tracker TUI
+
+O dashboard de terminal continua disponível como visualização secundária para tracker/relatórios:
+
+```bash
+npm run serve:dashboard
+npm run build:dashboard
+```
 
 ## Estrutura do projeto
 
@@ -223,7 +231,7 @@ career-ops/
 ├── batch/
 │   ├── batch-prompt.md          # Prompt autocontido para workers
 │   └── batch-runner.sh          # Script orquestrador
-├── dashboard/                   # Visualizador de pipeline em Go TUI
+├── dashboard/                   # Dashboard kanban local + tracker Go TUI
 ├── data/                        # Seus dados de rastreamento (gitignored)
 ├── reports/                     # Relatórios de avaliação (gitignored)
 ├── output/                      # PDFs gerados (gitignored)

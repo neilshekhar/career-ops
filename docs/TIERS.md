@@ -35,8 +35,8 @@ roles — by chatting. No accounts, no keys.
   auto-resolves to `local` when Supabase is not configured).
 - Scanning is on-demand and free: `/career-ops scan` hits Greenhouse / Lever /
   Ashby APIs directly with zero AI tokens.
-- The dashboard is localhost-only: `node dashboard-server.mjs` →
-  `http://127.0.0.1:7777`.
+- The local kanban dashboard is the primary review UI and stays
+  localhost-only: `npm run launch` → `http://127.0.0.1:7777`.
 
 There is nothing else to set up. Everything below is optional.
 

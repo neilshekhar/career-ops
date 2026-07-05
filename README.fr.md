@@ -96,7 +96,7 @@ Career-ops est agentic : Claude Code navigue sur les pages carrières avec Playw
 | **Génération de CV ATS** | CV optimisés avec injection de mots-clés, utilisant le design Space Grotesk + DM Sans |
 | **Scanner de Portails** | Plus de 45 entreprises préconfigurées (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + requêtes personnalisées sur Ashby, Greenhouse, Lever, Wellfound |
 | **Traitement en Lot** | Évaluation parallèle avec des processus de travail `claude -p` |
-| **TUI de Tableau de Bord** | Interface terminal pour explorer, filtrer et trier votre pipeline |
+| **Tableau kanban local** | Tableau de bord navigateur pour revoir, prioriser, préparer et remplir les candidatures localement |
 | **Humain dans la Boucle** | L'IA évalue et recommande, vous décidez et agissez. Le système ne soumet jamais de candidature automatiquement — vous avez toujours le dernier mot |
 | **Intégrité du Pipeline** | Fusion automatisée, déduplication, normalisation des statuts et vérifications de santé |
 
@@ -247,17 +247,24 @@ node scan.mjs --verify          # découverte sans jeton + vérification de l'é
 
 La vérification est séquentielle et ne s'exécute que sur les nouvelles offres (après déduplication), afin de limiter l'utilisation des ressources.
 
-## TUI de Tableau de Bord
+## Tableau kanban local
 
-Le tableau de bord terminal intégré vous permet d'explorer visuellement votre pipeline :
+Le tableau kanban local est l'interface principale de revue dans career-ops. Il tourne uniquement sur votre machine, s'ouvre dans le navigateur et organise les rôles en Inbox, To Do, Prepared, In Review et Done.
 
 ```bash
-cd dashboard
-go build -o career-dashboard .
-./career-dashboard --path ..
+npm run launch   # ouvre http://127.0.0.1:7777
 ```
 
-Fonctionnalités : 6 onglets de filtrage, 4 modes de tri, vue groupée ou plate, chargement différé des aperçus, modification du statut en ligne.
+Utilisez-le pour revoir les scores, choisir les rôles à préparer, lancer le remplissage de formulaires, vérifier les brouillons/fichiers et garder une validation humaine avant l'envoi. Le tableau de bord ne soumet jamais de candidature à votre place.
+
+### Terminal Tracker TUI
+
+Le tableau de bord terminal reste disponible comme vue secondaire pour le tracker et les rapports :
+
+```bash
+npm run serve:dashboard
+npm run build:dashboard
+```
 
 ## Structure du projet
 
@@ -283,7 +290,7 @@ career-ops/
 ├── batch/
 │   ├── batch-prompt.md          # Consigne pour le traitement par lot
 │   └── batch-runner.sh          # Script d'orchestration
-├── dashboard/                   # Visualiseur de pipeline TUI en Go
+├── dashboard/                   # Tableau kanban local + tracker TUI en Go
 ├── data/                        # Vos données de suivi (gitignoré)
 ├── reports/                     # Rapports d'évaluation (gitignoré)
 ├── output/                      # CV PDF générés (gitignoré)

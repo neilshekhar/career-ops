@@ -90,7 +90,7 @@ career-opsはエージェンティックです: Claude CodeがPlaywrightで求�
 | **ATS向けPDF生成**       | Space Grotesk + DM Sansデザインのキーワード注入型CV                                                                              |
 | **ポータルスキャナー**   | 45社以上事前設定済み（Anthropic、OpenAI、ElevenLabs、Retool、n8n...) + Ashby、Greenhouse、Lever、Wellfound横断のカスタムクエリ   |
 | **バッチ処理**           | `claude -p`ワーカーによる並列評価                                                                                                |
-| **ダッシュボードTUI**    | パイプラインを閲覧・フィルター・ソートするターミナルUI                                                                           |
+| **ローカルKanbanダッシュボード** | ブラウザで求人をレビュー、優先順位付け、準備、フォーム入力するローカルUI                                                   |
 | **Human-in-the-Loop**    | AIは評価と推奨を行い、決定と実行はあなたが行います。システムが応募を自動送信することは絶対になく、最終判断は常にあなたが下します |
 | **パイプラインの整合性** | 自動マージ、重複排除、ステータス正規化、ヘルスチェック                                                                           |
 
@@ -189,16 +189,24 @@ career-opsは複数のモードを持つ単一のスラッシュコマンドで�
 
 **検索対象の求人ボード:** Ashby、Greenhouse、Lever、Wellfound、Workable、RemoteFront
 
-## ダッシュボードTUI
+## ローカルKanbanダッシュボード
 
-内蔵のターミナルダッシュボードで、パイプラインを視覚的に閲覧できます:
+ローカルKanbanダッシュボードは career-ops の主要なレビューUIです。自分のマシンだけで動作し、ブラウザで開き、求人を Inbox、To Do、Prepared、In Review、Done に整理します。
 
 ```bash
-npm run serve:dashboard   # launch the TUI
-npm run build:dashboard   # optional: build the standalone binary
+npm run launch   # http://127.0.0.1:7777 を開く
 ```
 
-機能: 6つのフィルタータブ、4つのソートモード、グループ表示/フラット表示、遅延読み込みプレビュー、インラインステータス変更。
+スコア確認、準備する求人の選択、フォーム入力の起動、下書き/ファイル確認、送信前の人間によるレビューに使います。ダッシュボードが勝手に応募を送信することはありません。
+
+### Terminal Tracker TUI
+
+ターミナルダッシュボードは、トラッカー/レポート用の補助ビューとして引き続き使えます:
+
+```bash
+npm run serve:dashboard
+npm run build:dashboard
+```
 
 ## プロジェクト構成
 
@@ -223,7 +231,7 @@ career-ops/
 ├── batch/
 │   ├── batch-prompt.md          # 自己完結型ワーカープロンプト
 │   └── batch-runner.sh          # オーケストレータースクリプト
-├── dashboard/                   # Go製TUIパイプラインビューア
+├── dashboard/                   # ローカルKanbanダッシュボード + Go製TUIトラッカー
 ├── data/                        # 追跡データ（gitignore対象）
 ├── reports/                     # 評価レポート（gitignore対象）
 ├── output/                      # 生成PDF（gitignore対象）

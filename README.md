@@ -99,7 +99,7 @@ Originally built by [santifer](https://santifer.io), who used it to evaluate 740
 | **Cover Letter Generator** | Research-backed cover letters with keyword mirroring, four interactive angle prompts (why/problems/approach/tone), draft-in-chat approval gate, and A4 PDF via the same HTML + Playwright pipeline as CVs. Auto-drafts on every evaluation; complete and generate on demand via `/career-ops cover` |
 | **Portal Scanner**       | 45+ companies pre-configured (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + custom queries across Ashby, Greenhouse, Lever, Wellfound |
 | **Batch Processing**     | Parallel evaluation with headless CLI workers (`claude -p` / `opencode run`)                                                             |
-| **Dashboard TUI**        | Terminal UI to browse, filter, and sort your pipeline                                                                                    |
+| **Local Kanban Dashboard** | Browser dashboard to review, triage, prepare, and fill applications from a localhost-only queue                                        |
 | **Human-in-the-Loop**    | AI evaluates and recommends, you decide and act. The system never submits an application -- you always have the final call               |
 | **Pipeline Integrity**   | Automated merge, dedup, status normalization, health checks                                                                              |
 
@@ -109,6 +109,12 @@ Originally built by [santifer](https://santifer.io), who used it to evaluate 740
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
 claude   # or gemini / codex / qwen / opencode / agy / grok — open your AI CLI here
+```
+
+In another terminal, keep the local dashboard open:
+
+```bash
+npm run launch   # open the local kanban dashboard
 ```
 
 > 💡 Needs [Node.js](https://nodejs.org) 18+ and git. Already using a Claude Code /
@@ -121,7 +127,7 @@ upgrades — a free Supabase queue + GitHub scan cron, and Apify job-board
 discovery (~$5 free credit monthly) — use *your own* free-tier accounts:
 see [Infrastructure Tiers](docs/TIERS.md).
 
-**On first launch, career-ops walks you through setup — your CV, profile and target roles — just by chatting. Nothing to edit by hand.**
+**On first launch, career-ops walks you through setup — your CV, profile and target roles — just by chatting. Nothing to edit by hand.** Keep the local kanban dashboard open as your main review surface while the agent scans, scores, prepares, and fills applications.
 
 <details>
 <summary><b>Prefer to set it up manually? (git clone)</b></summary>
@@ -328,9 +334,23 @@ node scan.mjs --verify          # zero-token discovery + Playwright liveness che
 
 The verification is sequential and only runs against new offers (after dedup), so the cost stays bounded.
 
-## Dashboard TUI
+## Local Kanban Dashboard
 
-The built-in terminal dashboard lets you browse your pipeline visually:
+The local kanban dashboard is the primary review UI for career-ops. It runs on
+your machine only, opens in your browser, and gives you a visual board for
+moving roles through Inbox, To Do, Prepared, In Review, and Done.
+
+```bash
+npm run launch   # open http://127.0.0.1:7777
+```
+
+Use it to review fit scores, select roles to prepare, launch form-fill, track
+drafts/assets, and keep human review before submission. The dashboard never
+submits applications for you.
+
+### Terminal Tracker TUI
+
+The terminal dashboard is still available as a secondary tracker/report view:
 
 ```bash
 npm run serve:dashboard   # launch the TUI
@@ -339,7 +359,7 @@ npm run build:dashboard   # optional: build the standalone binary
 
 Features: 6 filter tabs, 4 sort modes, grouped/flat view, lazy-loaded previews, inline status changes.
 
-There is also an **experimental web UI** (alpha, opt-in — nothing runs unless you start it): see [`web/README.md`](web/README.md).
+There is also a separate **experimental web UI** (alpha, opt-in — nothing runs unless you start it): see [`web/README.md`](web/README.md).
 
 ## Project Structure
 
@@ -369,7 +389,7 @@ career-ops/
 ├── batch/
 │   ├── batch-prompt.md          # Self-contained worker prompt
 │   └── batch-runner.sh          # Orchestrator script
-├── dashboard/                   # Go TUI pipeline viewer
+├── dashboard/                   # Local kanban dashboard + Go TUI tracker
 ├── data/                        # Your tracking data (gitignored)
 ├── reports/                     # Evaluation reports (gitignored)
 ├── output/                      # Generated PDFs (gitignored)

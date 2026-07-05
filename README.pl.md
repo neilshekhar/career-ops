@@ -88,7 +88,7 @@ Pierwotnie stworzony przez [santifer](https://santifer.io), który użył go do 
 | **Generowanie PDF pod ATS**    | CV z wstrzyknięciem słów kluczowych, design Space Grotesk + DM Sans                                                                            |
 | **Skaner portali**             | 45+ firm skonfigurowanych (Anthropic, OpenAI, ElevenLabs, Retool, n8n…) + zapytania przez Ashby, Greenhouse, Lever, Wellfound                  |
 | **Przetwarzanie wsadowe**      | Równoległa ocena przez workery `claude -p`                                                                                                      |
-| **Dashboard TUI**              | Terminalowy UI do przeglądania, filtrowania i sortowania pipeline'u                                                                             |
+| **Lokalny dashboard kanban**   | Przeglądarka do lokalnego review, triage'u, przygotowania i wypełniania aplikacji                                                               |
 | **Human-in-the-Loop**          | AI ocenia i rekomenduje, ty decydujesz i działasz. System nigdy nie wysyła aplikacji — ostatnie słowo zawsze należy do ciebie                  |
 | **Integralność pipeline'u**    | Automatyczny merge, deduplikacja, normalizacja statusów, sprawdzenia zdrowia danych                                                             |
 
@@ -219,17 +219,24 @@ node scan.mjs --verify          # zero-tokenowe wyszukiwanie + weryfikacja liven
 
 Weryfikacja jest sekwencyjna i dotyczy tylko nowych ofert (po deduplikacji), więc koszt jest ograniczony.
 
-## Dashboard TUI
+## Lokalny dashboard kanban
 
-Wbudowany terminal dashboard do wizualnego przeglądania pipeline'u:
+Lokalny dashboard kanban jest głównym interfejsem review w career-ops. Działa tylko na Twojej maszynie, otwiera się w przeglądarce i porządkuje role w Inbox, To Do, Prepared, In Review i Done.
 
 ```bash
-cd dashboard
-go build -o career-dashboard .
-./career-dashboard --path ..
+npm run launch   # otwiera http://127.0.0.1:7777
 ```
 
-Funkcje: 6 zakładek filtrowania, 4 tryby sortowania, widok grupowany/płaski, leniwe ładowanie podglądów, zmiana statusów inline.
+Używaj go do przeglądania scoringu, wybierania ról do przygotowania, uruchamiania form-fill, sprawdzania draftów/plików i zachowania ludzkiej kontroli przed wysłaniem. Dashboard nigdy nie wysyła aplikacji za Ciebie.
+
+### Terminal Tracker TUI
+
+Terminalowy dashboard pozostaje dostępny jako dodatkowy widok trackera/raportów:
+
+```bash
+npm run serve:dashboard
+npm run build:dashboard
+```
 
 ## Struktura projektu
 
@@ -255,7 +262,7 @@ career-ops/
 ├── batch/
 │   ├── batch-prompt.md          # Samodzielny prompt workera
 │   └── batch-runner.sh          # Skrypt orkiestratora
-├── dashboard/                   # Go TUI viewer pipeline'u
+├── dashboard/                   # Lokalny dashboard kanban + Go TUI tracker
 ├── data/                        # Twoje dane śledzenia (gitignored)
 ├── reports/                     # Raporty ocen (gitignored)
 ├── output/                      # Wygenerowane PDF (gitignored)

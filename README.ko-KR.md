@@ -90,7 +90,7 @@ Career-ops는 에이전트 기반으로 작동합니다: Claude Code가 Playwrig
 | **ATS PDF 생성**       | Space Grotesk + DM Sans 디자인, 키워드가 주입된 이력서                                                                              |
 | **포털 스캐너**        | 45개 이상의 기업 사전 설정 (Anthropic, OpenAI, ElevenLabs, Retool, n8n 등) + Ashby, Greenhouse, Lever, Wellfound 전반의 커스텀 검색 |
 | **일괄 처리**          | `claude -p` 워커로 병렬 평가                                                                                                        |
-| **Dashboard TUI**      | 터미널 UI에서 파이프라인 탐색, 필터링, 정렬                                                                                         |
+| **로컬 Kanban 대시보드** | 브라우저에서 지원서를 검토, 분류, 준비, 작성하는 로컬 대시보드                                                                    |
 | **Human-in-the-Loop**  | AI가 평가하고 추천하면, 당신이 판단하고 행동합니다. 시스템은 절대 지원서를 자동 제출하지 않습니다 -- 최종 결정은 항상 당신의 몫     |
 | **파이프라인 무결성**  | 자동 병합, 중복 제거, 상태 정규화, 헬스 체크                                                                                        |
 
@@ -188,16 +188,24 @@ Career-ops는 다양한 모드를 가진 하나의 슬래시 커맨드입니다:
 
 **검색 대상 채용 보드:** Ashby, Greenhouse, Lever, Wellfound, Workable, RemoteFront
 
-## Dashboard TUI
+## 로컬 Kanban 대시보드
 
-내장 터미널 대시보드로 파이프라인을 시각적으로 탐색할 수 있습니다:
+로컬 Kanban 대시보드는 career-ops의 기본 검토 UI입니다. 내 컴퓨터에서만 실행되고 브라우저에서 열리며 역할을 Inbox, To Do, Prepared, In Review, Done으로 정리합니다.
 
 ```bash
-npm run serve:dashboard   # launch the TUI
-npm run build:dashboard   # optional: build the standalone binary
+npm run launch   # http://127.0.0.1:7777 열기
 ```
 
-기능: 6개의 필터 탭, 4가지 정렬 모드, 그룹/플랫 뷰, 지연 로딩 미리보기, 인라인 상태 변경.
+적합도 점수 확인, 준비할 역할 선택, form-fill 실행, 초안/파일 확인, 제출 전 사람 검토에 사용하세요. 대시보드는 지원서를 대신 제출하지 않습니다.
+
+### Terminal Tracker TUI
+
+터미널 대시보드는 tracker/리포트용 보조 보기로 계속 사용할 수 있습니다:
+
+```bash
+npm run serve:dashboard
+npm run build:dashboard
+```
 
 ## 프로젝트 구조
 
@@ -222,7 +230,7 @@ career-ops/
 ├── batch/
 │   ├── batch-prompt.md          # 독립형 워커 프롬프트(Self-contained)
 │   └── batch-runner.sh          # 오케스트레이터 스크립트
-├── dashboard/                   # Go TUI 파이프라인 뷰어
+├── dashboard/                   # 로컬 Kanban 대시보드 + Go TUI tracker
 ├── data/                        # 트래킹 데이터 (gitignored)
 ├── reports/                     # 평가 리포트 (gitignored)
 ├── output/                      # 생성된 PDF (gitignored)

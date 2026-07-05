@@ -94,7 +94,7 @@ career-ops 具备代理式工作能力：Claude Code 会用 Playwright 浏览招
 | **ATS PDF 生成** | 注入关键词的简历，采用 Space Grotesk + DM Sans 设计 |
 | **平台扫描器** | 预配置 45+ 家公司（Anthropic、OpenAI、ElevenLabs、Retool、n8n...），支持跨 Ashby、Greenhouse、Lever、Wellfound 的自定义查询 |
 | **批量处理** | 使用 `claude -p` worker 并行评估 |
-| **Dashboard TUI** | 在终端 UI 中浏览、筛选和排序你的求职管道 |
+| **本地看板仪表盘** | 在浏览器中用本地看板审阅、筛选、准备和填写申请 |
 | **人类在环** | AI 负责评估和建议，你负责决定和行动。系统绝不会自动提交申请，最终决定始终在你手上 |
 | **管道完整性** | 自动合并、去重、状态标准化和健康检查 |
 
@@ -236,16 +236,24 @@ career-ops 是一个单一斜杠命令，带有多种模式：
 
 **覆盖的招聘平台：** Ashby、Greenhouse、Lever、Wellfound、Workable、RemoteFront
 
-## Dashboard TUI
+## 本地看板仪表盘
 
-内置终端仪表盘可以让你更直观地浏览整个求职管道：
+本地看板仪表盘是 career-ops 的主要审阅界面。它只在你的机器上运行，在浏览器中打开，用 Inbox、To Do、Prepared、In Review、Done 来管理申请流程。
 
 ```bash
-npm run serve:dashboard   # launch the TUI
-npm run build:dashboard   # optional: build the standalone binary
+npm run launch   # 打开 http://127.0.0.1:7777
 ```
 
-功能包括：6 个筛选标签、4 种排序模式、分组/平铺视图、懒加载预览、行内状态修改。
+用它审阅匹配分数、选择要准备的职位、启动表单填写、检查草稿和文件，并在提交前保留人工确认。仪表盘不会替你提交申请。
+
+### 终端 Tracker TUI
+
+终端仪表盘仍可作为辅助的 tracker/报告视图：
+
+```bash
+npm run serve:dashboard
+npm run build:dashboard
+```
 
 ## 项目结构
 
@@ -270,7 +278,7 @@ career-ops/
 ├── batch/
 │   ├── batch-prompt.md          # 自包含 worker 提示词
 │   └── batch-runner.sh          # 编排脚本
-├── dashboard/                   # Go TUI 管道查看器
+├── dashboard/                   # 本地看板仪表盘 + Go TUI tracker 查看器
 ├── data/                        # 你的追踪数据（已 gitignore）
 ├── reports/                     # 评估报告（已 gitignore）
 ├── output/                      # 生成的 PDF（已 gitignore）

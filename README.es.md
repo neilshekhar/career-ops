@@ -88,7 +88,7 @@ Originalmente construido por [santifer](https://santifer.io), quien lo uso para 
 | **PDFs ATS**               | CVs con keywords inyectados, diseño Space Grotesk + DM Sans                                                                    |
 | **Scanner de portales**    | 45+ empresas pre-configuradas (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + queries en Ashby, Greenhouse, Lever, Wellfound |
 | **Batch**                  | Evaluacion en paralelo con workers `claude -p`                                                                                 |
-| **Dashboard TUI**          | Terminal UI para navegar, filtrar y ordenar tu pipeline                                                                        |
+| **Dashboard kanban local** | Dashboard en navegador para revisar, priorizar, preparar y rellenar aplicaciones de forma local                                |
 | **Human-in-the-Loop**      | La IA evalua y recomienda, tu decides y actuas. El sistema nunca envia una aplicacion -- tu siempre tienes la ultima palabra   |
 | **Integridad de pipeline** | Merge automatico, dedup, normalizacion de estados, health checks                                                               |
 
@@ -183,16 +183,24 @@ El scanner viene con **45+ empresas** pre-configuradas y **19 queries** en los p
 
 **Portales de empleo:** Ashby, Greenhouse, Lever, Wellfound, Workable, RemoteFront
 
-## Dashboard TUI
+## Dashboard kanban local
 
-El dashboard integrado en terminal te permite navegar tu pipeline visualmente:
+El dashboard kanban local es la interfaz principal de revision en career-ops. Corre solo en tu maquina, se abre en el navegador y organiza roles en Inbox, To Do, Prepared, In Review y Done.
 
 ```bash
-npm run serve:dashboard   # launch the TUI
-npm run build:dashboard   # optional: build the standalone binary
+npm run launch   # abre http://127.0.0.1:7777
 ```
 
-Features: 6 pestañas de filtro, 4 modos de ordenacion, vista agrupada/plana, previews lazy-loaded, cambios de estado inline.
+Usalo para revisar scores, elegir que roles preparar, lanzar form-fill, inspeccionar borradores/archivos y mantener revision humana antes de enviar. El dashboard nunca envia aplicaciones por ti.
+
+### Terminal Tracker TUI
+
+El dashboard de terminal sigue disponible como vista secundaria para tracker/reportes:
+
+```bash
+npm run serve:dashboard
+npm run build:dashboard
+```
 
 ## Estructura del proyecto
 
@@ -218,7 +226,7 @@ career-ops/
 ├── batch/
 │   ├── batch-prompt.md          # Prompt autocontenido del worker
 │   └── batch-runner.sh          # Script orquestador
-├── dashboard/                   # Visor de pipeline en Go TUI
+├── dashboard/                   # Dashboard kanban local + tracker Go TUI
 ├── data/                        # Tus datos de tracking (gitignored)
 ├── reports/                     # Reports de evaluacion (gitignored)
 ├── output/                      # PDFs generados (gitignored)
