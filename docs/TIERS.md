@@ -109,6 +109,20 @@ job-board-wide discovery. Apify grants roughly **$5 of free usage every
 month** — the default schedule (a couple of runs a week, ~20 results per
 query) is sized to stay inside it.
 
+The cron runs these three actors (see `apify-discover.mjs` — this is a real,
+in-production setup, not a hypothetical):
+
+| Source | Apify actor | What it covers |
+|--------|-------------|----------------|
+| SEEK | [`blackfalcondata/seek-scraper`](https://apify.com/blackfalcondata/seek-scraper) | seek.com.au board-wide search by title + location |
+| Indeed | [`automation-lab/indeed-scraper`](https://apify.com/automation-lab/indeed-scraper) | indeed.com search, filtered to last-24h postings |
+| Workday ATS | [`fantastic-jobs/workday-jobs-api`](https://apify.com/fantastic-jobs/workday-jobs-api) | roles at the many enterprises that host on Workday (which has no public per-company API) |
+
+Swapping a source for your market means pointing the matching `fetch*()` in
+`apify-discover.mjs` at a different actor and mapping its output fields in the
+same normalizer — each source is isolated, so one actor failing (or being
+replaced) never blocks the others.
+
 1. Create an account at [apify.com](https://apify.com) and copy your API token.
 2. Add `APIFY_TOKEN` to your fork's `cron` environment secrets (and to `.env`
    if you want local runs: `node apify-discover.mjs --source seek` dry-runs by
