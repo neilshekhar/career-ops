@@ -827,7 +827,7 @@ try {
 
   const injectedPageCss = injectPrintPageCss('<html><head><title>CV</title></head><body></body></html>', 'letter');
   if (
-    injectedPageCss.includes('@page { size: Letter; margin: 0.6in; }') &&
+    injectedPageCss.includes('@page { size: Letter; margin: 0.5in; }') &&
     injectedPageCss.indexOf('career-ops-page-setup') < injectedPageCss.indexOf('</head>')
   ) {
     pass('PDF renderer injects CSS page size and margins before rendering');
@@ -836,7 +836,7 @@ try {
   }
 
   const mixedCasePageCss = injectPrintPageCss('<html><head></head><body></body></html>', 'Letter');
-  if (mixedCasePageCss.includes('@page { size: Letter; margin: 0.6in; }')) {
+  if (mixedCasePageCss.includes('@page { size: Letter; margin: 0.5in; }')) {
     pass('PDF renderer treats page format case-insensitively');
   } else {
     fail('PDF renderer falls back to A4 for mixed-case letter format');
@@ -1017,6 +1017,48 @@ if (
   pass('README release badges use the filtered career-ops tag channel, not npm or GitHub releases/latest');
 } else {
   fail(`README release badge channel is unsafe for this multi-component repo: ${releaseBadgeLeaks.join(', ') || 'README.md missing filtered tag badge'}`);
+}
+
+// Fork-as-product invariant, user-facing surfaces: install commands, issue
+// reporting, story submissions, and contributor onboarding must route to THIS
+// fork. Attribution links to santifer.io / the original project are fine —
+// these patterns are the ones that put a USER's action on the wrong repo.
+// (Upstream merges routinely reintroduce them via new localized READMEs and
+// web/TUI components — caught by hand on 2026-07-09; this locks it.)
+{
+  const userActionLeaks = [
+    /git clone https:\/\/github\.com\/santifer\/career-ops\.git/,
+    /npx @santifer\/career-ops/,
+    /contrib\.rocks\/image\?repo=santifer\/career-ops/,
+    /github\.com\/santifer\/career-ops\/issues\/new/,
+    /github\.com\/santifer\/career-ops\/releases/,
+    /github\.com\/santifer\/career-ops\/blob\/main\//,
+  ];
+  const leakyReadmes = readmeFiles.filter((name) => {
+    const doc = readFile(name);
+    return userActionLeaks.some((re) => re.test(doc));
+  });
+  if (leakyReadmes.length === 0) {
+    pass('no README routes install/issue/story/contributor actions to santifer upstream');
+  } else {
+    fail(`READMEs route user actions to santifer upstream: ${leakyReadmes.join(', ')}`);
+  }
+
+  const forkRoutedSurfaces = [
+    ['web/src/lib/report/report.ts', /const REPO = "neilshekhar\/career-ops"/, /santifer\/career-ops/],
+    ['web/src/components/beta/beta-banner.tsx', /repo:neilshekhar\/career-ops/, /repo:santifer\/career-ops/],
+    ['dashboard/internal/ui/screens/pipeline.go', /storyTemplateURL = "https:\/\/github\.com\/neilshekhar\/career-ops\/issues\/new/, /storyTemplateURL = "https:\/\/github\.com\/santifer/],
+    ['.github/workflows/welcome.yml', /github\.com\/neilshekhar\/career-ops\/blob\/main\/CONTRIBUTING\.md/, /github\.com\/santifer\/career-ops\/blob\/main\//],
+  ];
+  for (const [file, mustHave, mustNotHave] of forkRoutedSurfaces) {
+    if (!fileExists(file)) continue; // web/ is optional on core-only installs
+    const src = readFile(file);
+    if (mustHave.test(src) && !mustNotHave.test(src)) {
+      pass(`${file} routes user actions to this fork`);
+    } else {
+      fail(`${file} routes issue/story/contributor actions to santifer upstream — repoint to neilshekhar/career-ops`);
+    }
+  }
 }
 
 if (updateSystemScript.includes("'CODEX.md'")) {

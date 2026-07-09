@@ -3,7 +3,7 @@
 [English](README.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md) | [हिन्दी](README.hi.md)
 
 <p align="center">
-  <a href="https://x.com/santifer"><img src="docs/hero-banner.jpg" alt="Career-Ops Multi-Agent Job Search System" width="800"></a>
+  <a href="https://github.com/neilshekhar/career-ops"><img src="docs/hero-banner.jpg" alt="Career-Ops Multi-Agent Job Search System" width="800"></a>
 </p>
 
 <p align="center">
@@ -50,7 +50,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/santifer/career-ops/releases/latest"><img src="https://img.shields.io/npm/v/%40santifer%2Fcareer-ops?style=for-the-badge&labelColor=2b3137&color=2ea44f&label=release" alt="Latest release"></a>
+  <a href="https://github.com/neilshekhar/career-ops/releases"><img src="https://img.shields.io/github/v/tag/neilshekhar/career-ops?filter=career-ops-v%2A&style=for-the-badge&labelColor=2b3137&color=2ea44f&label=release" alt="Latest release"></a>
 </p>
 
 <p align="center">
@@ -115,7 +115,7 @@ Career-ops agentic है: जो भी AI coding CLI आप चुनें �
 **सबसे तेज़ तरीका — एक command:**
 
 ```bash
-npx @santifer/career-ops init
+npx @neilshekhar/career-ops init
 ```
 
 > 💡 `npx` [Node.js](https://nodejs.org) के साथ आता है — यह installer एक बार run करता है,
@@ -135,7 +135,7 @@ claude   # या gemini / codex / qwen / opencode / agy / grok — यहाँ
 <summary><b>Manually setup करना पसंद करते हैं? (git clone)</b></summary>
 
 ```bash
-git clone https://github.com/santifer/career-ops.git
+git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
 npx playwright install chromium   # केवल PDF generation के लिए ज़रूरी
 
@@ -371,7 +371,7 @@ career-ops/
 ├── config/
 │   └── profile.example.yml      # आपके profile का template
 ├── modes/                       # 15 skill modes
-│   ├── _shared.md               # Shared context (इसे customize करें)
+│   ├── _shared.md               # Shared context (system layer — customize `_profile.md`/`_custom.md` करें)
 │   ├── oferta.md                # Single evaluation
 │   ├── pdf.md                   # PDF generation
 │   ├── cover.md                 # Cover letter generation
@@ -432,11 +432,11 @@ Full details के लिए [LEGAL_DISCLAIMER.md](LEGAL_DISCLAIMER.md) दे�
 
 ## Contributors
 
-<a href="https://github.com/santifer/career-ops/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=santifer/career-ops" />
+<a href="https://github.com/neilshekhar/career-ops/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=neilshekhar/career-ops" />
 </a>
 
-career-ops use करके hired हुए? [अपनी story share करें!](https://github.com/santifer/career-ops/issues/new?template=i-got-hired.yml)
+career-ops use करके hired हुए? [अपनी story share करें!](https://github.com/neilshekhar/career-ops/issues/new?template=i-got-hired.yml)
 
 ## License & Trademark
 
