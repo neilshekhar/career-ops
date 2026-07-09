@@ -106,7 +106,7 @@ Career-ops agentic है: जो भी AI coding CLI आप चुनें �
 | **Cover Letter Generator** | Research-backed cover letters with keyword mirroring, four interactive angle prompts (why/problems/approach/tone), draft-in-chat approval gate, और A4 PDF। Auto-drafts हर evaluation पर; demand पर `/career-ops cover` से generate करें |
 | **Portal Scanner**       | 45+ companies pre-configured (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + custom queries across Ashby, Greenhouse, Lever, Wellfound |
 | **Batch Processing**     | Headless CLI workers के साथ parallel evaluation (`claude -p` / `opencode run`)                                                          |
-| **Dashboard TUI**        | Pipeline browse, filter, और sort करने के लिए Terminal UI                                                                               |
+| **Local Kanban Dashboard** | Applications को review, prioritize, prepare और fill करने के लिए browser dashboard                                                      |
 | **Human-in-the-Loop**    | AI evaluate और recommend करता है, आप decide और act करते हैं। System कभी application submit नहीं करता -- final call हमेशा आपका        |
 | **Pipeline Integrity**   | Automated merge, dedup, status normalization, health checks                                                                              |
 
@@ -336,9 +336,19 @@ node scan.mjs --verify          # zero-token discovery + Playwright liveness che
 
 Verification sequential है और केवल new offers (dedup के बाद) के against run होती है, इसलिए cost bounded रहती है।
 
-## Dashboard TUI
+## Local Kanban Dashboard
 
-Built-in terminal dashboard से आप अपनी pipeline visually browse कर सकते हैं:
+Local kanban dashboard career-ops का primary review interface है। यह सिर्फ आपकी machine पर चलता है, browser में खुलता है, और roles को Inbox, To Do, Prepared, In Review और Done columns में दिखाता है।
+
+```bash
+npm run launch   # http://127.0.0.1:7777 खोलता है
+```
+
+इसका उपयोग fit scores review करने, prepare के लिए roles चुनने, form-fill launch करने, drafts/assets check करने और submit से पहले human review बनाए रखने के लिए करें। Dashboard कभी भी आपकी ओर से application submit नहीं करता।
+
+### Terminal Tracker TUI
+
+Terminal dashboard secondary tracker/report view के रूप में उपलब्ध रहता है:
 
 ```bash
 npm run serve:dashboard   # TUI launch करें
