@@ -58,7 +58,9 @@ the cron path. Needs network + the configured Supabase secrets.
 
 ### 5. `jose` survived — cron JWT mints
 ```bash
-node mint-cron-jwt.mjs   # must mint a valid ES256 career_ops_cron token
+# Bare `node mint-cron-jwt.mjs` only prints usage — pass the local signing key.
+# Discard stdout; never print the token or open the key file.
+node mint-cron-jwt.mjs career_ops_signing_key_private.json --exp-seconds 300 >/dev/null && echo OK
 ```
 Confirms the `jose` dependency and ES256 minting path were not dropped or downgraded
 by the merge.
@@ -90,6 +92,32 @@ Confirm the features the pull was supposed to bring are actually present. For th
 `modes/interview.md`; for future pulls, list and check whatever that pull adds.
 
 ---
+
+## Recurring Conflict Resolutions (standing precedent)
+
+These come up in nearly every pull — resolve them the same way each time:
+
+1. **Version identity stays on Neil's line.** `VERSION`, `package.json`,
+   `scaffolder/package.json` (`@neilshekhar/career-ops`), `.release-please-manifest.json`,
+   and `web/package.json` keep the fork's versions. Never take upstream's.
+2. **CHANGELOGs interleave.** Keep the fork's release blocks and add upstream's new
+   blocks below them as historical record — don't drop either side.
+3. **`update-system.mjs` stays fork-pointed** at `neilshekhar/career-ops`
+   (test-guarded; an upstream merge that reverts it turns the suite red).
+4. **`merge-tracker.mjs` keeps `sanitizeCell` on EVERY cell** (Lesson #10) — adopt
+   upstream's structural changes (e.g. Via/Location columns) but route all cells
+   through `sanitizeCell`, not upstream's free-text-only `cell()`.
+5. **Mode/doc lists union.** SKILL.md argument hints, mode routing tables, and
+   DATA_CONTRACT tables take upstream's new entries PLUS the fork's `queue` entries.
+6. **New upstream `README.<lang>.md` files need the fork's kanban-first copy**
+   (feature-table row + `## Local Kanban Dashboard` section with `npm run launch`,
+   TUI demoted to a subsection) or the fork doc gate in `test-all.mjs` goes red
+   (hit with README.hi.md, 2026-07-09).
+7. **Provider tests live in `tests/providers/` since upstream #1500** (auto-discovered).
+   When resolving `test-all.mjs`, keep the fork-only engine suites (queue store,
+   API-cron, form-fill safety, resolver, cron JWT/RLS, dashboard, DOCX, cover
+   formats, answer-cache) and drop legacy in-file provider sections — verify each
+   dropped provider has a `tests/providers/*.test.mjs` replacement first.
 
 ## Procedure
 
