@@ -56,12 +56,12 @@
 
   /* === HEADER === */
   .header {
-    margin-bottom: 20px;
+    margin-bottom: 14px;
   }
 
   .header h1 {
     font-family: 'Liberation Sans', 'Helvetica Neue', Arial, 'DejaVu Sans', sans-serif;
-    font-size: 28px;
+    font-size: 25px;
     font-weight: 700;
     color: #1a1a2e;
     letter-spacing: -0.02em;
@@ -73,7 +73,7 @@
     height: 2px;
     background: linear-gradient(to right, hsl(187, 74%, 32%), hsl(270, 70%, 45%));
     border-radius: 1px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
   }
 
   .contact-row {
@@ -113,7 +113,7 @@
 
   /* === SECTIONS === */
   .section {
-    margin-bottom: 18px;
+    margin-bottom: 14px;
   }
 
   .section-title {
@@ -124,15 +124,15 @@
     letter-spacing: 0.06em;
     color: hsl(187, 74%, 32%);
     border-bottom: 1.5px solid #e2e2e2;
-    padding-bottom: 4px;
-    margin-bottom: 10px;
+    padding-bottom: 3px;
+    margin-bottom: 8px;
     line-height: 1.2;
   }
 
   /* === PROFESSIONAL SUMMARY === */
   .summary-text {
     font-size: 11px;
-    line-height: 1.7;
+    line-height: 1.6;
     color: #2f2f2f;
   }
 
@@ -148,6 +148,16 @@
     gap: 8px;
   }
 
+  /* Invisible separator between chips so the PDF text layer reads
+     "Python, SQL, …" instead of a run-on. Chromium emits ::after generated
+     content into the extractable text layer; transparent + 1px keeps it
+     visually absent. */
+  .competency-tag:not(:last-child)::after {
+    content: ",";
+    color: transparent;
+    font-size: 1px;
+  }
+
   .competency-tag {
     font-family: 'Liberation Sans', 'Helvetica Neue', Arial, 'DejaVu Sans', sans-serif;
     font-size: 10px;
@@ -161,7 +171,7 @@
 
   /* === WORK EXPERIENCE === */
   .job {
-    margin-bottom: 14px;
+    margin-bottom: 12px;
   }
 
   .job-header {
@@ -199,12 +209,12 @@
 
   .job ul {
     padding-left: 18px;
-    margin-top: 6px;
+    margin-top: 4px;
   }
 
   .job li {
-    font-size: 10.5px;
-    line-height: 1.6;
+    font-size: 11px;
+    line-height: 1.55;
     color: #333;
     margin-bottom: 4px;
   }
@@ -236,10 +246,10 @@
   }
 
   .project-desc {
-    font-size: 10.5px;
+    font-size: 11px;
     color: #444;
     margin-top: 3px;
-    line-height: 1.55;
+    line-height: 1.5;
   }
 
   .project-tech {
@@ -250,7 +260,7 @@
 
   /* === EDUCATION === */
   .edu-item {
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
 
   .edu-header {
@@ -365,7 +375,8 @@
   .edu-item,
   .cert-item,
   .competency-tag,
-  .skill-item {
+  .skill-item,
+  .project {
     break-inside: avoid;
     page-break-inside: avoid;
   }

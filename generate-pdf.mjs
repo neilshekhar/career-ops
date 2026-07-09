@@ -29,7 +29,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { randomUUID } from 'node:crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PDF_PAGE_MARGIN = '0.6in';
+const PDF_PAGE_MARGIN = '0.5in';
 
 // Ensure output directory exists (fresh setup)
 mkdirSync(resolve(__dirname, 'output'), { recursive: true });
@@ -466,6 +466,28 @@ export async function renderHtmlToPdf(html, outputPath, opts = {}) {
     console.log(`✅ PDF generated: ${outputPath}`);
     console.log(`📊 Pages: ${pageCount}`);
     console.log(`📦 Size: ${(pdfBuffer.length / 1024).toFixed(1)} KB`);
+
+    // Warn when the last page is mostly blank (e.g. a lone Skills section
+    // spilling onto page 2). Measure content height at the PRINTABLE width —
+    // at the default viewport lines wrap less and the height reads short.
+    // Printable box (96dpi CSS px) = page size minus the 0.6in @page margins:
+    // A4 ≈ 679×1007, Letter ≈ 701×941. Measured after page.pdf() so the
+    // viewport change can't affect the rendered output.
+    if (pageCount > 1) {
+      const printableW = format === 'letter' ? 720 : 698;
+      const printableH = format === 'letter' ? 960 : 1026;
+      await page.setViewportSize({ width: printableW, height: printableH });
+      const contentHeightPx = await page.evaluate(
+        () => document.documentElement.scrollHeight
+      );
+      const lastPageFill = (contentHeightPx - (pageCount - 1) * printableH) / printableH;
+      if (lastPageFill > 0 && lastPageFill < 0.35) {
+        console.warn(
+          `⚠️  Last page is only ~${Math.round(lastPageFill * 100)}% full — ` +
+          `trim bullets to fit ${pageCount - 1} page(s) or promote a section to fill it.`
+        );
+      }
+    }
 
     try {
       updatePDFManifest(reportNum, outputPath, inputPath, format);
