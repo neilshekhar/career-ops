@@ -39,7 +39,12 @@ jobs:
           package-manager-cache: false
       - name: Ensure npm supports trusted publishing
         if: ${{ steps.release.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.publish_scaffolder) }}
-        run: npm install -g npm@latest
+        # Pin to the stable 11.x line (trusted publishing since 11.5.1). Do NOT
+        # float on npm@latest: it now resolves to the 12.x line, whose
+        # provenance path fails with "Cannot find module 'sigstore'" during
+        # trusted-publishing provenance generation (npm/cli#9722). Revisit once
+        # that regression is fixed on 12.x.
+        run: npm install -g npm@11.18.0
       - name: Read scaffolder package metadata
         id: scaffolder
         if: ${{ steps.release.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.publish_scaffolder) }}
