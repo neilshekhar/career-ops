@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.1](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.18.0...career-ops-v1.18.1) (2026-07-10)
+
+
+### Bug Fixes
+
+* **ci:** pin release npm to 11.18.0 to dodge npm 12.x sigstore provenance bug ([a582ac8](https://github.com/neilshekhar/career-ops/commit/a582ac8d7775ed0287e9254ba3ccbd6b5817f6dc))
+
 ## [1.18.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.17.0...career-ops-v1.18.0) (2026-07-10)
 
 
