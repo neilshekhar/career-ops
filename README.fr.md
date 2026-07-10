@@ -277,7 +277,7 @@ career-ops/
 ├── config/
 │   └── profile.example.yml      # Modèle pour votre profil
 ├── modes/                       # Les 14 modes de compétences
-│   ├── _shared.md               # Contexte partagé (à personnaliser)
+│   ├── _shared.md               # Contexte partagé (couche système — personnaliser _profile.md/_custom.md à la place)
 │   ├── oferta.md                # Évaluation individuelle
 │   ├── pdf.md                   # Génération de CV
 │   ├── scan.md                  # Scanner de portails

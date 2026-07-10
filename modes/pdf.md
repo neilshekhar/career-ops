@@ -49,7 +49,7 @@
 - **Section headers**: Space Grotesk 13px, uppercase, letter-spacing 0.05em, color cyan primary
 - **Body**: DM Sans 11px, line-height 1.5
 - **Company names**: accent purple color `hsl(270,70%,45%)`
-- **Margins**: 0.6in
+- **Margins**: 0.5in
 - **Background**: pure white
 
 ## Section order (optimized "6-second recruiter scan")

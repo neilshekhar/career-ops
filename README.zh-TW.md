@@ -218,7 +218,7 @@ career-ops/
 ├── config/
 │   └── profile.example.yml      # 個人檔案範本
 ├── modes/                       # 14 個技能模式
-│   ├── _shared.md               # 共用情境（在此自訂）
+│   ├── _shared.md               # 共用情境（系統層 — 請改為自訂 _profile.md/_custom.md）
 │   ├── oferta.md                # 單一職缺評估
 │   ├── pdf.md                   # PDF 生成
 │   ├── scan.md                  # 平台掃描器

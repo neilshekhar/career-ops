@@ -249,7 +249,7 @@ career-ops/
 ├── config/
 │   └── profile.example.yml      # Szablon profilu
 ├── modes/                       # 14 trybów skill
-│   ├── _shared.md               # Wspólny kontekst (dostosuj ten plik)
+│   ├── _shared.md               # Wspólny kontekst (warstwa systemowa — zamiast tego dostosuj _profile.md/_custom.md)
 │   ├── oferta.md                # Ocena jednej oferty
 │   ├── pdf.md                   # Generowanie PDF
 │   ├── scan.md                  # Skaner portali

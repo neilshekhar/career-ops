@@ -416,7 +416,7 @@ export async function inlineLocalFonts(html) {
  * @returns {Promise<{outputPath: string, pageCount: number, size: number}>}
  */
 export async function renderHtmlToPdf(html, outputPath, opts = {}) {
-  const format = opts.format || 'a4';
+  const format = String(opts.format || 'a4').toLowerCase();
   const baseDir = opts.baseDir || process.cwd();
   const reportNum = opts.reportNum || '';
   const inputPath = opts.inputPath || '';
@@ -470,8 +470,8 @@ export async function renderHtmlToPdf(html, outputPath, opts = {}) {
     // Warn when the last page is mostly blank (e.g. a lone Skills section
     // spilling onto page 2). Measure content height at the PRINTABLE width —
     // at the default viewport lines wrap less and the height reads short.
-    // Printable box (96dpi CSS px) = page size minus the 0.6in @page margins:
-    // A4 ≈ 679×1007, Letter ≈ 701×941. Measured after page.pdf() so the
+    // Printable box (96dpi CSS px) = page size minus the 0.5in @page margins:
+    // A4 ≈ 698×1026, Letter = 720×960. Measured after page.pdf() so the
     // viewport change can't affect the rendered output.
     if (pageCount > 1) {
       const printableW = format === 'letter' ? 720 : 698;

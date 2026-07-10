@@ -218,7 +218,7 @@ career-ops/
 ├── config/
 │   └── profile.example.yml      # Template para seu perfil
 ├── modes/                       # 14 modos de skill
-│   ├── _shared.md               # Contexto compartilhado (personalize)
+│   ├── _shared.md               # Contexto compartilhado (camada de sistema — personalize _profile.md/_custom.md em vez disso)
 │   ├── oferta.md                # Avaliação individual
 │   ├── pdf.md                   # Geração de PDF
 │   ├── scan.md                  # Scanner de portais

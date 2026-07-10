@@ -224,7 +224,7 @@ career-ops/
 ├── config/
 │   └── profile.example.yml      # Profilskabelon
 ├── modes/                       # 14 skill-tilstande
-│   ├── _shared.md               # Fælles kontekst (tilpas denne fil)
+│   ├── _shared.md               # Fælles kontekst (systemlag — tilpas i stedet _profile.md/_custom.md)
 │   ├── oferta.md                # Vurdering af én stilling
 │   ├── pdf.md                   # PDF-generering
 │   ├── scan.md                  # Portalskanner

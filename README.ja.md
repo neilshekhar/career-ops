@@ -218,7 +218,7 @@ career-ops/
 ├── config/
 │   └── profile.example.yml      # プロフィールのテンプレート
 ├── modes/                       # 14個のスキルモード
-│   ├── _shared.md               # 共有コンテキスト（ここをカスタマイズ）
+│   ├── _shared.md               # 共有コンテキスト（システム層 — 代わりに _profile.md/_custom.md をカスタマイズ）
 │   ├── oferta.md                # 単一オファー評価
 │   ├── pdf.md                   # PDF生成
 │   ├── scan.md                  # ポータルスキャナー
