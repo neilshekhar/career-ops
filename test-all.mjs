@@ -6122,13 +6122,22 @@ try {
       fail('release.yml missing duplicate-version npm publish guard');
     }
 
-    if (
-      wf.includes('npm install -g npm@latest') &&
-      wf.includes('package-manager-cache: false')
-    ) {
-      pass('release.yml pins release-time npm freshness and disables package-manager cache');
+    // Release npm must be PINNED to an exact trusted-publishing-capable version
+    // (>= 11.5.1), never floating on npm@latest — @latest drifted into the npm
+    // 12.x line whose provenance path fails with "Cannot find module 'sigstore'"
+    // (npm/cli#9722) and broke the publish. A digits-only pin also proves it is
+    // not floating.
+    const npmPin = wf.match(/npm install -g npm@(\d+)\.(\d+)\.(\d+)/);
+    const pinSupportsTrustedPublishing =
+      npmPin &&
+      (Number(npmPin[1]) > 11 ||
+        (Number(npmPin[1]) === 11 &&
+          (Number(npmPin[2]) > 5 ||
+            (Number(npmPin[2]) === 5 && Number(npmPin[3]) >= 1))));
+    if (pinSupportsTrustedPublishing && wf.includes('package-manager-cache: false')) {
+      pass('release.yml pins release npm to an exact trusted-publishing version (not floating @latest) and disables package-manager cache');
     } else {
-      fail('release.yml missing trusted-publishing npm freshness/cache hardening');
+      fail('release.yml missing pinned trusted-publishing npm / cache hardening');
     }
   } else {
     fail('release.yml workflow file missing');
