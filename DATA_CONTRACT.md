@@ -78,7 +78,9 @@ These files contain system logic, scripts, templates, and instructions that impr
 | `modes/ru/*` | Russian language modes |
 | `modes/heuristics/*` | Shared candidate-facing application heuristics |
 | `CLAUDE.md` | Agent instructions (Claude Code) |
-| `OPENCODE.md` | Agent instructions (OpenCode) |
+| `CODEX.md` | Thin Codex wrapper importing `AGENTS.md` |
+| `OPENCODE.md` | Thin OpenCode wrapper importing `AGENTS.md` |
+| `KIMI.md` | Thin Kimi wrapper importing `AGENTS.md` |
 | `GEMINI.md` | Legacy no-op context guard (prevents Antigravity duplicate imports) |
 | `AGENTS.md` | Canonical agent instructions (imported by CLI-specific wrappers) |
 | `*.mjs` | Utility scripts |

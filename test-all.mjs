@@ -116,6 +116,7 @@ console.log('\n2. Script execution (graceful on empty data)');
 const scripts = [
   { name: 'cv-sync-check.mjs', expectExit: 1, allowFail: true }, // fails without cv.md (normal in repo)
   { name: 'verify-pipeline.mjs', expectExit: 0 },
+  { name: 'verify-userdata.mjs --help', expectExit: 0 },
   // --dry-run: these scripts resolve ROOT from import.meta.url and write
   // data/applications.md (or data/pipeline.md) in place. On a provisioned working
   // copy with a real tracker present, running them without --dry-run mutates user
@@ -549,7 +550,8 @@ console.log('\n5. Data contract validation');
 
 // Check system files exist
 const systemFiles = [
-  'CLAUDE.md', 'CODEX.md', 'OPENCODE.md', 'VERSION', 'DATA_CONTRACT.md', 'docs/CODEX.md',
+  'CLAUDE.md', 'CODEX.md', 'OPENCODE.md', 'KIMI.md', 'GEMINI.md',
+  'VERSION', 'DATA_CONTRACT.md', 'docs/CODEX.md',
   'modes/_shared.md', 'modes/_profile.template.md',
   'modes/oferta.md', 'modes/pdf.md', 'modes/scan.md',
   'modes/heuristics/recruiter-side.md',
@@ -2422,7 +2424,7 @@ console.log('\n12. Version file');
 
 console.log('\n12a. CLI wrapper file integrity');
 
-const cliWrappers = ['CLAUDE.md', 'CODEX.md', 'OPENCODE.md'];
+const cliWrappers = ['CLAUDE.md', 'CODEX.md', 'OPENCODE.md', 'KIMI.md'];
 for (const f of cliWrappers) {
   if (!fileExists(f)) {
     fail(`Missing CLI wrapper: ${f}`);

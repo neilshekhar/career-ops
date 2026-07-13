@@ -25,10 +25,12 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, basename, join } from "path";
 import { pathToFileURL } from "url";
 import { parseArgs } from "util";
+import yaml from "js-yaml";
 
 import { buildMarkdown } from "./generate-cover-markdown.mjs";
 import { buildHtml } from "./generate-cover-letter.mjs";
 import { generateDocxFromString } from "./generate-docx.mjs";
+import { applicationQualityConfig, validateCoverPayload } from "./verify-userdata.mjs";
 
 const OUTPUT_ROOT = resolve("output");
 const ALL_FORMATS = ["md", "pdf", "docx"];
@@ -53,6 +55,7 @@ function deriveBase(payload, explicitBase) {
  * @param {object} [opts]
  * @param {string[]} [opts.formats] — subset of ['md','pdf','docx']
  * @param {string}  [opts.base]     — output base path (no extension)
+ * @param {object}  [opts.quality]  — normalized application quality policy
  * @returns {Promise<{ base: string, written: object, skipped: object }>}
  */
 export async function generateCoverFormats(payload, opts = {}) {
@@ -62,6 +65,13 @@ export async function generateCoverFormats(payload, opts = {}) {
 
   const base = deriveBase(payload, opts.base);
   if (!existsSync(OUTPUT_ROOT)) mkdirSync(OUTPUT_ROOT, { recursive: true });
+
+  if (opts.quality) {
+    const payloadErrors = validateCoverPayload(payload, opts.quality);
+    if (payloadErrors.length) {
+      throw new Error(`Cover quality gate failed: ${payloadErrors.join("; ")}`);
+    }
+  }
 
   const written = {};
   const skipped = {};
@@ -142,7 +152,10 @@ Usage:
   const formats = args.formats ? args.formats.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
 
   try {
-    const { written, skipped } = await generateCoverFormats(payload, { formats, base: args.base });
+    const profilePath = resolve("config", "profile.yml");
+    const profile = existsSync(profilePath) ? yaml.load(readFileSync(profilePath, "utf-8")) || {} : {};
+    const quality = applicationQualityConfig(profile);
+    const { written, skipped } = await generateCoverFormats(payload, { formats, base: args.base, quality });
     console.log("\nCover letter rendered:");
     for (const [fmt, path] of Object.entries(written)) {
       console.log(`  ${fmt.padEnd(8)} ${path}`);

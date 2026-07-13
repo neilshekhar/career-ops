@@ -8,6 +8,7 @@ All scripts live in the project root as `.mjs` modules and are exposed via `npm 
 |---------|--------|---------|
 | `npm run doctor` | `doctor.mjs` | Validate setup prerequisites |
 | `npm run verify` | `verify-pipeline.mjs` | Check pipeline data integrity |
+| `npm run verify:userdata` | `verify-userdata.mjs` | Check queue consistency and generated application assets |
 | `npm run normalize` | `normalize-statuses.mjs` | Fix non-canonical statuses |
 | `npm run dedup` | `dedup-tracker.mjs` | Remove duplicate tracker entries |
 | `npm run merge` | `merge-tracker.mjs` | Merge batch TSVs into applications.md |
@@ -51,6 +52,24 @@ npm run verify
 ```
 
 **Exit codes:** `0` pipeline clean (zero errors), `1` errors found. Warnings (e.g. possible duplicates) do not cause a non-zero exit.
+
+---
+
+## verify:userdata
+
+Read-only application release gate. It checks active queue visa consistency,
+retired scoring overlays, low-score candidate overrides, asset existence and
+freshness, CV/cover page limits, cover structure, punctuation policy, role
+identity, and the per-role evidence manifest.
+
+```bash
+npm run verify:userdata
+npm run verify:userdata -- --role <queue-role-id>
+npm run verify:userdata -- --json
+```
+
+**Exit codes:** `0` all checked roles pass, `1` at least one blocking issue,
+`2` invalid CLI usage.
 
 ---
 

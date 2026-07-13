@@ -19,6 +19,20 @@ record exists for this role (match by URL or company+title):
 - **If no queue record exists:** proceed normally, deriving answers from
   `config/profile.yml` and `modes/_profile.md`.
 
+### Application asset quality gate
+
+After any `deep-eval` work and before opening or filling the form, run:
+
+```
+node verify-userdata.mjs --role <role-id>
+```
+
+Continue only when it exits zero. A non-zero result means the assets are missing,
+stale, structurally invalid, mismatched to the role, or lack the required quality
+review/low-score override. Stop and run queue PREPARE again; do not attach an older
+file and do not waive the error in conversation. This gate applies to custom ATS
+agent flows as well as deterministic `form-fill.mjs` runs.
+
 ### Deep-eval marker (oferta-first)
 
 A role may carry the `deep-eval` flag in its `flags[]` (set from the dashboard's

@@ -4,7 +4,7 @@
  * generate-pdf.mjs — HTML → PDF via Playwright
  *
  * Usage:
- *   node career-ops/generate-pdf.mjs <input.html> <output.pdf> [--format=letter|a4] [--report=NNN] [--allow-reorder]
+ *   node career-ops/generate-pdf.mjs <input.html> <output.pdf> [--format=letter|a4] [--style=standard|conservative] [--report=NNN] [--allow-reorder]
  *
  * --report links the generated PDF to its tracker/report number and records
  * the linkage in data/pdf-index.tsv so downstream tools (e.g. the TUI
@@ -229,6 +229,26 @@ export function injectPrintPageCss(html, format = 'a4') {
   return `${pageStyle}\n${html}`;
 }
 
+/** Apply an ATS-neutral visual variant without changing document content. */
+export function applyCvDesignStyle(html, style = 'standard') {
+  const normalizedStyle = String(style || 'standard').toLowerCase();
+  if (normalizedStyle === 'standard') return html;
+  if (normalizedStyle !== 'conservative') {
+    throw new Error(`Invalid CV style "${style}". Use: standard, conservative`);
+  }
+
+  const styleTag = `<style id="career-ops-cv-style">
+.header-gradient { background: #263238 !important; }
+.section-title { color: #263238 !important; }
+.competency-tag { color: #263238 !important; background: #f4f5f5 !important; border-color: #d9ddde !important; }
+.job-company, .project-title, .edu-org, .cert-org { color: #37474f !important; }
+.project-badge { color: #263238 !important; background: #f4f5f5 !important; }
+</style>`;
+
+  if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, `${styleTag}\n</head>`);
+  return `${styleTag}\n${html}`;
+}
+
 /**
  * Record a generated PDF in data/pdf-index.tsv so tools can map a tracker
  * report number to the exact PDF (and its source HTML for regeneration).
@@ -281,11 +301,13 @@ async function generatePDF() {
   const args = process.argv.slice(2);
 
   // Parse arguments
-  let inputPath, outputPath, format = 'a4', reportNum = '', allowReorder = false;
+  let inputPath, outputPath, format = 'a4', style = 'standard', reportNum = '', allowReorder = false;
 
   for (const arg of args) {
     if (arg.startsWith('--format=')) {
       format = arg.split('=')[1].toLowerCase();
+    } else if (arg.startsWith('--style=')) {
+      style = arg.split('=')[1].toLowerCase();
     } else if (arg.startsWith('--report=')) {
       reportNum = arg.split('=')[1].trim();
     } else if (arg === '--allow-reorder') {
@@ -298,7 +320,7 @@ async function generatePDF() {
   }
 
   if (!inputPath || !outputPath) {
-    console.error('Usage: node generate-pdf.mjs <input.html> <output.pdf> [--format=letter|a4] [--report=NNN] [--allow-reorder]');
+    console.error('Usage: node generate-pdf.mjs <input.html> <output.pdf> [--format=letter|a4] [--style=standard|conservative] [--report=NNN] [--allow-reorder]');
     console.error('');
     console.error('This script only converts an already-built HTML file to PDF.');
     console.error('The input HTML is produced by the pdf mode: the agent fills cv-template.html');
@@ -333,10 +355,16 @@ async function generatePDF() {
     console.error(`Invalid format "${format}". Use: ${validFormats.join(', ')}`);
     process.exit(1);
   }
+  const validStyles = ['standard', 'conservative'];
+  if (!validStyles.includes(style)) {
+    console.error(`Invalid style "${style}". Use: ${validStyles.join(', ')}`);
+    process.exit(1);
+  }
 
   console.log(`📄 Input:  ${inputPath}`);
   console.log(`📁 Output: ${outputPath}`);
   console.log(`📏 Format: ${format.toUpperCase()}`);
+  console.log(`🎨 Style:  ${style}`);
 
   let html = await readFile(inputPath, 'utf-8');
   let cvMarkdown = '';
@@ -346,6 +374,7 @@ async function generatePDF() {
     if (err?.code !== 'ENOENT') throw err;
   }
   validateCvSectionOrder(html, cvMarkdown, { allowReorder });
+  html = applyCvDesignStyle(html, style);
 
   // Normalize text for ATS compatibility (issue #1)
   const normalized = normalizeTextForATS(html);

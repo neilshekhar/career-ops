@@ -56,6 +56,7 @@ import { formatDate, formatPhone, formatPhoneWithoutCountryCode, isDateField, is
 import {
   acceptAllowsDocx, acceptAllowsPdf, chooseCoverFormat, formatFallbackOrder,
 } from './cover-format-policy.mjs';
+import { validateApplicationRole } from './verify-userdata.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 
@@ -1001,6 +1002,17 @@ async function main() {
     console.log('ATS: custom — use /career-ops apply (agent apply path).');
     console.log(`URL: ${role.url}`);
     process.exit(0);
+  }
+
+  const qualityIssues = validateApplicationRole(role, {
+    root: ROOT,
+    profile,
+    requireAssets: true,
+  }).filter((item) => item.level === 'error');
+  if (qualityIssues.length) {
+    console.error('Application quality gate failed. Run PREPARE again before filling:');
+    for (const item of qualityIssues) console.error(`  ${item.code}: ${item.message}`);
+    process.exit(1);
   }
 
   console.log(`\nFilling form: ${role.company} – ${role.title}`);

@@ -91,6 +91,8 @@ export const LOCAL_ONLY_ROLE_FIELDS = new Set([
   'decided_at',
   'confirmation_number',
   'confirmation_screenshot',
+  'user_override',
+  'application_quality_review',
 ]);
 
 const EMPTY_QUEUE = () => ({
@@ -575,6 +577,19 @@ export function setStatus(queue, id, status) {
   const tsField = STATUS_TIMESTAMP[status];
   if (tsField) patches[tsField] = new Date().toISOString();
   return updateById(queue, id, patches);
+}
+
+/** Record the candidate's explicit decision to continue below their quality floor. */
+export function recordCandidateSelectionOverride(role, minimumScore, source = 'dashboard') {
+  if (!role || !Number.isFinite(role.score) || role.score >= minimumScore) return false;
+  if (role.user_override?.approved === true) return false;
+  role.user_override = {
+    approved: true,
+    approved_at: new Date().toISOString(),
+    source,
+    reason: `Candidate explicitly selected this role despite its ${role.score}/5 fit score. The override does not change the score or recommendation.`,
+  };
+  return true;
 }
 
 /** Append a new role stub. Returns false (and does nothing) if the ID already exists. */

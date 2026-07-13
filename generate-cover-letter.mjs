@@ -17,6 +17,9 @@ import { readFileSync, existsSync, mkdirSync } from "fs";
 import { dirname, resolve, basename, join } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { parseArgs } from "util";
+import yaml from "js-yaml";
+
+import { applicationQualityConfig, validateCoverPayload } from "./verify-userdata.mjs";
 
 const OUTPUT_ROOT = resolve("output");
 
@@ -175,6 +178,13 @@ Usage:
   }
 
   const payload = JSON.parse(readFileSync(payloadPath, "utf-8"));
+  const profilePath = resolve("config", "profile.yml");
+  const profile = existsSync(profilePath) ? yaml.load(readFileSync(profilePath, "utf-8")) || {} : {};
+  const payloadErrors = validateCoverPayload(payload, applicationQualityConfig(profile));
+  if (payloadErrors.length) {
+    console.error(`ERROR: Cover quality gate failed: ${payloadErrors.join("; ")}`);
+    process.exit(1);
+  }
 
   if (args.out) {
     payload.output_path = args.out;

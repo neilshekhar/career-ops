@@ -12,6 +12,7 @@
     "or:eval": "node openrouter-runner.mjs evaluate",
     "or:apply": "node openrouter-runner.mjs apply",
     "verify": "node verify-pipeline.mjs",
+    "verify:userdata": "node verify-userdata.mjs",
     "normalize": "node normalize-statuses.mjs",
     "dedup": "node dedup-tracker.mjs",
     "merge": "node merge-tracker.mjs",

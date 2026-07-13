@@ -11,16 +11,16 @@
    - Rest of the world → `a4`
 6. Detect role archetype → adapt framing
 7. Build an internal recruiter-side risk map from the JD using `modes/heuristics/recruiter-side.md`: likely doubts, matching evidence, and which document section should address each doubt
-8. Rewrite Professional Summary by injecting JD keywords + exit narrative bridge ("Built and sold a business. Now applying systems thinking to [JD domain].")
-9. Select top 3-4 most relevant projects for the job
+8. Rewrite Professional Summary by injecting JD keywords and the candidate's exit narrative from `modes/_profile.md`. If no personalized narrative exists, use only facts from `cv.md`; never reuse examples from this mode as candidate history.
+9. Select up to 3-4 relevant projects that actually exist in the source files. Fewer is correct when fewer are supported.
 10. Reorder experience bullets by JD relevance and by the risk map: strongest matching evidence first
 11. Build competency grid from JD requirements (6-8 keyword phrases)
 12. Inject keywords naturally into existing achievements (NEVER invent)
 13. Apply the six-second clarity gate from `modes/heuristics/recruiter-side.md`: top third must make target role, strongest fit, and proof obvious
 14. Generate full HTML from template + personalized content
 15. Read `name` from `config/profile.yml` → normalize to kebab-case lowercase (e.g. "John Doe" → "john-doe") → `{candidate}`
-16. Write HTML to `output/cv-{candidate}-{company}.html` (NOT a temp dir — the recorded HTML is what the dashboard's `D` hotkey regenerates from, so it must survive temp cleanup)
-17. Execute: `node generate-pdf.mjs output/cv-{candidate}-{company}.html output/cv-{candidate}-{company}-{YYYY-MM-DD}.pdf --format={letter|a4} --report={report number}` — `{report number}` is the NNN from the report filename/link (e.g. `008` for `reports/008-acme-….md`), not the tracker `#` column. Pass it whenever the application has (or will have) a report; it records the PDF↔report linkage in `data/pdf-index.tsv` so the dashboard can open and regenerate the exact PDF. Omit it only for one-off CVs with no tracker entry.
+16. Write HTML to `output/cv-{candidate}-{company}-{YYYY-MM-DD}.html` — same basename as the PDF (NOT a temp dir — the recorded HTML is what the dashboard's `D` hotkey regenerates from, and `verify-userdata.mjs` expects the source HTML beside the PDF)
+17. Select a design style from the employer context: `conservative` for government, banking, health, universities, legal/regulatory, and visibly formal employers; `standard` for product, technology, startup, and creative employers. Execute: `node generate-pdf.mjs output/cv-{candidate}-{company}-{YYYY-MM-DD}.html output/cv-{candidate}-{company}-{YYYY-MM-DD}.pdf --format={letter|a4} --style={standard|conservative} --report={report number}` — `{report number}` is the NNN from the report filename/link (e.g. `008` for `reports/008-acme-….md`), not the tracker `#` column. Pass it whenever the application has (or will have) a report; it records the PDF↔report linkage in `data/pdf-index.tsv` so the dashboard can open and regenerate the exact PDF. Omit it only for one-off CVs with no tracker entry.
 18. Report: PDF path, number of pages, keyword coverage %
 
 ## ATS Rules (clean parsing)
@@ -43,14 +43,14 @@
 
 ## PDF Design
 
-- **Fonts**: Space Grotesk (headings, 600-700) + DM Sans (body, 400-500)
-- **Fonts self-hosted**: `fonts/`
-- **Header**: name in Space Grotesk 24px bold + gradient line `linear-gradient(to right, hsl(187,74%,32%), hsl(270,70%,45%))` 2px + contact row
-- **Section headers**: Space Grotesk 13px, uppercase, letter-spacing 0.05em, color cyan primary
-- **Body**: DM Sans 11px, line-height 1.5
+- **Fonts**: static ATS-safe system sans stack (`Liberation Sans`, Helvetica Neue, Arial, DejaVu Sans). The bundled variable fonts are intentionally not used because PDF extraction split words and weakened keyword parsing.
+- **Header**: 25px bold name + 2px accent line + contact row
+- **Section headers**: 12px bold uppercase, letter-spacing 0.06em
+- **Body**: 11px, line-height 1.5
 - **Company names**: accent purple color `hsl(270,70%,45%)`
 - **Margins**: 0.5in
 - **Background**: pure white
+- **Conservative variant**: charcoal/neutral accents with the same single-column structure, typography, spacing, and ATS text layer
 
 ## Section order (optimized "6-second recruiter scan")
 
@@ -225,3 +225,7 @@ Do not auto-generate the cover letter PDF without going through the interactive 
 ## Post-generation
 
 Update tracker if the job is already registered: change PDF from ❌ to ✅.
+
+For a queue role, store the asset and quality-review paths while the role remains
+`prepare-queued`, then run `node verify-userdata.mjs --role <role-id>`. Only a
+zero exit permits the status to advance to `prepared`.

@@ -23,10 +23,11 @@ import yaml from 'js-yaml';
 import {
   loadQueue, saveQueue, computeLane, computeStage, computeStats,
   setStatus, updateById, ACTIVE_STATUSES, DONE_STATUSES, stageDragTarget,
-  DRAG_TARGET_STAGES,
+  DRAG_TARGET_STAGES, recordCandidateSelectionOverride,
 } from './queue-store.mjs';
 import { queueDoneStatusFromTracker, parseTrackerDoneRows } from './tracker-status-map.mjs';
 import { partitionRunRoles, isDeepEval, FILLABLE_STATUSES } from './run-partition.mjs';
+import { applicationQualityConfig, validateApplicationRole } from './verify-userdata.mjs';
 
 const ROOT     = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR  = join(ROOT, 'dashboard', 'web');
@@ -534,6 +535,7 @@ function apiSetThreshold(req, res) {
     }
 
     const queue = loadQueue();
+    const quality = applicationQualityConfig(loadProfile());
     queue.settings.score_threshold = threshold;
 
     // Flip all ready-lane scored roles at or above the threshold to prepare-queued
@@ -543,6 +545,7 @@ function apiSetThreshold(req, res) {
       if (computeLane(role) !== 'ready') continue;
       if (role.score != null && role.score >= threshold) {
         role.status = 'prepare-queued';
+        recordCandidateSelectionOverride(role, quality.minimumApplyScore, 'dashboard-threshold');
         flipped++;
       }
     }
@@ -623,6 +626,18 @@ function apiRoleFill(req, res, id) {
   if (!FILLABLE_STATUSES.has(role.status)) {
     return respond(res, 409, {
       error: `role is '${role.status}' — run /career-ops queue prepare to generate fresh assets before filling`,
+    });
+  }
+
+  const qualityIssues = validateApplicationRole(role, {
+    root: ROOT,
+    profile: loadProfile(),
+    requireAssets: true,
+  }).filter((item) => item.level === 'error');
+  if (qualityIssues.length) {
+    return respond(res, 409, {
+      error: `application quality gate failed: ${qualityIssues.map((item) => `${item.code}: ${item.message}`).join(' | ')}`,
+      issues: qualityIssues,
     });
   }
 
@@ -707,6 +722,10 @@ function apiRoleStage(req, res, id) {
       return respond(res, 409, { error: `cannot move this role to ${stage} — not a valid drag transition` });
     }
 
+    if (nextStatus === 'prepare-queued') {
+      const quality = applicationQualityConfig(loadProfile());
+      recordCandidateSelectionOverride(role, quality.minimumApplyScore, 'dashboard-drag');
+    }
     setStatus(queue, id, nextStatus);
     try {
       saveQueue(queue);

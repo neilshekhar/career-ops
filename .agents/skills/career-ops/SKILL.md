@@ -4,7 +4,7 @@ description: AI job search command center -- evaluate offers, generate CVs, scan
 arguments: mode
 user_invocable: true
 user-invocable: true
-argument-hint: "[scan | deep | pdf | latex | cover | email | add | eu-swe | oferta | ofertas | apply | batch | tracker | agent-inbox | pipeline | contacto | training | project | interview-prep | interview | interview/plan | interview/practice | interview/debrief | patterns | offer-prep | titles | followup | queue | update]"
+argument-hint: "[scan | deep | pdf | latex | cover | email | add | eu-swe | oferta | ofertas | apply | batch | tracker | agent-inbox | pipeline | contacto | training | project | interview-prep | interview | interview-redflag | interview/plan | interview/practice | interview/debrief | patterns | offer-prep | titles | followup | queue | reply-watch | update]"
 license: MIT
 ---
 
@@ -43,6 +43,7 @@ Determine the mode from `$mode`:
 | `deep` | `deep` |
 | `interview-prep` | `interview-prep` |
 | `interview` | `interview` |
+| `interview-redflag` | `interview-redflag` |
 | `eu-swe` | `regional/eu-swe` |
 | `interview/plan` | `interview/plan` |
 | `interview/practice` | `interview/practice` |
@@ -55,6 +56,7 @@ Determine the mode from `$mode`:
 | `tracker` | `tracker` |
 | `agent-inbox` | `agent-inbox` |
 | `inbox` | `agent-inbox` |
+| `reply-watch` | `reply-watch` |
 | `pipeline` | `pipeline` |
 | `apply` | `apply` |
 | `scan` | `scan` |
@@ -105,6 +107,7 @@ Available commands:
   /career-ops deep      → Deep research prompt about company
   /career-ops interview-prep → Generate company-specific interview prep doc
   /career-ops interview    → Interactive profile/CV onboarding interview
+  /career-ops interview-redflag → Analyze company and process red flags
   /career-ops eu-swe    → Calibrate a European SWE application before CV/apply/interview
   /career-ops interview/plan → Time-blocked prep plan for an upcoming interview
   /career-ops interview/practice → Practice interview, one question at a time with feedback
@@ -118,6 +121,7 @@ Available commands:
   /career-ops project   → Evaluate portfolio project idea
   /career-ops tracker   → Application status overview
   /career-ops agent-inbox → Queue/drain requests for the next session (data/agent-inbox.md)
+  /career-ops reply-watch → Classify replies and suggest tracker updates
   /career-ops apply     → Live application assistant (reads form + generates answers)
   /career-ops scan      → Scan portals and discover new offers
   /career-ops batch     → Batch processing with parallel workers
@@ -153,7 +157,7 @@ Applies to: `auto-pipeline`, `oferta`, `ofertas`, `pdf`, `contacto`, `apply`, `p
 ### Standalone modes (only their mode file):
 Read `modes/{mode}.md`
 
-Applies to: `tracker`, `agent-inbox`, `deep`, `interview-prep`, `interview`, `regional/eu-swe`, `interview/plan`, `interview/practice`, `interview/debrief`, `latex`, `training`, `project`, `patterns`, `titles`, `followup`, `queue`, `cover`, `email`, `add`, `offer-prep`
+Applies to: `tracker`, `agent-inbox`, `reply-watch`, `deep`, `interview-prep`, `interview`, `interview-redflag`, `regional/eu-swe`, `interview/plan`, `interview/practice`, `interview/debrief`, `latex`, `training`, `project`, `patterns`, `titles`, `followup`, `queue`, `cover`, `email`, `add`, `offer-prep`
 
 ### Modes delegated to subagent:
 For `scan`, `apply` (with Playwright), and `pipeline` (3+ URLs): launch as a worker/subagent with the content of `_shared.md` + `modes/{mode}.md` injected into the worker prompt. If your CLI exposes an `Agent(...)` primitive, the call looks like this:

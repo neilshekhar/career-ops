@@ -176,16 +176,47 @@ Motivational / "why this company/role" questions are employer-specific →
 `reusable: false`. Behavioural or skills questions ("describe your SQL
 experience") are usually employer-independent → `reusable: true`.
 
-### Step 2 — Generate tailored CV PDF
+### Step 2 — Generate and review tailored application assets
 
-Run the existing PDF generation pipeline:
+Run the existing CV pipeline:
 
 1. Read cv.md + article-digest.md.
 2. Extract keywords from the JD: use `role.jd_text` if present and non-empty, otherwise read `jd_path`.
 3. Tailor and rewrite as per `modes/pdf.md` (keyword injection, summary rewrite,
    project reorder — never invent experience).
-4. Generate: `node generate-pdf.mjs /tmp/cv-{candidate}-{company-slug}.html output/cv-{candidate}-{company-slug}-{date}.pdf`
-5. Store the output path in `cv_pdf`.
+4. Save the filled HTML beside the PDF, not in `/tmp`:
+   `output/cv-{candidate}-{company-slug}-{date}.html`.
+5. Generate with the role-appropriate style selected by `modes/pdf.md`:
+   `node generate-pdf.mjs output/cv-{candidate}-{company-slug}-{date}.html output/cv-{candidate}-{company-slug}-{date}.pdf --style={standard|conservative}`
+6. Store the PDF path in `cv_pdf`. The retained HTML is required for content QC,
+   staleness-safe regeneration, and punctuation checks.
+
+Then run the full interactive `modes/cover.md` workflow for this role. The company
+research confirmation, gap resolution, keyword confirmation, and all four candidate
+answers are mandatory even in queue PREPARE. Generate MD, PDF, and DOCX from one
+canonical payload with `generate-cover-formats.mjs`, then store all paths (including
+the payload) in `cover_letter_paths`. Do not use a batch-template cover as the final
+letter and do not mark the role prepared while those confirmations are missing.
+
+Before release, store this local-only review record on the role:
+
+```json
+{
+  "application_quality_review": {
+    "reviewed_at": "<ISO timestamp>",
+    "top_requirements": [
+      { "requirement": "<JD phrase>", "evidence": "<matching proof>", "source": "cv.md" },
+      { "requirement": "<JD phrase>", "evidence": "<matching proof>", "source": "article-digest.md" },
+      { "requirement": "<JD phrase>", "uncovered": true }
+    ],
+    "company_specific_references": ["<reference used in cover>", "<second reference used in cover>"],
+    "uncovered_requirements": ["<honest gap, if any>"]
+  }
+}
+```
+
+Map at least the top three requirements. Every mapped item must contain sourced
+evidence or `uncovered: true`; never manufacture evidence to make the manifest green.
 
 ### Step 3 — Update the record
 
@@ -206,12 +237,23 @@ Step 6 fills the gap at apply time. As long as `--pre` ran without error and `cv
 set, the role is safe to mark `prepared`. The "no `prepared` without drafts" rule is about
 not skipping `--pre` entirely — not about requiring a full `drafts` object for custom portals.
 
-Write these fields via `saveQueue()`:
+First write these fields via `saveQueue()` while leaving the status as
+`prepare-queued`:
 
 ```
-drafts, cv_pdf,
-status: "prepared", prepared_at: <ISO timestamp>
+drafts, cv_pdf, cover_letter_paths, application_quality_review
 ```
+
+Then run:
+
+```
+node verify-userdata.mjs --role <role-id>
+```
+
+Only when it exits zero may you write `status: "prepared"` and
+`prepared_at: <ISO timestamp>` via `saveQueue()`. If it exits non-zero, leave the
+role at `prepare-queued`, report every failed check, and regenerate or ask the
+candidate for the missing input. Never waive a validator error silently.
 
 ### Step 4 — Summary
 
