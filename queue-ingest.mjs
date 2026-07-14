@@ -24,6 +24,7 @@ import {
   loadQueue, saveQueue, appendRole, loadQueueSeenSets, insertNewStubsCron,
   evictExpiredNewStubsCron,
 } from './queue-store.mjs';
+import { recordJdFetchFailure, isGoneFailure, JD_MIN_SUBSTANTIVE_CHARS } from './queue-sweep.mjs';
 import { fetchJson, fetchText } from './providers/_http.mjs';
 
 const ROOT        = dirname(fileURLToPath(import.meta.url));
@@ -116,6 +117,44 @@ function discoverySourceFor(ats) {
   if (ats === 'lever') return 'lever-api';
   if (ats === 'ashby') return 'ashby-api';
   return 'websearch';
+}
+
+// Degraded stub for a URL whose JD fetch failed: enough identity to dedup and
+// surface, no JD content. The caller stamps jd_fetch metadata (queue-sweep.mjs)
+// so the role ages out under the capped unreachable lifecycle instead of being
+// re-fetched from pipeline.md forever.
+function buildNoJdStub({ roleId, company, title, url, atsInfo }) {
+  return {
+    id:               roleId,
+    company,
+    title,
+    url,
+    ats:              atsInfo.ats,
+    source:           discoverySourceFor(atsInfo.ats),
+    location:         '',
+    jd_text:          null,
+    jd_path:          null,
+    size_bucket:      null,
+    score_raw:        null,
+    score:            null,
+    reason:           null,
+    eligibility:      null,
+    employment_type:  null,
+    visa_answer:      null,
+    confidence:       null,
+    flags:            isLoginGated(url) ? ['login-required'] : [],
+    ksc_criteria:          null,
+    cover_letter_required: false,
+    requirements_snippet:  null,
+    upload_fields:         null,
+    free_text_fields: [],
+    drafts:           {},
+    cv_pdf:           null,
+    cover_letter_path: null,
+    cover_letter_paths: null,
+    ksc_path:          null,
+    status:           'new',
+  };
 }
 
 // ── JD fetch ──────────────────────────────────────────────────────────────────
@@ -428,6 +467,8 @@ async function main() {
 
   let skipped = 0;
   let ingested = 0;
+  let noJdStubs = 0; // failed-fetch URLs ingested as capped no-jd stubs (local mode)
+  let goneStubs = 0; // confirmed-gone URLs recorded as expired-closed (local mode)
   const errors = [];
   const cronStubs = []; // collected in cron mode, flushed at end
 
@@ -481,6 +522,33 @@ async function main() {
     } catch (err) {
       errors.push({ url, error: err.message });
       console.log(`    ⚠️  fetch failed: ${err.message}`);
+      // Retry-cap lifecycle (queue-sweep.mjs): in local mode, ingest a stub
+      // anyway so the URL stops re-fetching from pipeline.md on every run.
+      // Confirmed-gone signals (ATS 404/410/not-found) close as expired
+      // immediately; everything else enters the capped unreachable lane.
+      // Cron mode keeps its existing skip behavior (jd_fetch/closed_reason
+      // are local-only sidecar fields and the cron runner is ephemeral).
+      if (!CRON_MODE && !DRY_RUN) {
+        const stub = buildNoJdStub({ roleId, company, title, url, atsInfo });
+        if (isGoneFailure(err.message)) {
+          stub.status = 'closed';
+          stub.closed_reason = 'expired';
+          stub.decided_at = new Date().toISOString();
+          goneStubs++;
+          console.log(`    ↳ ATS says gone — recorded as expired (dedup'd, no more re-fetch churn)`);
+        } else {
+          recordJdFetchFailure(stub, {
+            reason: isLoginGated(url) ? `login-required host: ${err.message}` : err.message,
+            ...(isLoginGated(url) ? { failureClass: 'deterministic' } : {}),
+          });
+          noJdStubs++;
+          console.log(`    ↳ ingested as no-jd stub (${stub.jd_fetch.class}; capped retry lifecycle)`);
+        }
+        appendRole(queue, stub);
+        queueSeen.ids.add(roleId);
+        queueSeen.urls.add(url);
+        queueSeen.companyRoles.add(crKey);
+      }
       continue;
     }
 
@@ -513,6 +581,13 @@ async function main() {
     const flags = isLoginGated(url) ? ['login-required'] : [];
     if (docReqs.kscRequired)         flags.push('ksc-required');
     if (docReqs.coverLetterRequired) flags.push('cover-letter-required');
+
+    // Fetch "succeeded" but returned no substantive description (empty ATS
+    // content, page shell) — stamp a transient failure so the retry cap
+    // applies to this title-only stub too. Local mode only: jd_fetch is a
+    // local-only sidecar field.
+    const descriptionIsThin =
+      !jdData.description || jdData.description.trim().length < JD_MIN_SUBSTANTIVE_CHARS;
 
     // Build stub
     const stub = {
@@ -550,6 +625,15 @@ async function main() {
       status:           'new',
     };
 
+    if (!CRON_MODE && descriptionIsThin) {
+      recordJdFetchFailure(stub, {
+        reason: `no substantive description in ${jdData.source} response`,
+        // A login-gated host serving a shell won't improve without auth.
+        failureClass: isLoginGated(url) ? 'deterministic' : 'transient',
+      });
+      console.log(`    ⚠️  description thin/missing — stamped ${stub.jd_fetch.class} jd_fetch failure (capped retry lifecycle)`);
+    }
+
     if (!DRY_RUN) {
       if (CRON_MODE) {
         // Cron path: collect stubs, flush at end via insertNewStubsCron
@@ -574,13 +658,17 @@ async function main() {
     console.log(`    ✅ ${roleId}${fieldsNote}${docNote ? '  ' + docNote : ''}`);
   }
 
-  if (!DRY_RUN && ingested > 0) {
+  if (!DRY_RUN && ingested + noJdStubs + goneStubs > 0) {
     if (CRON_MODE) {
       const { attempted, inserted, skipped: cronSkipped } = await insertNewStubsCron(cronStubs);
       console.log(`\nCron insert: ${inserted} new / ${attempted} attempted (${cronSkipped} skipped by status guard, ${attempted - inserted} already in Supabase)`);
     } else {
       saveQueue(queue);
-      console.log(`\nSaved ${ingested} new stub(s) to the queue store`);
+      const notes = [
+        noJdStubs > 0 ? `${noJdStubs} no-jd, capped lifecycle` : '',
+        goneStubs > 0 ? `${goneStubs} gone, closed as expired` : '',
+      ].filter(Boolean).join('; ');
+      console.log(`\nSaved ${ingested + noJdStubs + goneStubs} stub(s) to the queue store${notes ? ` (${notes})` : ''}`);
     }
   }
 
@@ -590,6 +678,12 @@ async function main() {
   console.log(`Pending in pipeline.md:  ${pending.length}`);
   console.log(`Already seen (skipped):  ${skipped}`);
   console.log(`New stubs ingested:      ${ingested}`);
+  if (noJdStubs > 0) {
+    console.log(`No-jd stubs (capped):    ${noJdStubs}  → run: node queue-sweep.mjs --summary`);
+  }
+  if (goneStubs > 0) {
+    console.log(`Gone (closed expired):   ${goneStubs}`);
+  }
   if (errors.length > 0) {
     console.log(`\nErrors (${errors.length}):`);
     for (const e of errors) console.log(`  ✗ ${e.url}: ${e.error}`);

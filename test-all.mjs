@@ -154,6 +154,8 @@ const scripts = [
   { name: 'verify-portals.mjs --file .tmp-test-missing-portals.yml', expectExit: 0 },
   { name: 'update-system.mjs check', expectExit: 0 },
   { name: 'archive-posting.mjs --help', expectExit: 0 },
+  // Fork-local queue engine: retry-cap lifecycle for unreachable no-jd roles.
+  { name: 'queue-sweep.mjs --self-test', expectExit: 0 },
 ];
 
 for (const { name, allowFail } of scripts) {

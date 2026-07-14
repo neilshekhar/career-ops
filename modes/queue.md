@@ -27,11 +27,31 @@ only the records relevant to the current phase; write the file back.
 
 Find every role in `data/apply-queue.json` with `"status": "new"`. For each:
 
-### Step 1 — Read the JD
+### Step 1 — Read the JD (no JD → fetch first, never score a title)
 
-Use `role.jd_text` if present and non-empty (roles discovered by the cron carry
-the full JD text directly). Otherwise read the file at `jd_path`. If neither is
-available, note it in the reason and set `confidence: "low"`.
+Use `role.jd_text` if present and substantive (roles discovered by the cron
+carry the full JD text directly). Otherwise read the file at `jd_path`.
+
+If neither holds substantive content (responsibilities + requirements — a
+title, snippet, placeholder, or page shell does not count), **fetch before
+scoring**, cheapest rung first:
+
+1. Public ATS API / deterministic fetcher (zero tokens).
+2. `node check-liveness.mjs <url>` for liveness; a definitive `expired` →
+   close the role through the normal queue workflow, do not score.
+3. Playwright for non-ATS or inconclusive pages.
+
+On success, persist the JD into `role.jd_text` and score normally. On failure,
+record the attempt and **skip scoring this role**:
+
+```bash
+node queue-sweep.mjs record <role-id> --reason "<why it failed>"
+```
+
+The role stays `status: new` with the `no-jd` flag; `queue-sweep.mjs` ages it
+out under the class-aware retry cap (login/robots: no retries, ~7d grace;
+transient: ≤3 attempts or ~14d), closing it as `unreachable` — never as
+expired. A JD the candidate pastes counts as a valid retrieval.
 
 ### Step 2 — Determine employment type (do this while reading the JD)
 
@@ -118,6 +138,18 @@ EasyGo            | Senior Data Analyst – Kick   | full-time | 4.4   | ready
 → Open the dashboard: node dashboard-server.mjs
 → Or set threshold and prepare: /career-ops queue prepare
 ```
+
+### Step 8 — Sweep unreachable no-jd roles (zero tokens)
+
+End every score run with:
+
+```bash
+node queue-sweep.mjs --summary
+```
+
+It closes roles whose retry cap is exhausted (`closed_reason: unreachable`)
+and prints the still-open no-jd list. **Relay that list to the candidate** —
+they can log in or paste the JD text to unblock a role before it ages out.
 
 ---
 

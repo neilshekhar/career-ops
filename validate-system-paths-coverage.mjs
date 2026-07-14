@@ -86,6 +86,7 @@ const FORK_LOCAL_EXCLUDES = [
   'queue-ingest.mjs',
   'queue-resolve.mjs',
   'queue-store.mjs',
+  'queue-sweep.mjs',
   'run-partition.mjs',
   'screener-store.mjs',
   'supabase-client.mjs',
