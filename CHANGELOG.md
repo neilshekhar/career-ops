@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.19.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.18.1...career-ops-v1.19.0) (2026-07-14)
+
+
+### Features
+
+* **apply:** add application quality release gates ([3026201](https://github.com/neilshekhar/career-ops/commit/30262016f2b5e7aa550c7eb0f9592f865eacceac))
+* **quality:** enforce model-aware application release gates ([6e55d01](https://github.com/neilshekhar/career-ops/commit/6e55d0180325df404db472bca43b6c572803f01a))
+* **queue:** retry-cap lifecycle for unreachable no-JD roles ([a45f93d](https://github.com/neilshekhar/career-ops/commit/a45f93d318c6b74963c721c7fe8624f80ae01590))
+
 ## [1.18.1](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.18.0...career-ops-v1.18.1) (2026-07-10)
 
 
