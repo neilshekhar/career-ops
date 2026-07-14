@@ -93,6 +93,7 @@ export const LOCAL_ONLY_ROLE_FIELDS = new Set([
   'confirmation_screenshot',
   'user_override',
   'application_quality_review',
+  'generation_provenance',
 ]);
 
 const EMPTY_QUEUE = () => ({

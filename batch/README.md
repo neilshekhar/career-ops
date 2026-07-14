@@ -1,6 +1,6 @@
 # Batch Processing
 
-Process multiple job offers in parallel via headless workers. Each worker runs the full evaluation pipeline (A-F report + PDF + tracker line) autonomously. See the **Headless / Batch Mode** table in `AGENTS.md` for the correct command per CLI.
+Process multiple job offers in parallel via headless workers. Each worker produces an A-F report, a provisional triage score, and a tracker line. PDF generation is off by default because final application assets belong to interactive PREPARE. See the **Headless / Batch Mode** table in `AGENTS.md` for the correct command per CLI.
 
 ## Quick Start
 
@@ -38,6 +38,9 @@ Process multiple job offers in parallel via headless workers. Each worker runs t
 | `--limit N` | `0` | Max number of offers to process in this run (0 = no limit) |
 | `--max-retries N` | `2` | Max retry attempts per offer before giving up |
 | `--rate-limit-sleep N` | `300` | Seconds to wait before retrying a transient rate-limited worker; use `0` to pause the batch immediately |
+| `--skip-pdf` | on | Evaluation-only mode; do not generate a PDF |
+| `--draft-pdf` | off | Generate a non-release PDF draft; requires an explicit `--model` and honors the optional personal batch-model allowlist |
+| `--model NAME` | unset | Claude model for provisional scoring; cheaper models save tokens but may mis-rank roles |
 
 ## Directory Layout
 
@@ -56,8 +59,18 @@ batch/
 
 1. **batch-runner.sh** reads `batch-input.tsv` and `batch-state.tsv` to determine which offers need processing.
 2. For each pending offer, it assigns a report number and launches a headless worker with `batch-prompt.md` as the system prompt (placeholders like `{{URL}}`, `{{REPORT_NUM}}` are resolved).
-3. Each worker evaluates the offer, writes a report to `reports/`, generates a PDF to `output/`, and writes a tracker TSV to `tracker-additions/`.
+3. Each worker evaluates the offer, writes a report to `reports/`, and writes a tracker TSV to `tracker-additions/`. With `--draft-pdf`, it may also create a non-release PDF under `output/`; that file cannot pass the queue application release gate.
 4. After all workers finish, batch-runner calls `merge-tracker.mjs` to merge TSVs into `data/applications.md`, `reconcile-pipeline.mjs` to move processed offers out of the `data/pipeline.md` inbox, and `verify-pipeline.mjs` to check integrity.
+
+Batch scores are deliberately not model-invariant. They are recoverable ranking
+signals and can bury or over-rank roles when a cheaper model is used. Keep all scored
+roles reviewable, and re-score only borderline, low-confidence, strategically
+important, or manually selected roles interactively. Recruiter-facing CVs, cover
+letters, and novel answers have a stricter boundary: they must be regenerated through
+interactive PREPARE, stamped with release provenance, and pass `verify-userdata.mjs`.
+The batch runner accepts any explicit Claude model ID by default because its assets
+can never release. Users can set `application_quality.allowed_batch_asset_models` to
+enforce an exact local floor. See `docs/MODEL_SELECTION.md`.
 
 ## Tracker Merge
 

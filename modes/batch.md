@@ -11,15 +11,23 @@ Conductor (headed browser mode)
   │  Reads DOM directly — the user sees everything in real time
   │
   ├─ Job 1: reads JD from DOM + URL
-  │    └─► headless worker → report .md + PDF + tracker-line
+  │    └─► headless worker → report .md + provisional score + tracker-line
   │
   ├─ Job 2: click next, read JD + URL
-  │    └─► headless worker → report .md + PDF + tracker-line
+  │    └─► headless worker → report .md + provisional score + tracker-line
   │
   └─ End: merge tracker-additions → applications.md + summary
 ```
 
 Each worker is a headless child process with a clean 200K token context. The conductor only orchestrates. See the **Headless / Batch Mode** table in `AGENTS.md` for the correct command per CLI.
+
+**Quality boundary:** batch scores are real but provisional triage inputs. A cheaper
+model can mis-rank roles, so batch does not make a final apply decision. By default it
+does not generate PDFs. `--draft-pdf` is an explicit, model-gated exception and its
+assets remain `batch-draft`: they cannot receive interactive release provenance or
+pass `verify-userdata.mjs` for PREPARE/fill. Final CVs, cover letters, and novel
+application prose are generated only for candidate-selected roles in interactive
+queue PREPARE.
 
 ## Files
 
@@ -98,6 +106,9 @@ Options:
 - `--parallel N` — N workers in parallel
 - `--max-retries N` — attempts per job (default: 2)
 - `--rate-limit-sleep N` — seconds to wait before retrying a transient rate-limited worker (default: 300; use 0 to pause the batch immediately)
+- `--skip-pdf` — evaluation-only mode (default)
+- `--draft-pdf` — generate non-release PDF drafts; requires an explicit `--model` and honors the optional personal batch-model allowlist
+- `--model NAME` — controls provisional scoring quality; cheaper models can save tokens but may bury or over-rank roles
 
 ## batch-state.tsv Format
 

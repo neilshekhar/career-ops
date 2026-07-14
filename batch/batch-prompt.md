@@ -315,6 +315,13 @@ advertised_comp: {verbatim JD salary/range as a quoted string (e.g. "80-90k EUR"
 
 ### Paso 4 — Generar PDF (configurable)
 
+**Release boundary:** every PDF produced by this headless worker is a
+`batch-draft`. It may support triage, but it is never an application-ready asset,
+must never write `generation_provenance`, and cannot be reused to mark a queue role
+`prepared`. Candidate-selected roles regenerate their final CV and cover letter in
+interactive queue PREPARE. Batch scores are provisional and may mis-rank roles when
+a cheaper model is selected.
+
 **Gate:** Read `config/profile.yml` → `auto_pdf_score_threshold`. If the key is absent, default to **`3.0`** (the original gate of Path A). This step ONLY runs when the score from Paso 2 is **≥ the resolved threshold**. For everything below it, skip this entire step — the user can generate a tailored PDF on demand later via `/career-ops pdf {company-slug}` using the report from Paso 3 as input.
 
 **Rationale:** Generating a tailored PDF costs ~30–60s per offer (Playwright launch + HTML render) and produces files that often go unused — most roles score 2.x/3.x and never reach application. The `3.0` default matches Path A's original behavior; raise `auto_pdf_score_threshold` (e.g. `4.0`) to pre-generate fewer PDFs, or set `0` to generate one for every offer. Both Path A (`/career-ops pipeline`) and Path B (this batch worker) read the same config key for consistency.

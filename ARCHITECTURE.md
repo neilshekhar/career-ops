@@ -82,6 +82,8 @@ scan ──► data/pipeline.md ──► evaluate (oferta + cv) ──► repor
 ## Quality gates
 
 - `test-all.mjs` — the full suite (500+ checks across scoring, scan, tracker, PDF, security, updater).
+- `verify-userdata.mjs` — fail-closed application release gate: source-backed evidence and candidate claims, fresh role-matched assets, page/format rules, and allowlisted, hash-bound interactive generation provenance.
+- `generation-provenance.mjs` — stamps the final interactive PREPARE flow, exact CLI/model and optional effort labels, asset paths, and SHA-256 hashes. Its provider-neutral policy accepts arbitrary model IDs in `open` mode or enforces a user's exact model/effort choices; batch provenance remains draft-only and cannot advance to fill.
 - `updater-migration-tests.mjs` — enforces the system/user boundary and safe cross-version upgrades.
 - CI: `test` + CodeQL are required; CodeRabbit reviews every PR; Renovate keeps deps current.
 

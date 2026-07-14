@@ -28,10 +28,14 @@ node verify-userdata.mjs --role <role-id>
 ```
 
 Continue only when it exits zero. A non-zero result means the assets are missing,
-stale, structurally invalid, mismatched to the role, or lack the required quality
-review/low-score override. Stop and run queue PREPARE again; do not attach an older
-file and do not waive the error in conversation. This gate applies to custom ATS
-agent flows as well as deterministic `form-fill.mjs` runs.
+stale, structurally invalid, mismatched to the role, unsupported by their cited
+evidence, contain untraced candidate numbers/named terms, violate the configured
+`open`/`allowlist` model policy, lack release-eligible interactive provenance, or fail
+another configured quality rule. Stop and run queue
+PREPARE again, stamp fresh model/effort provenance with `generation-provenance.mjs`, and rerun the
+validator; do not attach an older file and do not waive the error in conversation.
+This gate applies to custom ATS agent flows as well as deterministic
+`form-fill.mjs` runs.
 
 ### Deep-eval marker (oferta-first)
 

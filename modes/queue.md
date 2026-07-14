@@ -217,6 +217,8 @@ Before release, store this local-only review record on the role:
 
 Map at least the top three requirements. Every mapped item must contain sourced
 evidence or `uncovered: true`; never manufacture evidence to make the manifest green.
+The `evidence` value must be an exact source excerpt, not a paraphrase:
+`verify-userdata.mjs` normalizes it and proves that it occurs in the cited file.
 
 ### Step 3 — Update the record
 
@@ -243,6 +245,32 @@ First write these fields via `saveQueue()` while leaving the status as
 ```
 drafts, cv_pdf, cover_letter_paths, application_quality_review
 ```
+
+Then stamp the release provenance after every asset and the quality manifest are
+final. Read the active model from the CLI's status/model selector; do not guess or
+write `unknown`:
+
+```
+node generation-provenance.mjs stamp \
+  --role <role-id> \
+  --cli <exact-active-cli-id> \
+  --model <exact-active-model> \
+  --effort <exact-active-effort-if-configured>
+```
+
+This writes `generation_provenance` with `flow: interactive-prepare`, the CLI/model,
+optional effort, current asset paths, and SHA-256 hashes. The stamp command and independent
+release gate both enforce `application_quality.release_model_policy`: `open` accepts
+any explicitly identified model, while `allowlist` checks
+`application_quality.allowed_release_models`. A CLI-wide `allowed_release_efforts` floor
+can have exact-model exceptions in `allowed_release_model_efforts`; unlisted models retain
+the CLI-wide floor. Missing provenance, batch provenance,
+an unapproved model/effort or flow, a later file edit, or a path swap all fail closed.
+Batch/headless outputs cannot be stamped as interactive merely because they look good;
+regenerate selected roles through this PREPARE flow.
+`release_model_policy: open` supports any current or future CLI/model while retaining
+the deterministic gates. `allowlist` enforces a user's exact local choices. See
+`docs/MODEL_SELECTION.md`; never infer that compatibility means equal writing quality.
 
 Then run:
 

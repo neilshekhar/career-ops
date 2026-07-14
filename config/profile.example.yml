@@ -161,6 +161,44 @@ automation:
   login_timeout_min: 10 # minutes to wait for post-login form signal
   credentials_path: "data/portal-credentials.json"   # gitignored
 
+# ── Application asset quality and model compatibility ───────────────────────
+# New profiles accept any explicitly identified current/future CLI and model.
+# This is compatibility, not a claim that every model writes equally well. The
+# deterministic evidence, claim, freshness, hash, and human-review gates still
+# apply. See docs/MODEL_SELECTION.md for provider-neutral recommendations and an
+# optional exact-model allowlist.
+application_quality:
+  minimum_apply_score: 4.0
+  require_explicit_low_score_override: true
+  require_fresh_assets: true
+  require_quality_manifest: true
+  require_evidence_source_match: true
+  require_candidate_claim_trace: true
+  evidence_min_chars: 12
+  require_generation_provenance: true
+  allowed_generation_flows: ["interactive-prepare"]
+  release_model_policy: "open"  # open | allowlist
+  # To enforce a personal model floor, switch to allowlist and add exact IDs.
+  # Any CLI/model strings are supported; these are examples, not system limits:
+  # allowed_release_models:
+  #   codex: ["gpt-5.6-terra", "gpt-5.6-sol"]
+  #   claude: ["claude-sonnet-5", "claude-opus-4-8"]
+  # Optional provider-neutral effort floor for final assets. If configured, the
+  # exact active effort must be stamped; omit for CLIs without effort controls.
+  # allowed_release_efforts:
+  #   codex: ["high", "xhigh", "max"]
+  #   claude: ["high", "xhigh", "max"]
+  # Optional exact-model exceptions to that CLI-wide floor. Models not listed
+  # here continue to use allowed_release_efforts; arbitrary exact IDs work:
+  # allowed_release_model_efforts:
+  #   codex:
+  #     your-capability-model-id: ["medium", "high", "xhigh", "max"]
+  #   claude:
+  #     your-capability-model-id: ["medium", "high", "xhigh", "max"]
+  # Optional batch-draft restriction. Omit to accept any explicit model ID;
+  # batch provenance remains ineligible for release regardless of model.
+  # allowed_batch_asset_models: ["your-exact-model-id"]
+
 # ── Queue store backend (optional) ─────────────────────────────────────────────
 # Where the apply queue lives. Omit for the sensible default:
 #   local    — everything in data/apply-queue.json. Zero accounts, zero cloud.

@@ -15,6 +15,18 @@ import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
 
 import { ACTIVE_STATUSES, loadQueue } from './queue-store.mjs';
+import {
+  allowedReleaseEfforts,
+  allowedReleaseModelEfforts,
+  describeReleaseEffortPolicy,
+  describeReleaseModelPolicy,
+  isAllowedReleaseModelEffort,
+  isAllowedReleaseGenerator,
+  PROVENANCE_SCHEMA,
+  releaseModelPolicy,
+  roleAssetPaths,
+  sha256File,
+} from './generation-provenance.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const ASSET_STATUSES = new Set(['prepared', 'prefilled', 'filled']);
@@ -26,6 +38,15 @@ const DEFAULT_QUALITY = Object.freeze({
   requireExplicitLowScoreOverride: true,
   requireFreshAssets: true,
   requireQualityManifest: false,
+  requireEvidenceSourceMatch: false,
+  requireCandidateClaimTrace: false,
+  evidenceMinChars: 8,
+  requireGenerationProvenance: false,
+  allowedGenerationFlows: ['interactive-prepare'],
+  releaseModelPolicy: 'open',
+  allowedReleaseModels: {},
+  allowedReleaseEfforts: {},
+  allowedReleaseModelEfforts: {},
   cvMaxPages: 2,
   coverMaxPages: 1,
   coverBodyWordsMin: 250,
@@ -42,11 +63,30 @@ function numberOr(value, fallback) {
 
 export function applicationQualityConfig(profile = {}) {
   const raw = profile.application_quality || {};
+  const allowedReleaseModels = raw.allowed_release_models && typeof raw.allowed_release_models === 'object' && !Array.isArray(raw.allowed_release_models)
+    ? Object.fromEntries(Object.entries(raw.allowed_release_models).map(([cli, models]) => [
+      String(cli).trim().toLowerCase(),
+      Array.isArray(models) ? models.map((model) => String(model).trim().toLowerCase()).filter(Boolean) : [],
+    ]).filter(([, models]) => models.length))
+    : DEFAULT_QUALITY.allowedReleaseModels;
+  const releaseEfforts = allowedReleaseEfforts(profile);
+  const releaseModelEfforts = allowedReleaseModelEfforts(profile);
   return {
     minimumApplyScore: numberOr(raw.minimum_apply_score, DEFAULT_QUALITY.minimumApplyScore),
     requireExplicitLowScoreOverride: raw.require_explicit_low_score_override ?? DEFAULT_QUALITY.requireExplicitLowScoreOverride,
     requireFreshAssets: raw.require_fresh_assets ?? DEFAULT_QUALITY.requireFreshAssets,
     requireQualityManifest: raw.require_quality_manifest ?? DEFAULT_QUALITY.requireQualityManifest,
+    requireEvidenceSourceMatch: raw.require_evidence_source_match ?? DEFAULT_QUALITY.requireEvidenceSourceMatch,
+    requireCandidateClaimTrace: raw.require_candidate_claim_trace ?? DEFAULT_QUALITY.requireCandidateClaimTrace,
+    evidenceMinChars: numberOr(raw.evidence_min_chars, DEFAULT_QUALITY.evidenceMinChars),
+    requireGenerationProvenance: raw.require_generation_provenance ?? DEFAULT_QUALITY.requireGenerationProvenance,
+    allowedGenerationFlows: Array.isArray(raw.allowed_generation_flows) && raw.allowed_generation_flows.length
+      ? raw.allowed_generation_flows.map(String)
+      : DEFAULT_QUALITY.allowedGenerationFlows,
+    releaseModelPolicy: releaseModelPolicy(profile),
+    allowedReleaseModels,
+    allowedReleaseEfforts: releaseEfforts,
+    allowedReleaseModelEfforts: releaseModelEfforts,
     cvMaxPages: numberOr(raw.cv_max_pages, DEFAULT_QUALITY.cvMaxPages),
     coverMaxPages: numberOr(raw.cover_max_pages, DEFAULT_QUALITY.coverMaxPages),
     coverBodyWordsMin: numberOr(raw.cover_body_words_min, DEFAULT_QUALITY.coverBodyWordsMin),
@@ -234,7 +274,168 @@ function isAllowedEvidenceSource(source) {
   ].includes(value) || value.startsWith('writing-samples/') || /^interview-prep\/[^/]+\.md$/.test(value);
 }
 
-function validateQualityManifest(role, issues, { root, source, coverBody }) {
+function evidenceSourcePath(root, source) {
+  const value = String(source || '').replace(/:\d+(?::\d+)?$/, '');
+  return repoPath(root, value);
+}
+
+function normalizeEvidence(text) {
+  return String(text || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}+#.]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function containsNormalizedPhrase(haystack, needle) {
+  if (!needle) return false;
+  return ` ${haystack} `.includes(` ${needle} `);
+}
+
+function sourceContainsEvidence(path, evidence, minimumChars) {
+  const needle = normalizeEvidence(evidence);
+  if (needle.length < minimumChars) return { ok: false, reason: `evidence is shorter than ${minimumChars} normalized characters` };
+  const haystack = normalizeEvidence(readFileSync(path, 'utf-8'));
+  return haystack.includes(needle)
+    ? { ok: true }
+    : { ok: false, reason: 'evidence text does not occur in the cited source' };
+}
+
+const CANDIDATE_CLAIM_SOURCES = Object.freeze([
+  'cv.md',
+  'article-digest.md',
+  'config/profile.yml',
+]);
+
+function candidateClaimCorpus(root) {
+  return CANDIDATE_CLAIM_SOURCES
+    .map((value) => repoPath(root, value))
+    .filter((path) => path && existsSync(path.absolute))
+    .map((path) => readFileSync(path.absolute, 'utf-8'))
+    .join('\n');
+}
+
+function canonicalNumber(value) {
+  return String(value || '').normalize('NFKC').toLowerCase().replace(/[\s,]/g, '');
+}
+
+function numericClaims(text) {
+  const pattern = /(?<![\p{L}\p{N}])(?:[$£€]\s*)?\d+(?:[,.]\d+)*(?:\s?(?:%|x|k|m|b|million|billion|hours?|days?|weeks?|years?))?\+?(?![\p{L}\p{N}])/giu;
+  return new Set((String(text || '').match(pattern) || []).map(canonicalNumber));
+}
+
+function namedClaims(text) {
+  const value = String(text || '').normalize('NFKC');
+  const claims = new Set();
+  const add = (raw) => {
+    const withoutFramingSuffix = String(raw).replace(/-(?:based|driven|powered|enabled|first|ready|grade|scale|level)$/i, '');
+    const normalized = normalizeEvidence(withoutFramingSuffix);
+    if (normalized) claims.add(normalized);
+  };
+  const patterns = [
+    /\b[A-Z][A-Z0-9+#.-]{1,}\b/g,
+    /\b(?:[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9+#.-]*)+|[A-Za-z][A-Za-z0-9+#-]*\.[A-Za-z0-9.+#-]+)\b/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of value.matchAll(pattern)) add(match[0]);
+  }
+
+  // A single TitleCase token is claim-like when it is not merely the first word
+  // of a sentence. This catches common tools such as Python, Docker, and Tableau
+  // without treating every sentence opener as a proper-noun claim.
+  const titleCase = /\b[A-Z][a-z][A-Za-z0-9+#.-]{2,}\b/g;
+  for (const match of value.matchAll(titleCase)) {
+    const before = value.slice(0, match.index).trimEnd();
+    if (!before || /[.!?]\s*$/.test(before)) continue;
+    add(match[0]);
+  }
+  return claims;
+}
+
+function validateCandidateClaims(role, issues, { root, cvText, coverBody }) {
+  const output = `${cvText || ''}\n${coverBody || ''}`;
+  const source = candidateClaimCorpus(root);
+  const sourceNumbers = numericClaims(source);
+  for (const claim of numericClaims(output)) {
+    if (!sourceNumbers.has(claim)) {
+      issues.push(issue('error', 'claim-number-untraced', `Generated candidate content contains number ${JSON.stringify(claim)} that is absent from cv.md, article-digest.md, and config/profile.yml.`, role));
+    }
+  }
+
+  const sourceNormalized = normalizeEvidence(source);
+  const allowedMetadata = normalizeEvidence([
+    role.company,
+    role.title,
+    ...(role.application_quality_review?.company_specific_references || []),
+    'Professional Summary Core Competencies Work Experience Projects Education Certifications Skills',
+  ].filter(Boolean).join(' '));
+  for (const claim of namedClaims(output)) {
+    if (!containsNormalizedPhrase(sourceNormalized, claim) && !containsNormalizedPhrase(allowedMetadata, claim)) {
+      issues.push(issue('error', 'claim-term-untraced', `Generated candidate content contains named term ${JSON.stringify(claim)} that is absent from the approved candidate sources.`, role));
+    }
+  }
+}
+
+function validateGenerationProvenance(role, issues, { root, quality, source }) {
+  const provenance = role.generation_provenance;
+  if (!provenance || typeof provenance !== 'object') {
+    issues.push(issue('error', 'generation-provenance-missing', 'No generation_provenance record is stored for these application assets.', role));
+    return;
+  }
+  if (provenance.schema !== PROVENANCE_SCHEMA) {
+    issues.push(issue('error', 'generation-provenance-schema', `Generation provenance schema must be ${PROVENANCE_SCHEMA}.`, role));
+  }
+  if (!quality.allowedGenerationFlows.includes(provenance.flow) || provenance.interactive !== true) {
+    issues.push(issue('error', 'generation-provenance-flow', `Generation flow ${JSON.stringify(provenance.flow)} is not release-eligible; allowed interactive flows: ${quality.allowedGenerationFlows.join(', ')}.`, role));
+  }
+  if (!provenance.generator?.cli || !provenance.generator?.model) {
+    issues.push(issue('error', 'generation-provenance-generator', 'Generation provenance must record both the CLI and model label.', role));
+  } else {
+    const cli = String(provenance.generator.cli).trim().toLowerCase();
+    const model = String(provenance.generator.model).trim().toLowerCase();
+    const policyProfile = {
+      application_quality: {
+        release_model_policy: quality.releaseModelPolicy,
+        allowed_release_models: quality.allowedReleaseModels,
+      },
+    };
+    if (!isAllowedReleaseGenerator(cli, model, policyProfile)) {
+      issues.push(issue('error', 'generation-provenance-model', `Generator ${cli}/${model} is not release-eligible; policy: ${describeReleaseModelPolicy(policyProfile)}.`, role));
+    }
+    const effortProfile = {
+      application_quality: {
+        allowed_release_efforts: quality.allowedReleaseEfforts,
+        allowed_release_model_efforts: quality.allowedReleaseModelEfforts,
+      },
+    };
+    if (!isAllowedReleaseModelEffort(cli, model, provenance.generator.effort, effortProfile)) {
+      issues.push(issue('error', 'generation-provenance-effort', `Generator effort ${cli}/${model}/${provenance.generator.effort || 'missing'} is not release-eligible; allowed: ${describeReleaseEffortPolicy(effortProfile)}.`, role));
+    }
+  }
+
+  const recordedAt = Date.parse(provenance.recorded_at || '');
+  if (!Number.isFinite(recordedAt) || recordedAt < source.latest) {
+    issues.push(issue('error', 'generation-provenance-stale', `Generation provenance must be recorded after ${source.latestPath}.`, role));
+  }
+
+  const recordedAssets = provenance.assets || {};
+  for (const [kind, value] of Object.entries(roleAssetPaths(role))) {
+    if (!value) continue;
+    const current = repoPath(root, value);
+    const recorded = recordedAssets[kind];
+    if (!current || !existsSync(current.absolute)) continue; // missing-file errors are emitted elsewhere
+    if (!recorded || recorded.path !== current.relative) {
+      issues.push(issue('error', 'generation-provenance-path', `${kind} is not bound to its current path in generation provenance.`, role, current.relative));
+      continue;
+    }
+    if (recorded.sha256 !== sha256File(current.absolute)) {
+      issues.push(issue('error', 'generation-provenance-hash', `${kind} changed after generation provenance was recorded.`, role, current.relative));
+    }
+  }
+}
+
+function validateQualityManifest(role, issues, { root, source, coverBody, quality }) {
   const review = role.application_quality_review;
   if (!review || typeof review !== 'object') {
     issues.push(issue('error', 'quality-review-missing', 'No application_quality_review manifest is stored for this role.', role));
@@ -249,9 +450,14 @@ function validateQualityManifest(role, issues, { root, source, coverBody }) {
     if (!covered) {
       issues.push(issue('error', 'quality-review-evidence', `Quality review requirement ${index + 1} needs sourced evidence or uncovered: true.`, role));
     } else if (item.uncovered !== true) {
-      const evidencePath = repoPath(root, String(item.source).replace(/:\d+(?::\d+)?$/, ''));
+      const evidencePath = evidenceSourcePath(root, item.source);
       if (!isAllowedEvidenceSource(item.source) || !evidencePath || !existsSync(evidencePath.absolute)) {
         issues.push(issue('error', 'quality-review-source', `Quality review requirement ${index + 1} cites a missing or out-of-scope source: ${JSON.stringify(item.source)}.`, role));
+      } else if (quality.requireEvidenceSourceMatch) {
+        const match = sourceContainsEvidence(evidencePath.absolute, item.evidence, quality.evidenceMinChars);
+        if (!match.ok) {
+          issues.push(issue('error', 'quality-review-evidence-untraced', `Quality review requirement ${index + 1} cites ${JSON.stringify(item.source)}, but ${match.reason}: ${JSON.stringify(item.evidence)}.`, role));
+        }
       }
     }
   }
@@ -407,7 +613,9 @@ export function validateApplicationRole(role, options = {}) {
     }
   }
 
-  if (quality.requireQualityManifest) validateQualityManifest(role, issues, { root, source, coverBody });
+  if (quality.requireQualityManifest) validateQualityManifest(role, issues, { root, source, coverBody, quality });
+  if (quality.requireCandidateClaimTrace) validateCandidateClaims(role, issues, { root, cvText: cvHtml && existsSync(cvHtml.absolute) ? visibleHtmlText(readFileSync(cvHtml.absolute, 'utf-8')) : '', coverBody });
+  if (quality.requireGenerationProvenance) validateGenerationProvenance(role, issues, { root, quality, source });
   return issues;
 }
 

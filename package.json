@@ -13,6 +13,7 @@
     "or:apply": "node openrouter-runner.mjs apply",
     "verify": "node verify-pipeline.mjs",
     "verify:userdata": "node verify-userdata.mjs",
+    "stamp:provenance": "node generation-provenance.mjs stamp",
     "normalize": "node normalize-statuses.mjs",
     "dedup": "node dedup-tracker.mjs",
     "merge": "node merge-tracker.mjs",

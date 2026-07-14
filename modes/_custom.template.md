@@ -28,7 +28,9 @@
      - Always write evaluation summaries in British English.
      - Never include a photo in my CV (US / ATS-first market).
      - Cap each batch run at 20 listings unless I say otherwise.
-     - If a report scores below 6, skip the cover letter. -->
+     - If a report scores below 6, skip the cover letter.
+     - Use one balanced model for semantic work; spend higher effort only on
+       candidate-marked priority applications. See docs/MODEL_SELECTION.md. -->
 
 (none yet -- add yours above)
 

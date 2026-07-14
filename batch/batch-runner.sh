@@ -35,7 +35,7 @@ RESUME_PAUSED=false
 START_FROM=0
 MAX_RETRIES=2
 MIN_SCORE=0
-SKIP_PDF=false
+SKIP_PDF=true
 MODEL=""  # empty = let claude -p use the Claude Max default
 RATE_LIMIT_SLEEP=300
 BATCH_PAUSED=false
@@ -64,12 +64,15 @@ Options:
   --limit N            Max number of offers to process in this run
   --max-retries N      Max retry attempts per offer (default: 2)
   --min-score N        Skip PDF/tracker for offers scoring below N (default: 0 = off)
-  --skip-pdf           Skip PDF generation entirely (write ❌ in tracker PDF column)
+  --skip-pdf           Skip PDF generation (default; keeps batch evaluation-only)
+  --draft-pdf          Generate non-release batch PDF drafts. Requires an explicit
+                       model ID; an optional profile allowlist can restrict it.
   --rate-limit-sleep N Seconds to wait before retrying a rate-limited worker
                        (default: 300)
-  --model NAME         Claude model passed to `claude -p --model` (default:
-                       unset = Claude Max default). Use a cheaper model for
-                       large batches, e.g. `--model claude-sonnet-4-6`.
+  --model NAME         Claude model passed to `claude -p --model`. Batch scores are
+                       provisional triage signals: cheaper models save tokens but
+                       may mis-rank roles. Final application assets never release
+                       from this flow.
   --status             Show batch progress and a per-job table, then exit
   --watch              Live-refresh progress until the run completes
   -h, --help           Show this help
@@ -108,6 +111,7 @@ while [[ $# -gt 0 ]]; do
     --max-retries) MAX_RETRIES="$2"; shift 2 ;;
     --min-score) MIN_SCORE="$2"; shift 2 ;;
     --skip-pdf) SKIP_PDF=true; shift ;;
+    --draft-pdf) SKIP_PDF=false; shift ;;
     --rate-limit-sleep)
       [[ $# -ge 2 ]] || { echo "ERROR: --rate-limit-sleep requires an argument"; exit 1; }
       RATE_LIMIT_SLEEP="$2"
@@ -134,6 +138,17 @@ fi
 if ! [[ "$LIMIT" =~ ^[0-9]+$ ]]; then
   echo "ERROR: --limit must be a non-negative integer."
   exit 1
+fi
+
+if [[ "$SKIP_PDF" == "false" ]]; then
+  if [[ -z "$MODEL" ]]; then
+    echo "ERROR: --draft-pdf requires an explicit --model so the batch asset floor can be enforced."
+    exit 1
+  fi
+  if ! node "$PROJECT_DIR/generation-provenance.mjs" check-batch-model --model "$MODEL"; then
+    echo "ERROR: Batch PDF generation is blocked by application_quality.allowed_batch_asset_models."
+    exit 1
+  fi
 fi
 
 # Lock file to prevent double execution
@@ -427,9 +442,9 @@ process_offer() {
   local prompt
   if [[ "$SKIP_PDF" == "true" ]]; then
     prompt="Procesa esta oferta de empleo. Ejecuta el pipeline: evaluación A-F + report .md + tracker line. NO generes PDF; en el tracker escribe ❌ en la columna PDF y en el JSON final establece \"pdf\": null."
-    echo "    ⏭️  --skip-pdf set — skipping PDF generation for #$id ($url)"
+    echo "    ⏭️  evaluation-only batch — skipping PDF generation for #$id ($url)"
   else
-    prompt="Procesa esta oferta de empleo. Ejecuta el pipeline completo: evaluación A-F + report .md + PDF + tracker line."
+    prompt="Procesa esta oferta de empleo. Ejecuta evaluación A-F + report .md + PDF BORRADOR + tracker line. El PDF es batch-draft, no es elegible para PREPARE ni para enviar; no escribas generation_provenance."
   fi
   prompt="$prompt URL: $url"
   prompt="$prompt JD file: $jd_file"
@@ -929,4 +944,3 @@ main() {
 }
 
 main "$@"
-

@@ -18,4 +18,4 @@ Pass `--limit <N>` to `batch-runner.sh` to cap the number of offers processed in
 
 ## 4. Can I run career-ops on a cheaper or local model?
 
-Yes — career-ops is fully AI-agnostic and works with any AI coding CLI or standalone script. See [docs/RUNNING_ON_A_BUDGET.md](RUNNING_ON_A_BUDGET.md) for a full guide covering OpenCode, Qwen CLI, DeepSeek, OpenRouter, Ollama, and other local or low-cost providers, along with recommended model sizes and token-saving best practices.
+Yes — career-ops is fully AI-agnostic and accepts arbitrary current or future model IDs. Compatibility does not mean every model produces equal scores or writing. Start with the provider-neutral task policy in [MODEL_SELECTION.md](MODEL_SELECTION.md), then use [RUNNING_ON_A_BUDGET.md](RUNNING_ON_A_BUDGET.md) for OpenCode, Qwen CLI, OpenRouter, Ollama, and other local or low-cost setups.

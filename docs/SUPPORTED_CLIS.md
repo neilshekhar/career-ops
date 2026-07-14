@@ -13,3 +13,8 @@ Career-ops is AI-agnostic and runs on several command-line agent tools. The core
 | Kimi | `KIMI.md` (imports `AGENTS.md`) | Interactive: `kimi` |
 | GitHub Copilot CLI | `AGENTS.md` | Headless/Batch: `copilot -p "prompt"` |
 | Gemini | `GEMINI.md` | Legacy no-op guard; use the Antigravity `AGENTS.md` entrypoint. |
+
+Career-ops does not maintain a closed catalogue of model IDs. Any CLI/model label can
+be recorded in generation provenance; users may keep the release policy open or set
+an exact personal allowlist in `config/profile.yml`. See [MODEL_SELECTION.md](MODEL_SELECTION.md)
+for the recommended quality/cost policy before choosing a provider's smallest model.

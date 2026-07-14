@@ -63,15 +63,21 @@ $env:QWEN_API_KEY="your_deepseek_api_key_here"
 
 ## 3. Recommended Cost-Efficient Models
 
-When choosing a budget-friendly model, you need strong reasoning capabilities to handle the multi-dimensional scoring and resume tailoring. Here are the recommended models that hold up well under evaluation:
+Model catalogues and prices change too quickly for a hardcoded list to remain a safe
+quality recommendation. Career-ops therefore supports arbitrary model IDs and uses a
+task-based policy:
 
-| Model | Provider / Endpoint | Price per 1M Input / Output Tokens | Why use it |
-|-------|---------------------|------------------------------------|------------|
-| **DeepSeek V3** | DeepSeek API / OpenRouter | ~$0.14 / ~$0.28 | **Top Recommendation.** Unmatched reasoning-to-price ratio; performs close to frontier models at a fraction of the cost. |
-| **DeepSeek-Coder-V2** | DeepSeek API / OpenRouter | ~$0.14 / ~$0.28 | Excellent instruction-following for structured Markdown and resume tailoring. |
-| **Qwen-2.5-Coder (32B / 72B)** | OpenRouter / DeepInfra | ~$0.07 - ~$0.30 | Strong coding and structured reasoning, highly cost-effective. |
-| **GLM-4-Air / GLM-4** | Zhipu AI / OpenRouter | Very Cheap | Reliable multi-turn reasoning and JSON/Markdown generation. |
-| **Gemini 2.5 Flash** | Google AI Studio | Free Tier (15 RPM) | Available via the standalone script `node gemini-eval.mjs`. Excellent for zero-cost low-volume runs, but subject to rate limits. |
+| Work | Economical starting point | Do not silently downgrade |
+|---|---|---|
+| Scan, extract, deduplicate, render, validate | Local deterministic scripts | These should consume zero model tokens where possible. |
+| Batch or interactive scoring | Provider's current balanced reasoning model at medium/default effort | A very small/fast model can bury a good role through a bad score. |
+| Normal final CV, cover letter, novel answers | Same balanced model at medium–high effort | Final candidate prose must pass provenance and deterministic verification. |
+| Priority/high-fit application | Same model at high/maximum effort, or a configured flagship | Spend extra tokens only where marginal quality matters. |
+
+This single-model approach avoids manual switching and keeps most applications
+economical. See [MODEL_SELECTION.md](MODEL_SELECTION.md) for current Codex and Claude
+examples, arbitrary-provider configuration, and the exact guarantees of the release
+gate.
 
 > **Standalone evaluator (no CLI config needed):** every OpenAI-compatible provider above (DeepSeek, Qwen, GLM, Together, Groq, OpenRouter, …) works directly through `node openai-eval.mjs` — just set a base URL, model, and key:
 > ```bash
@@ -89,15 +95,23 @@ When choosing a budget-friendly model, you need strong reasoning capabilities to
 Running a model 100% locally via Ollama is completely free, but it comes with significant tradeoffs:
 
 ### The Size vs. Quality Tradeoff
-- **Avoid Small Models (e.g., 8B parameters)**: Models like Llama 3 8B or Qwen-2.5-Coder 7B are generally **too weak** for Career-Ops. They frequently fail to follow the complex evaluation schemas (A-G blocks), fail to output valid Markdown/JSON structures, or generate low-quality, generic resume customizations.
-- **Minimum Recommended Size**: Use at least a **32B+ or 70B+ model** (such as Qwen 2.5 Coder 32B/72B or Llama 3.1 70B) for reliable scoring and high-quality resume tailoring.
+- **Parameter count is not a quality guarantee.** Quantization, training, context
+  handling, instruction following, and the serving stack all affect results.
+- **Test the real workflow.** A local model should reliably complete every A–G block,
+  emit valid machine summaries, obey source boundaries, and pass representative
+  scoring checks before it controls triage.
+- **Treat local final prose conservatively.** Keep CVs and cover letters draft-only
+  until the model has passed your own representative applications and is deliberately
+  added to an `allowlist` release policy.
 
 ### Hardware & VRAM Requirements
 Running 32B or 70B models locally requires substantial system resources:
 - A **32B model** requires a GPU with at least **16GB - 24GB VRAM** (e.g., RTX 3090/4090, Mac Studio, or Apple Silicon Mac with 32GB+ unified memory).
 - A **70B model** requires at least **48GB VRAM** to run at decent speeds.
 
-> 💡 **Budget Tip**: For most users, running **DeepSeek V3** or **Qwen 2.5 Coder 72B** via a cheap hosted API (like DeepSeek directly or OpenRouter) is far more efficient and cost-effective than investing in local hardware, costing only a few cents for dozens of evaluations.
+> **Budget tip:** compare total workflow cost, not advertised token price alone. A
+> cheap model that mis-ranks roles, retries malformed output, or needs a stronger
+> rewrite can cost more than generating once with a balanced model.
 
 ---
 

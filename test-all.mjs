@@ -117,6 +117,7 @@ const scripts = [
   { name: 'cv-sync-check.mjs', expectExit: 1, allowFail: true }, // fails without cv.md (normal in repo)
   { name: 'verify-pipeline.mjs', expectExit: 0 },
   { name: 'verify-userdata.mjs --help', expectExit: 0 },
+  { name: 'generation-provenance.mjs --help', expectExit: 0 },
   // --dry-run: these scripts resolve ROOT from import.meta.url and write
   // data/applications.md (or data/pipeline.md) in place. On a provisioned working
   // copy with a real tracker present, running them without --dry-run mutates user
@@ -552,6 +553,7 @@ console.log('\n5. Data contract validation');
 const systemFiles = [
   'CLAUDE.md', 'CODEX.md', 'OPENCODE.md', 'KIMI.md', 'GEMINI.md',
   'VERSION', 'DATA_CONTRACT.md', 'docs/CODEX.md',
+  'generation-provenance.mjs',
   'modes/_shared.md', 'modes/_profile.template.md',
   'modes/oferta.md', 'modes/pdf.md', 'modes/scan.md',
   'modes/heuristics/recruiter-side.md',
@@ -606,6 +608,17 @@ if (/if \[\[ "\$status" == "completed" \|\| "\$status" == "skipped" \]\]/.test(b
   pass('Batch resume treats min-score skipped offers as terminal');
 } else {
   fail('Batch resume can reprocess min-score skipped offers');
+}
+
+if (
+  /SKIP_PDF=true/.test(batchRunnerSource) &&
+  batchRunnerSource.includes('--draft-pdf') &&
+  batchRunnerSource.includes('generation-provenance.mjs" check-batch-model') &&
+  !batchRunnerSource.includes('Use a cheaper model for')
+) {
+  pass('Batch defaults to evaluation-only and honors the configured draft-model policy');
+} else {
+  fail('Batch asset boundary/model policy is missing or still recommends cheap asset generation');
 }
 
 if (/local total=0 completed=0 skipped=0 failed=0 pending=0/.test(batchRunnerSource) &&
@@ -5951,6 +5964,24 @@ try {
     pass('config/profile.example.yml documents queue.backend (local | supabase)');
   } else {
     fail('config/profile.example.yml missing queue.backend documentation');
+  }
+  if (exampleProfile.includes('release_model_policy: "open"')
+      && exampleProfile.includes('require_generation_provenance: true')
+      && exampleProfile.includes('docs/MODEL_SELECTION.md')) {
+    pass('config/profile.example.yml ships provider-neutral model provenance guidance');
+  } else {
+    fail('config/profile.example.yml missing provider-neutral model provenance guidance');
+  }
+  const modelSelection = readFile('docs/MODEL_SELECTION.md');
+  if (modelSelection.includes('arbitrary model IDs')
+      && modelSelection.includes('gpt-5.6-terra')
+      && modelSelection.includes('claude-sonnet-5')
+      && modelSelection.includes('allowed_release_efforts')
+      && modelSelection.includes('allowed_release_model_efforts')
+      && modelSelection.includes('gpt-5.6` alias routes to')) {
+    pass('docs/MODEL_SELECTION.md publishes compatibility and current quality guidance');
+  } else {
+    fail('docs/MODEL_SELECTION.md missing compatibility or current quality guidance');
   }
 } catch (e) {
   fail(`queue-store.mjs local backend checks crashed: ${e.message}`);
