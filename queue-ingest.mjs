@@ -17,14 +17,14 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { createHash } from 'crypto';
 
 import {
   loadQueue, saveQueue, appendRole, loadQueueSeenSets, insertNewStubsCron,
   evictExpiredNewStubsCron,
 } from './queue-store.mjs';
-import { recordJdFetchFailure, isGoneFailure, JD_MIN_SUBSTANTIVE_CHARS } from './queue-sweep.mjs';
+import { recordJdFetchFailure, isGoneFailure, hasSubstantiveJd } from './queue-sweep.mjs';
 import { fetchJson, fetchText } from './providers/_http.mjs';
 
 const ROOT        = dirname(fileURLToPath(import.meta.url));
@@ -155,6 +155,11 @@ function buildNoJdStub({ roleId, company, title, url, atsInfo }) {
     ksc_path:          null,
     status:           'new',
   };
+}
+
+/** Shared substantive-JD gate used by ingest and the retry sweep. */
+export function descriptionNeedsRecovery(description) {
+  return !hasSubstantiveJd({ jd_text: description });
 }
 
 // ── JD fetch ──────────────────────────────────────────────────────────────────
@@ -586,8 +591,7 @@ async function main() {
     // content, page shell) — stamp a transient failure so the retry cap
     // applies to this title-only stub too. Local mode only: jd_fetch is a
     // local-only sidecar field.
-    const descriptionIsThin =
-      !jdData.description || jdData.description.trim().length < JD_MIN_SUBSTANTIVE_CHARS;
+    const descriptionIsThin = descriptionNeedsRecovery(jdData.description);
 
     // Build stub
     const stub = {
@@ -696,7 +700,10 @@ async function main() {
   if (DRY_RUN) console.log('(dry run — re-run without --dry-run to save)');
 }
 
-main().catch(err => {
-  console.error('Fatal:', err.message);
-  process.exit(1);
-});
+const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
+if (isMain) {
+  main().catch(err => {
+    console.error('Fatal:', err.message);
+    process.exit(1);
+  });
+}

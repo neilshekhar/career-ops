@@ -34,7 +34,20 @@ carry the full JD text directly). Otherwise read the file at `jd_path`.
 
 If neither holds substantive content (responsibilities + requirements — a
 title, snippet, placeholder, or page shell does not count), **fetch before
-scoring**, cheapest rung first:
+scoring**. First ask the executable retry policy whether an automatic fetch is
+allowed:
+
+```bash
+node queue-sweep.mjs retryable <role-id>
+```
+
+- `attempt: false`, `code: manual-action-required` → do **not** automatically
+  retry a deterministic login/robots/auth blocker. Surface it so the candidate
+  can log in or paste the JD.
+- `attempt: false`, an attempt/age-cap code → do not fetch again. The end-of-run
+  sweep closes it as unreachable on the local backend; on Supabase it remains
+  active but non-retryable until atomic cloud revival exists.
+- `attempt: true` → fetch using the cheapest rung first:
 
 1. Public ATS API / deterministic fetcher (zero tokens).
 2. `node check-liveness.mjs <url>` for liveness; a definitive `expired` →
@@ -48,10 +61,23 @@ record the attempt and **skip scoring this role**:
 node queue-sweep.mjs record <role-id> --reason "<why it failed>"
 ```
 
-The role stays `status: new` with the `no-jd` flag; `queue-sweep.mjs` ages it
-out under the class-aware retry cap (login/robots: no retries, ~7d grace;
-transient: ≤3 attempts or ~14d), closing it as `unreachable` — never as
-expired. A JD the candidate pastes counts as a valid retrieval.
+The role stays `status: new` with the `no-jd` flag; `queue-sweep.mjs` applies
+the class-aware retry cap (login/robots: no retries, ~7d grace; transient: ≤3
+attempts or ~14d). An exhausted local role closes as `unreachable` — never as
+expired. An exhausted Supabase role remains active but non-retryable until the
+store supports atomic revival. A JD the candidate pastes counts as a valid
+retrieval.
+
+After a successful fetch, persist the substantive JD and clear the active
+failure state through the checked recovery transition:
+
+```bash
+node queue-sweep.mjs recover <role-id>
+```
+
+This command refuses to clear `no-jd`/`jd_fetch` when the persisted content is
+still a title, placeholder, listing page, expired page, bot challenge, or portal
+shell. Reload the role after the command, then score it normally.
 
 ### Step 2 — Determine employment type (do this while reading the JD)
 
@@ -109,7 +135,7 @@ Populate `flags[]` with any active signals:
 | `pr-citizenship-required` | eligibility == "blocked" |
 | `low-confidence` | `confidence == "low"` |
 | `custom-form-fields` | any `free_text_fields` entry has `kind: "custom"` |
-| `no-jd` | `jd_text` is absent/empty AND `jd_path` file is missing or empty |
+| `no-jd` | neither `jd_text` nor the `jd_path` file passes the shared substantive-JD gate (short text, placeholders, listing/expired pages, bot challenges, and portal shells fail) |
 
 ### Step 6 — Update the record
 
@@ -121,7 +147,9 @@ eligibility, confidence, reason, flags (merge, don't replace),
 status: "scored", scored_at: <ISO timestamp>
 ```
 
-Leave all other fields unchanged. Write the updated queue file.
+Leave all other fields unchanged. Write the updated queue file. `no-jd` is the
+one removal exception to the flag-merge rule: the checked `recover` command
+must remove it (and `jd_fetch`) before the role is marked scored.
 
 ### Step 7 — Summary
 
@@ -147,9 +175,13 @@ End every score run with:
 node queue-sweep.mjs --summary
 ```
 
-It closes roles whose retry cap is exhausted (`closed_reason: unreachable`)
-and prints the still-open no-jd list. **Relay that list to the candidate** —
-they can log in or paste the JD text to unblock a role before it ages out.
+On the local backend it closes roles whose retry cap is exhausted
+(`closed_reason: unreachable`). On Supabase it deliberately leaves exhausted
+roles open and non-retryable: moving them into `seen_urls` is one-way until the
+store has an atomic revive transaction, so terminal closure would violate the
+reversibility guarantee. In both cases it prints the still-open no-jd list.
+**Relay that list to the candidate** — they can log in or paste the JD text to
+unblock a role before it ages out (local) or while its cloud closure is deferred.
 
 ---
 
@@ -242,6 +274,7 @@ Before release, store this local-only review record on the role:
       { "requirement": "<JD phrase>", "uncovered": true }
     ],
     "company_specific_references": ["<reference used in cover>", "<second reference used in cover>"],
+    "sources_used": ["<optional exact repo path for each additional style/factual input used>"],
     "uncovered_requirements": ["<honest gap, if any>"]
   }
 }
@@ -251,6 +284,11 @@ Map at least the top three requirements. Every mapped item must contain sourced
 evidence or `uncovered: true`; never manufacture evidence to make the manifest green.
 The `evidence` value must be an exact source excerpt, not a paraphrase:
 `verify-userdata.mjs` normalizes it and proves that it occurs in the cited file.
+Omit `sources_used` when there are no additional inputs. When present, list only
+files actually used for this role (for example a writing sample or the matching
+company-role prep file); the validator binds those exact files into generation
+provenance and rejects traversal, symlinks, README scaffolds, and retracted/red-flag
+notes. Writing samples remain style-only and never satisfy candidate fact tracing.
 
 ### Step 3 — Update the record
 
