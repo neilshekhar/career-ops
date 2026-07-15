@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.19.1](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.19.0...career-ops-v1.19.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* **quality:** enforce application source provenance ([601d8a3](https://github.com/neilshekhar/career-ops/commit/601d8a3b5c454ffaaa63003a1170b88573f629db))
+* **queue:** harden no-JD retry lifecycle ([9535e52](https://github.com/neilshekhar/career-ops/commit/9535e526e0d9523763056760b4d4899c7ccdeefd))
+
 ## [1.19.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.18.1...career-ops-v1.19.0) (2026-07-14)
 
 
