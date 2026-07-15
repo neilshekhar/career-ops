@@ -555,7 +555,7 @@ console.log('\n5. Data contract validation');
 const systemFiles = [
   'CLAUDE.md', 'CODEX.md', 'OPENCODE.md', 'KIMI.md', 'GEMINI.md',
   'VERSION', 'DATA_CONTRACT.md', 'docs/CODEX.md',
-  'generation-provenance.mjs',
+  'application-source-contract.mjs', 'generation-provenance.mjs',
   'modes/_shared.md', 'modes/_profile.template.md',
   'modes/oferta.md', 'modes/pdf.md', 'modes/scan.md',
   'modes/heuristics/recruiter-side.md',

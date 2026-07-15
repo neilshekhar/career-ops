@@ -166,6 +166,7 @@ const SYSTEM_PATHS = [
   'find.mjs',
   'verify-pipeline.mjs',
   'verify-userdata.mjs',
+  'application-source-contract.mjs',
   'generation-provenance.mjs',
   'reconcile-pipeline.mjs',
   'dedup-tracker.mjs',

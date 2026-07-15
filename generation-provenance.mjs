@@ -14,30 +14,29 @@
  */
 
 import { createHash } from 'crypto';
-import { existsSync, readFileSync, statSync } from 'fs';
-import { dirname, isAbsolute, relative, resolve } from 'path';
+import { readFileSync, statSync } from 'fs';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import yaml from 'js-yaml';
 
+import {
+  assertRequiredApplicationSources,
+  buildApplicationSourceSnapshot,
+  loadApplicationProfile,
+  resolveApplicationAsset,
+  resolveRoleJdInput,
+} from './application-source-contract.mjs';
+import { buildMarkdown } from './generate-cover-markdown.mjs';
 import { loadQueue, saveQueue } from './queue-store.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 
-export const PROVENANCE_SCHEMA = 1;
+export const PROVENANCE_SCHEMA = 2;
 export const RELEASE_FLOW = 'interactive-prepare';
 export const BATCH_DRAFT_FLOW = 'batch-draft';
 export const DEFAULT_BATCH_ASSET_MODELS = Object.freeze([
   '*',
 ]);
 export const RELEASE_MODEL_POLICIES = Object.freeze(['open', 'allowlist']);
-
-function repoPath(root, value) {
-  if (!value) return null;
-  const absolute = isAbsolute(value) ? resolve(value) : resolve(root, value);
-  const rel = relative(root, absolute);
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null;
-  return { absolute, relative: rel.split('\\').join('/') };
-}
 
 function coverPaths(role) {
   const paths = { ...(role.cover_letter_paths || {}) };
@@ -64,6 +63,18 @@ export function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
+function normalizedMarkdown(value) {
+  return String(value || '').replace(/\r\n?/g, '\n').trimEnd();
+}
+
+export function coverMarkdownMatchesPayload(payload, markdown) {
+  try {
+    return normalizedMarkdown(markdown) === normalizedMarkdown(buildMarkdown(payload));
+  } catch {
+    return false;
+  }
+}
+
 export function buildGenerationProvenance({
   role,
   cli,
@@ -79,13 +90,17 @@ export function buildGenerationProvenance({
   if (![RELEASE_FLOW, BATCH_DRAFT_FLOW].includes(flow)) {
     throw new Error(`Unsupported generation flow: ${flow}`);
   }
+  assertRequiredApplicationSources(root);
+  if (!resolveRoleJdInput(root, role)) {
+    throw new Error('A substantive inline JD or approved jds/ source is required before generation provenance can be recorded.');
+  }
 
   const assets = {};
   for (const [kind, value] of Object.entries(roleAssetPaths(role))) {
     if (!value) continue;
-    const path = repoPath(root, value);
-    if (!path || !existsSync(path.absolute) || !statSync(path.absolute).isFile()) {
-      throw new Error(`${kind} is missing or outside the repository: ${value}`);
+    const path = resolveApplicationAsset(root, value, kind);
+    if (!path) {
+      throw new Error(`${kind} is missing, out of scope, symlinked, or has the wrong format: ${value}`);
     }
     assets[kind] = {
       path: path.relative,
@@ -96,6 +111,16 @@ export function buildGenerationProvenance({
 
   for (const required of ['cv_pdf', 'cv_html', 'cover_md', 'cover_pdf', 'cover_payload']) {
     if (!assets[required]) throw new Error(`Required application asset is missing: ${required}`);
+  }
+  let coverPayload;
+  try {
+    coverPayload = JSON.parse(readFileSync(resolveApplicationAsset(root, roleAssetPaths(role).cover_payload, 'cover_payload').absolute, 'utf-8'));
+  } catch (error) {
+    throw new Error(`Canonical cover payload is invalid JSON: ${error.message}`);
+  }
+  const coverMarkdown = readFileSync(resolveApplicationAsset(root, roleAssetPaths(role).cover_md, 'cover_md').absolute, 'utf-8');
+  if (!coverMarkdownMatchesPayload(coverPayload, coverMarkdown)) {
+    throw new Error('Cover Markdown diverges from the canonical cover payload; re-render all cover formats before stamping provenance.');
   }
 
   return {
@@ -109,12 +134,12 @@ export function buildGenerationProvenance({
       ...(String(effort || '').trim() ? { effort: String(effort).trim().toLowerCase() } : {}),
     },
     assets,
+    source_snapshot: buildApplicationSourceSnapshot(root, role),
   };
 }
 
 function loadProfile(root = ROOT) {
-  const path = resolve(root, 'config/profile.yml');
-  return existsSync(path) ? yaml.load(readFileSync(path, 'utf-8')) || {} : {};
+  return loadApplicationProfile(root);
 }
 
 export function allowedBatchAssetModels(profile = {}) {

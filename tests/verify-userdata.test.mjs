@@ -1,12 +1,32 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { applicationQualityConfig, validateApplicationRole, verifyUserData } from '../verify-userdata.mjs';
+import {
+  applicationQualityConfig,
+  identityMatches,
+  namedClaims,
+  validateApplicationRole,
+  verifyUserData,
+  wordCount,
+} from '../verify-userdata.mjs';
+import {
+  buildApplicationSourceSnapshot,
+  candidateClaimCorpus,
+  candidateToolClaimCorpus,
+  loadApplicationProfile,
+  missingRequiredApplicationSources,
+  resolveApplicationAsset,
+  resolveCandidateEvidenceSource,
+  resolveJdSource,
+  resolveOptionalApplicationInput,
+  resolveRoleJdInput,
+} from '../application-source-contract.mjs';
 import { recordCandidateSelectionOverride } from '../queue-store.mjs';
+import { buildMarkdown } from '../generate-cover-markdown.mjs';
 import {
   buildGenerationProvenance,
   BATCH_DRAFT_FLOW,
@@ -23,13 +43,120 @@ try {
   mkdirSync(join(root, 'config'), { recursive: true });
   mkdirSync(join(root, 'modes'), { recursive: true });
   mkdirSync(join(root, 'output'), { recursive: true });
+  mkdirSync(join(root, 'interview-prep'), { recursive: true });
+  mkdirSync(join(root, 'writing-samples'), { recursive: true });
+  mkdirSync(join(root, 'jds'), { recursive: true });
+  mkdirSync(join(root, 'outside-jds'), { recursive: true });
 
-  writeFileSync(join(root, 'cv.md'), '# CV\nSQL evidence\nReporting evidence\nPython delivery improved reporting by 40%.\n');
-  writeFileSync(join(root, 'article-digest.md'), '# Proof points\nStakeholder evidence\n');
-  writeFileSync(join(root, 'config', 'profile.yml'), 'candidate:\n  full_name: Test Candidate\n');
+  writeFileSync(join(root, 'cv.md'), '# CV\nSQL evidence\nReporting evidence\nPython delivery improved reporting by 40%.\nB.Tech with Node.js, U.S. clients, C++, C#, CI/CD, .NET, and GPT-4.\n');
+  writeFileSync(join(root, 'article-digest.md'), [
+    '# Proof points',
+    'Stakeholder evidence',
+    '**Airflow boundary** — Airflow must not be claimed.',
+    'Chose Django over FastAPI. No new BM25 layer.',
+    'Built Docker while deliberately excluding Redis, Celery, and Traefik.',
+    'Stella failed during evaluation.',
+    '',
+  ].join('\n'));
+  writeFileSync(join(root, 'config', 'profile.yml'), [
+    'candidate:',
+    '  full_name: Test Candidate',
+    'target_roles:',
+    '  primary: [Kubernetes Engineer]',
+    'application_quality:',
+    '  cover_body_words_min: 350',
+    'embedding:',
+    '  model: gpt-5.6-terra',
+    '  threshold: 0.85',
+    '',
+  ].join('\n'));
   writeFileSync(join(root, 'modes', '_profile.md'), '# Profile\n');
   writeFileSync(join(root, 'modes', '_custom.md'), '# Rules\n');
   writeFileSync(join(root, 'voice-dna.md'), '# Voice\n');
+  writeFileSync(join(root, 'interview-prep', 'story-bank.md'), '# Stories\nStakeholder evidence from a verified story\n');
+  writeFileSync(join(root, 'interview-prep', 'retracted-claims.md'), '# Retracted\nNever use Kubernetes evidence\n');
+  writeFileSync(join(root, 'writing-samples', 'sample.md'), '# Style only\nKubernetes appears only as prose style.\n');
+  writeFileSync(join(root, 'writing-samples', 'README.md'), '# Instructions, not a style input\n');
+  symlinkSync(join(root, 'cv.md'), join(root, 'interview-prep', 'linked.md'));
+  const fileJd = 'Responsibilities include reliable SQL reporting, stakeholder analysis, testing, documentation, and production support. Requirements include professional analytics experience, communication skills, careful data modelling, and cross-functional delivery. '.repeat(2);
+  writeFileSync(join(root, 'jds', 'acme.md'), fileJd);
+  writeFileSync(join(root, 'outside-jds', 'outside.md'), fileJd);
+  writeFileSync(join(root, 'jds', 'api-key.md'), 'known-safe test fixture');
+  symlinkSync(join(root, 'outside-jds'), join(root, 'jds', 'linked'));
+  symlinkSync(join(root, 'cv.md'), join(root, 'output', 'linked.pdf'));
+
+  assert.equal(wordCount('evidence-based '.repeat(350)), 350);
+  assert.equal(wordCount('دليل '.repeat(350)), 350);
+  assert.equal(wordCount('प्रमाण '.repeat(350)), 350);
+  assert.equal(wordCount('分析。'.repeat(350)), 350);
+  assert(wordCount('データ分析と品質改善を担当します。'.repeat(50)) >= 250);
+  assert(wordCount('データ分析と品質改善を担当します。'.repeat(50)) <= 500);
+  assert.equal(identityMatches('شركة أكمي للبيانات', 'أكمي للبيانات'), true);
+  assert.equal(identityMatches('شركة أكمي', 'شركة بيتا'), false);
+  assert.equal(identityMatches('एक्मे प्राइवेट लिमिटेड', 'एक्मे'), true);
+  assert.equal(identityMatches('株式会社アクメ', 'アクメ'), true);
+  assert.equal(identityMatches('株式会社アクメ', '株式会社ベータ'), false);
+  assert.equal(identityMatches('株式会社アクメ', '株式会社アクメラ'), false);
+  assert.equal(identityMatches('카카오주식회사', '카카오'), true);
+  assert.equal(identityMatches('카카오', '카카오뱅크'), false);
+  assert.equal(identityMatches('شركة بيت', 'شركة بيتا'), false);
+  assert.equal(identityMatches('Дата', 'БазаДата'), false);
+  assert.equal(identityMatches('محلل بيانات أول', 'محلل بيانات'), true);
+  assert.equal(identityMatches('シニア データ アナリスト', 'データ アナリスト'), true);
+  assert.equal(identityMatches('Engineer', 'Software Engineer'), false);
+  assert.equal(identityMatches('㈜카카오', '카카오'), true);
+  assert.equal(identityMatches('İRESS', 'iress'), true);
+  assert.equal(identityMatches('Limited Brands', 'Brands'), false);
+  assert.equal(identityMatches('AG Insurance', 'Insurance'), false);
+  assert.equal(identityMatches('Acme Pty Ltd', 'Acme'), true);
+  assert.equal(identityMatches('ＡＣＭＥ', 'Acme'), true);
+  assert.equal(identityMatches('Data', 'Database'), false);
+
+  const technicalClaims = namedClaims('B.Tech Node.js U.S. C++ C# CI/CD .NET GPT-4');
+  assert.deepEqual([...technicalClaims], ['b.tech', 'node.js', 'u.s', 'c++', 'c#', 'ci cd', '.net', 'gpt 4']);
+  assert.equal(technicalClaims.has('b.'), false);
+  assert.deepEqual(
+    [...namedClaims('SQL-based AWS-powered LLM-driven GPT-4-enabled .NET-based evidence-based')],
+    ['sql', 'aws', 'llm', 'gpt 4', '.net'],
+  );
+  assert.deepEqual(
+    [...namedClaims('I used Python/Docker, Python/SQL, Docker/Kubernetes, Node.js/React, and CI/CD.')],
+    ['python', 'docker', 'sql', 'kubernetes', 'node.js', 'react', 'ci cd'],
+  );
+  assert.deepEqual(
+    [...namedClaims('Kubernetes delivered value. dbt, pandas, scikit-learn, GPT-4o, S3, and R followed.')],
+    ['kubernetes', 'dbt', 'pandas', 'scikit learn', 'gpt 4o', 's3', 'r'],
+  );
+  assert.deepEqual([...namedClaims('e.g. i.e. example.com data.csv 3.14 Q3 H1 FY2025 Q1-Q4 R&D')], []);
+  assert.deepEqual([...namedClaims('Used R language for modelling.')], ['r']);
+  assert.deepEqual([...namedClaims('Designed a model. Machine learning followed.')], []);
+  assert.deepEqual([...namedClaims('React powered the UI. Rust handled the service.')], ['react', 'ui', 'rust']);
+  const claimCorpus = candidateClaimCorpus(root);
+  const toolClaimCorpus = candidateToolClaimCorpus(root);
+  assert.equal(claimCorpus.includes('gpt-5.6-terra'), false);
+  assert.equal(claimCorpus.includes('350'), false);
+  assert.equal(toolClaimCorpus.toLowerCase().includes('airflow'), false);
+  assert.equal(toolClaimCorpus.toLowerCase().includes('fastapi'), false);
+  assert.equal(toolClaimCorpus.toLowerCase().includes('bm25'), false);
+  assert.equal(toolClaimCorpus.toLowerCase().includes('redis'), false);
+  assert.equal(toolClaimCorpus.toLowerCase().includes('kubernetes'), false);
+  assert.equal(resolveCandidateEvidenceSource(root, 'interview-prep/retracted-claims.md'), null);
+  assert.equal(resolveCandidateEvidenceSource(root, 'interview-prep/linked.md'), null);
+  assert.equal(resolveCandidateEvidenceSource(root, 'writing-samples/../cv.md'), null);
+  assert.equal(resolveOptionalApplicationInput(root, 'writing-samples/README.md'), null);
+  assert.equal(resolveJdSource(root, 'config/profile.yml'), null);
+  assert.equal(resolveJdSource(root, 'jds/api-key.md'), null);
+  assert.equal(resolveJdSource(root, 'jds/linked/outside.md'), null);
+  assert.equal(resolveApplicationAsset(root, 'config/profile.yml', 'cover_payload'), null);
+  assert.equal(resolveApplicationAsset(root, 'output/linked.pdf', 'cv_pdf'), null);
+  const badRoot = join(root, 'bad-root');
+  mkdirSync(join(badRoot, 'config'), { recursive: true });
+  mkdirSync(join(badRoot, 'modes'), { recursive: true });
+  writeFileSync(join(badRoot, 'cv.md'), '# CV\n');
+  writeFileSync(join(badRoot, 'modes', '_profile.md'), '# Profile\n');
+  symlinkSync(join(root, 'config', 'profile.yml'), join(badRoot, 'config', 'profile.yml'));
+  assert.throws(() => loadApplicationProfile(badRoot), /symlinked/);
+  assert.deepEqual(missingRequiredApplicationSources(badRoot), ['config/profile.yml']);
 
   const body = ['Acme product', 'Acme reporting domain', ...Array.from({ length: 356 }, (_value, index) => `evidence${index}`)].join(' ');
   const payload = {
@@ -45,9 +172,9 @@ try {
     },
   };
 
-  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>SQL evidence</p></body></html>');
+  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>SQL evidence. B.Tech with Node.js, U.S. clients, C++, C#, CI/CD, .NET, and GPT-4.</p></body></html>');
   writeFileSync(join(root, 'output', 'acme-cv.pdf'), '%PDF-1.7\n1 0 obj <</Type /Page>> endobj\n%%EOF');
-  writeFileSync(join(root, 'output', 'acme-cover.md'), body + '\n');
+  writeFileSync(join(root, 'output', 'acme-cover.md'), buildMarkdown(payload));
   writeFileSync(join(root, 'output', 'acme-cover.pdf'), '%PDF-1.7\n1 0 obj <</Type /Page>> endobj\n%%EOF');
   writeFileSync(join(root, 'output', 'acme-cover.docx'), 'docx fixture');
   writeFileSync(join(root, 'output', 'acme-cover.payload.json'), JSON.stringify(payload));
@@ -108,6 +235,8 @@ try {
     flags: [],
     employment_type: 'full-time',
     visa_answer: 'Example unrestricted work visa',
+    jd_text: 'Acme Data needs an analyst who can translate stakeholder requirements into reliable SQL reporting and communicate evidence clearly. '.repeat(3),
+    jd_path: 'jds/acme.md',
     reason: 'Strong SQL and stakeholder fit.',
     cv_pdf: 'output/acme-cv.pdf',
     cover_letter_paths: {
@@ -121,9 +250,10 @@ try {
       top_requirements: [
         { requirement: 'SQL', evidence: 'SQL evidence', source: 'cv.md' },
         { requirement: 'Reporting', evidence: 'Reporting evidence', source: 'cv.md' },
-        { requirement: 'Stakeholders', evidence: 'Stakeholder evidence', source: 'article-digest.md' },
+        { requirement: 'Stakeholders', evidence: 'Stakeholder evidence from a verified story', source: 'interview-prep/story-bank.md' },
       ],
       company_specific_references: ['Acme product', 'Acme reporting domain'],
+      sources_used: ['writing-samples/sample.md'],
     },
   };
 
@@ -180,6 +310,95 @@ try {
   assert.equal(isAllowedReleaseModelEffort('claude', 'claude-sonnet-5', 'high', profile), true);
   const initialIssues = validateApplicationRole(role, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') });
   assert.equal(initialIssues.length, 0, JSON.stringify(initialIssues, null, 2));
+
+  writeFileSync(join(root, 'output', 'acme-cover.md'), `${buildMarkdown(payload)}\nFabricated divergent paragraph.\n`);
+  const divergentMarkdownCodes = validateApplicationRole(role, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .map((item) => item.code);
+  assert(divergentMarkdownCodes.includes('cover-markdown-divergent'));
+  assert.throws(
+    () => buildGenerationProvenance({ role, cli: 'codex', model: 'gpt-5.6-sol', effort: 'medium', root }),
+    /diverges from the canonical cover payload/,
+  );
+  writeFileSync(join(root, 'output', 'acme-cover.md'), buildMarkdown(payload));
+
+  const inlinePreferredSnapshot = buildApplicationSourceSnapshot(root, role);
+  assert.deepEqual(inlinePreferredSnapshot.jd_source, { kind: 'inline' });
+  assert.equal(Object.hasOwn(inlinePreferredSnapshot.files, 'jds/acme.md'), false);
+  writeFileSync(join(root, 'jds', 'acme.md'), `${fileJd} Unused path changed.`);
+  assert.deepEqual(buildApplicationSourceSnapshot(root, role), inlinePreferredSnapshot);
+  writeFileSync(join(root, 'jds', 'acme.md'), fileJd);
+
+  const fileBackedRole = structuredClone(role);
+  fileBackedRole.jd_text = 'Title only';
+  const fileBackedInput = resolveRoleJdInput(root, fileBackedRole);
+  const fileBackedSnapshot = buildApplicationSourceSnapshot(root, fileBackedRole);
+  assert.equal(fileBackedInput.kind, 'file');
+  assert.deepEqual(fileBackedSnapshot.jd_source, { kind: 'file', path: 'jds/acme.md' });
+  assert.equal(Object.hasOwn(fileBackedSnapshot.files, 'jds/acme.md'), true);
+
+  const missingJd = structuredClone(role);
+  missingJd.jd_text = 'Title only';
+  missingJd.jd_path = null;
+  const missingJdCodes = validateApplicationRole(missingJd, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .map((item) => item.code);
+  assert(missingJdCodes.includes('jd-source-missing'));
+  assert.throws(() => buildGenerationProvenance({ role: missingJd, cli: 'codex', model: 'gpt-5.6-sol', effort: 'medium', root }), /substantive inline JD/);
+
+  const outOfScopeAsset = structuredClone(role);
+  outOfScopeAsset.cv_pdf = 'config/profile.yml';
+  assert.throws(() => buildGenerationProvenance({ role: outOfScopeAsset, cli: 'codex', model: 'gpt-5.6-sol', effort: 'medium', root }), /out of scope/);
+
+  const operationalFlagChange = structuredClone(role);
+  operationalFlagChange.flags.push('auto-fill');
+  const operationalFlagCodes = validateApplicationRole(operationalFlagChange, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .map((item) => item.code);
+  assert.equal(operationalFlagCodes.includes('generation-provenance-role-context'), false);
+
+  const staleSourceSchema = structuredClone(role);
+  staleSourceSchema.generation_provenance.source_snapshot.schema = 0;
+  const staleSourceSchemaCodes = validateApplicationRole(staleSourceSchema, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .map((item) => item.code);
+  assert(staleSourceSchemaCodes.includes('generation-provenance-source-schema'));
+
+  const changedInlineJd = structuredClone(role);
+  changedInlineJd.jd_text += ' A newly added responsibility.';
+  const changedInlineJdCodes = validateApplicationRole(changedInlineJd, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .map((item) => item.code);
+  assert(changedInlineJdCodes.includes('generation-provenance-jd'));
+
+  const changedReview = structuredClone(role);
+  changedReview.application_quality_review.uncovered_requirements = ['A newly recorded gap'];
+  const changedReviewCodes = validateApplicationRole(changedReview, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .map((item) => item.code);
+  assert(changedReviewCodes.includes('generation-provenance-quality-review'));
+
+  const invalidUsedSource = structuredClone(role);
+  invalidUsedSource.application_quality_review.sources_used = ['writing-samples/../cv.md'];
+  const invalidUsedSourceCodes = validateApplicationRole(invalidUsedSource, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .map((item) => item.code);
+  assert(invalidUsedSourceCodes.includes('quality-review-sources-used'));
+
+  const malformedRequirements = structuredClone(role);
+  malformedRequirements.application_quality_review.top_requirements = 'not-an-array';
+  const malformedRequirementCodes = validateApplicationRole(malformedRequirements, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .map((item) => item.code);
+  assert(malformedRequirementCodes.includes('quality-review-requirements'));
+
+  const changedContext = structuredClone(role);
+  changedContext.location = 'Melbourne, VIC';
+  const changedContextCodes = validateApplicationRole(changedContext, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .map((item) => item.code);
+  assert(changedContextCodes.includes('generation-provenance-role-context'));
+
+  writeFileSync(join(root, 'interview-prep', 'story-bank.md'), '# Stories\nStakeholder evidence was changed after generation\n');
+  const changedStoryCodes = validateApplicationRole(role, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .map((item) => item.code);
+  assert(changedStoryCodes.includes('generation-provenance-source-hash'));
+  writeFileSync(join(root, 'interview-prep', 'story-bank.md'), '# Stories\nStakeholder evidence from a verified story\n');
+
+  const snapshotBeforeUnrelatedPrep = buildApplicationSourceSnapshot(root, role);
+  writeFileSync(join(root, 'interview-prep', 'unrelated-company-role.md'), '# Unrelated prep\n');
+  assert.deepEqual(buildApplicationSourceSnapshot(root, role), snapshotBeforeUnrelatedPrep);
 
   const fabricatedEvidence = structuredClone(role);
   fabricatedEvidence.application_quality_review.top_requirements[0].evidence = 'Fabricated SQL leadership proof';
@@ -262,16 +481,83 @@ try {
     .map((item) => item.code);
   assert(fabricatedNumberCodes.includes('claim-number-untraced'));
 
-  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>SQL evidence using TensorFlow</p></body></html>');
+  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>SQL evidence using TensorFlow, Kubernetes, Airflow, FastAPI, BM25, Redis, Celery, Traefik, C++, and .NET</p></body></html>');
   writeFileSync(join(root, 'output', 'acme-cover.payload.json'), JSON.stringify(payload));
-  const fabricatedTermCodes = validateApplicationRole(role, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
-    .map((item) => item.code);
-  assert(fabricatedTermCodes.includes('claim-term-untraced'));
+  const fabricatedTermIssues = validateApplicationRole(role, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .filter((item) => item.code === 'claim-term-untraced');
+  assert(fabricatedTermIssues.some((item) => item.message.includes('"tensorflow"')));
+  assert(fabricatedTermIssues.some((item) => item.message.includes('"kubernetes"')));
+  for (const term of ['airflow', 'fastapi', 'bm25', 'redis', 'celery', 'traefik']) {
+    assert(fabricatedTermIssues.some((item) => item.message.includes(JSON.stringify(term))), `${term} was incorrectly whitelisted by negative digest context`);
+  }
 
-  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>SQL evidence</p></body></html>');
+  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>GPT-5.6-Terra produced 350 unsupported outcomes.</p></body></html>');
+  const operationalSettingIssues = validateApplicationRole(role, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') });
+  assert(operationalSettingIssues.some((item) => item.code === 'claim-number-untraced' && item.message.includes('"350"')));
+  assert(operationalSettingIssues.some((item) => item.code === 'claim-term-untraced' && item.message.includes('"gpt 5.6 terra"')));
+
+  const toolNamedCompany = structuredClone(role);
+  toolNamedCompany.company = 'Databricks';
+  const toolNamedCompanyPayload = structuredClone(payload);
+  toolNamedCompanyPayload.letter.company = 'Databricks';
+  toolNamedCompanyPayload.letter.opening = `${body} Databricks`;
+  writeFileSync(join(root, 'output', 'acme-cover.payload.json'), JSON.stringify(toolNamedCompanyPayload));
+  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>Databricks Data Analyst</p></body></html>');
+  const toolCompanyClaimIssues = validateApplicationRole(toolNamedCompany, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .filter((item) => item.code === 'claim-term-untraced' && item.message.includes('"databricks"'));
+  assert.equal(toolCompanyClaimIssues.length, 0);
+
+  const fullWidthCompany = structuredClone(role);
+  fullWidthCompany.company = 'ACME';
+  const fullWidthCompanyPayload = structuredClone(payload);
+  fullWidthCompanyPayload.letter.company = 'ＡＣＭＥ';
+  fullWidthCompanyPayload.letter.opening = `${body} ＡＣＭＥ`;
+  writeFileSync(join(root, 'output', 'acme-cover.payload.json'), JSON.stringify(fullWidthCompanyPayload));
+  const fullWidthCompanyIssues = validateApplicationRole(fullWidthCompany, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .filter((item) => item.code === 'claim-term-untraced' && item.message.includes('"acme"'));
+  assert.equal(fullWidthCompanyIssues.length, 0);
+
+  const toolInTitle = structuredClone(role);
+  toolInTitle.title = 'Kubernetes Engineer';
+  const toolInTitlePayload = structuredClone(payload);
+  toolInTitlePayload.letter.role_title = 'Kubernetes Engineer';
+  toolInTitlePayload.letter.opening = `${body} I used Kubernetes in production.`;
+  writeFileSync(join(root, 'output', 'acme-cover.payload.json'), JSON.stringify(toolInTitlePayload));
+  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>I used Kubernetes in production.</p></body></html>');
+  const titleWhitelistIssues = validateApplicationRole(toolInTitle, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .filter((item) => item.code === 'claim-term-untraced' && item.message.includes('"kubernetes"'));
+  assert(titleWhitelistIssues.some((item) => item.message.startsWith('Tailored CV')));
+  assert(titleWhitelistIssues.some((item) => item.message.startsWith('Cover letter')));
+
+  const manifestWhitelistAttempt = structuredClone(role);
+  manifestWhitelistAttempt.application_quality_review.company_specific_references = ['Kubernetes', 'Acme reporting domain'];
+  const manifestWhitelistPayload = structuredClone(payload);
+  manifestWhitelistPayload.letter.opening = `${body} Kubernetes`;
+  writeFileSync(join(root, 'output', 'acme-cover.payload.json'), JSON.stringify(manifestWhitelistPayload));
+  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>SQL evidence using Kubernetes</p></body></html>');
+  const whitelistIssues = validateApplicationRole(manifestWhitelistAttempt, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .filter((item) => item.code === 'claim-term-untraced' && item.message.includes('"kubernetes"'));
+  assert(whitelistIssues.some((item) => item.message.startsWith('Tailored CV')));
+  assert(whitelistIssues.some((item) => item.message.startsWith('Cover letter')));
+
+  writeFileSync(join(root, 'cv.md'), '# CV\nSQL evidence\nReporting evidence\nPython delivery improved reporting by 40%.\nB.Tech with Node.js, U.S. clients, C#, CI/CD, and GPT-4.\n');
+  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>SQL evidence using C++ and .NET</p></body></html>');
+  const unsupportedSymbolIssues = validateApplicationRole(role, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
+    .filter((item) => item.code === 'claim-term-untraced');
+  assert(unsupportedSymbolIssues.some((item) => item.message.includes('"c++"')));
+  assert(unsupportedSymbolIssues.some((item) => item.message.includes('".net"')));
+
+  writeFileSync(join(root, 'cv.md'), '# CV\nSQL evidence\nReporting evidence\nPython delivery improved reporting by 40%.\nB.Tech with Node.js, U.S. clients, C++, C#, CI/CD, .NET, and GPT-4.\n');
+  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>SQL evidence. B.Tech with Node.js, U.S. clients, C++, C#, CI/CD, .NET, and GPT-4.</p></body></html>');
 
   writeFileSync(join(root, 'output', 'acme-cover.payload.json'), JSON.stringify(payload));
-  writeFileSync(join(root, 'output', 'acme-cover.md'), body + '\n');
+  writeFileSync(join(root, 'output', 'acme-cover.md'), buildMarkdown(payload));
+  // Recreate the unchanged binary fixtures after the deliberate source-mtime
+  // mutation above. The hash-bound provenance stays valid, while the separate
+  // conservative mtime gate correctly sees freshly rendered assets.
+  writeFileSync(join(root, 'output', 'acme-cv.pdf'), '%PDF-1.7\n1 0 obj <</Type /Page>> endobj\n%%EOF');
+  writeFileSync(join(root, 'output', 'acme-cover.pdf'), '%PDF-1.7\n1 0 obj <</Type /Page>> endobj\n%%EOF');
+  writeFileSync(join(root, 'output', 'acme-cover.docx'), 'docx fixture');
   const result = verifyUserData({
     root,
     profile,
@@ -279,7 +565,7 @@ try {
     roleId: role.id,
     now: new Date('2026-07-13T00:00:00Z'),
   });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
   assert.equal(result.checked_roles, 1);
 
   console.log('verify-userdata tests passed');

@@ -25,8 +25,8 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, basename, join } from "path";
 import { pathToFileURL } from "url";
 import { parseArgs } from "util";
-import yaml from "js-yaml";
 
+import { loadApplicationProfile } from "./application-source-contract.mjs";
 import { buildMarkdown } from "./generate-cover-markdown.mjs";
 import { buildHtml } from "./generate-cover-letter.mjs";
 import { generateDocxFromString } from "./generate-docx.mjs";
@@ -152,8 +152,7 @@ Usage:
   const formats = args.formats ? args.formats.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
 
   try {
-    const profilePath = resolve("config", "profile.yml");
-    const profile = existsSync(profilePath) ? yaml.load(readFileSync(profilePath, "utf-8")) || {} : {};
+    const profile = loadApplicationProfile(process.cwd());
     const quality = applicationQualityConfig(profile);
     const { written, skipped } = await generateCoverFormats(payload, { formats, base: args.base, quality });
     console.log("\nCover letter rendered:");

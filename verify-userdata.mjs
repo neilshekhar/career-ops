@@ -10,14 +10,26 @@
  */
 
 import { existsSync, readFileSync, statSync } from 'fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import yaml from 'js-yaml';
 
+import {
+  applicationFreshnessSourcePaths,
+  buildApplicationSourceSnapshot,
+  candidateClaimCorpus,
+  candidateToolClaimCorpus,
+  loadApplicationProfile,
+  missingRequiredApplicationSources,
+  resolveApplicationAsset,
+  resolveCandidateEvidenceSource,
+  resolveOptionalApplicationInput,
+  resolveRoleJdInput,
+} from './application-source-contract.mjs';
 import { ACTIVE_STATUSES, loadQueue } from './queue-store.mjs';
 import {
   allowedReleaseEfforts,
   allowedReleaseModelEfforts,
+  coverMarkdownMatchesPayload,
   describeReleaseEffortPolicy,
   describeReleaseModelPolicy,
   isAllowedReleaseModelEffort,
@@ -111,14 +123,6 @@ function issue(level, code, message, role = null, path = null) {
   };
 }
 
-function repoPath(root, value) {
-  if (!value) return null;
-  const absolute = isAbsolute(value) ? resolve(value) : resolve(root, value);
-  const rel = relative(root, absolute);
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null;
-  return { absolute, relative: rel.split('\\').join('/') };
-}
-
 function coverPaths(role) {
   const paths = { ...(role.cover_letter_paths || {}) };
   if (role.cover_letter_path && !paths.pdf) paths.pdf = role.cover_letter_path;
@@ -146,21 +150,133 @@ function visibleHtmlText(html) {
     .trim();
 }
 
-function wordCount(text) {
-  return (String(text || '').match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*/g) || []).length;
+export function wordCount(text) {
+  const value = String(text || '').normalize('NFKC');
+  if (!value.trim()) return 0;
+  if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+    const segmenter = new Intl.Segmenter('und', { granularity: 'word' });
+    const words = [...segmenter.segment(value)].filter((segment) => segment.isWordLike);
+    let count = 0;
+    let previous = null;
+    for (const word of words) {
+      const between = previous
+        ? value.slice(previous.index + previous.segment.length, word.index)
+        : null;
+      // Preserve the previous English behavior where evidence-based and
+      // candidate's count as one word. An empty separator (common in Japanese)
+      // must not coalesce independently segmented words.
+      if (!previous || !between || !/^['’\u2010-]+$/u.test(between)) count++;
+      previous = word;
+    }
+    return count;
+  }
+  return (value.match(/[\p{L}\p{N}\p{M}]+(?:['’\u2010-][\p{L}\p{N}\p{M}]+)*/gu) || []).length;
 }
 
 function normalizeIdentity(text) {
-  return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return String(text || '')
+    .normalize('NFKC')
+    .replace(/\(\s*주\s*\)|㈜/gu, '주식회사')
+    .toLowerCase()
+    .replace(/i\u0307/gu, 'i')
+    .replace(/\p{Cf}/gu, '')
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function identityMatches(actual, expected) {
+export function identityMatches(actual, expected) {
   const left = normalizeIdentity(actual);
   const right = normalizeIdentity(expected);
   if (!left || !right) return false;
-  if (left === right || left.includes(right) || right.includes(left)) return true;
-  const leftTokens = new Set(left.split(' '));
-  const rightTokens = new Set(right.split(' '));
+  if (left === right) return true;
+
+  const tokens = (value) => {
+    if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+      return [...new Intl.Segmenter('und', { granularity: 'word' }).segment(value)]
+        .filter((segment) => segment.isWordLike)
+        .map((segment) => segment.segment);
+    }
+    return value.split(' ').filter(Boolean);
+  };
+  const leftList = tokens(left);
+  const rightList = tokens(right);
+  const containsSequence = (haystack, needle) => needle.length > 0 && haystack.some((_token, index) =>
+    needle.every((token, offset) => haystack[index + offset] === token));
+  const suffixLegalAffixes = [
+    'pty ltd', 'private limited', 'limited', 'ltd', 'incorporated', 'inc',
+    'llc', 'plc', 'corporation', 'corp', 'gmbh', 'sarl', 'ag', 'bv',
+    'प्राइवेट लिमिटेड', 'निजी लिमिटेड', 'लिमिटेड',
+  ];
+  const prefixLegalAffixes = ['شركة', 'مؤسسة'];
+  const compactEitherAffixes = [
+    '株式会社', '有限会社', '合同会社', '合資会社', '合名会社',
+    '주식회사', '유한회사', '유한책임회사', '합자회사', '합명회사', '사단법인', '재단법인',
+  ];
+  const compactSuffixAffixes = [
+    '股份有限公司', '有限责任公司', '有限公司', '集團', '集团',
+    'प्राइवेटलिमिटेड', 'निजीलिमिटेड', 'लिमिटेड',
+  ];
+  const organizationCore = (value) => {
+    let spaced = value;
+    let removed = false;
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const affix of prefixLegalAffixes) {
+        if (spaced.startsWith(`${affix} `)) {
+          spaced = spaced.slice(affix.length).trim();
+          changed = removed = true;
+        }
+      }
+      for (const affix of suffixLegalAffixes) {
+        if (spaced.endsWith(` ${affix}`)) {
+          spaced = spaced.slice(0, -(affix.length + 1)).trim();
+          changed = removed = true;
+        }
+      }
+    }
+    let compact = spaced.replace(/\s+/g, '');
+    changed = true;
+    while (changed) {
+      changed = false;
+      for (const affix of compactEitherAffixes) {
+        if (compact.startsWith(affix)) {
+          compact = compact.slice(affix.length);
+          changed = removed = true;
+        }
+        if (compact.endsWith(affix)) {
+          compact = compact.slice(0, -affix.length);
+          changed = removed = true;
+        }
+      }
+      for (const affix of compactSuffixAffixes) {
+        if (compact.endsWith(affix)) {
+          compact = compact.slice(0, -affix.length);
+          changed = removed = true;
+        }
+      }
+    }
+    return { core: compact, removed };
+  };
+  const leftOrganization = organizationCore(left);
+  const rightOrganization = organizationCore(right);
+  if (leftOrganization.removed || rightOrganization.removed) {
+    return [...leftOrganization.core].length >= 2
+      && [...rightOrganization.core].length >= 2
+      && leftOrganization.core === rightOrganization.core;
+  }
+
+  const shorterTokenCount = Math.min(leftList.length, rightList.length);
+  if (
+    shorterTokenCount >= 2
+    && (containsSequence(leftList, rightList) || containsSequence(rightList, leftList))
+  ) return true;
+
+  if (!/[A-Za-z0-9]/.test(left + right)) return false;
+
+  const leftTokens = new Set(leftList);
+  const rightTokens = new Set(rightList);
   const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length;
   return intersection / Math.max(leftTokens.size, rightTokens.size) >= 0.8;
 }
@@ -212,21 +328,9 @@ export function validateCoverPayload(payload, quality = DEFAULT_QUALITY) {
 }
 
 function latestSourceMtime(root, role) {
-  const paths = [
-    'cv.md',
-    'article-digest.md',
-    'config/profile.yml',
-    'modes/_profile.md',
-    'modes/_custom.md',
-    'voice-dna.md',
-  ];
-  if (role.jd_path) paths.push(role.jd_path);
-
   let latest = 0;
   let latestPath = null;
-  for (const value of paths) {
-    const resolved = repoPath(root, value);
-    if (!resolved || !existsSync(resolved.absolute)) continue;
+  for (const resolved of applicationFreshnessSourcePaths(root, role)) {
     const mtime = statSync(resolved.absolute).mtimeMs;
     if (mtime > latest) {
       latest = mtime;
@@ -263,34 +367,19 @@ function expectedVisaAnswer(profile, role) {
   return null;
 }
 
-function isAllowedEvidenceSource(source) {
-  const value = String(source || '').replace(/:\d+(?::\d+)?$/, '');
-  return [
-    'cv.md',
-    'article-digest.md',
-    'config/profile.yml',
-    'modes/_profile.md',
-    'interview-prep/story-bank.md',
-  ].includes(value) || value.startsWith('writing-samples/') || /^interview-prep\/[^/]+\.md$/.test(value);
-}
-
-function evidenceSourcePath(root, source) {
-  const value = String(source || '').replace(/:\d+(?::\d+)?$/, '');
-  return repoPath(root, value);
-}
-
 function normalizeEvidence(text) {
   return String(text || '')
     .normalize('NFKC')
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}+#.]+/gu, ' ')
+    .replace(/[^\p{L}\p{N}\p{M}+#.]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 function containsNormalizedPhrase(haystack, needle) {
   if (!needle) return false;
-  return ` ${haystack} `.includes(` ${needle} `);
+  const escaped = String(needle).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}\\p{N}\\p{M}+#])${escaped}(?![\\p{L}\\p{N}\\p{M}+#])`, 'u').test(haystack);
 }
 
 function sourceContainsEvidence(path, evidence, minimumChars) {
@@ -302,20 +391,6 @@ function sourceContainsEvidence(path, evidence, minimumChars) {
     : { ok: false, reason: 'evidence text does not occur in the cited source' };
 }
 
-const CANDIDATE_CLAIM_SOURCES = Object.freeze([
-  'cv.md',
-  'article-digest.md',
-  'config/profile.yml',
-]);
-
-function candidateClaimCorpus(root) {
-  return CANDIDATE_CLAIM_SOURCES
-    .map((value) => repoPath(root, value))
-    .filter((path) => path && existsSync(path.absolute))
-    .map((path) => readFileSync(path.absolute, 'utf-8'))
-    .join('\n');
-}
-
 function canonicalNumber(value) {
   return String(value || '').normalize('NFKC').toLowerCase().replace(/[\s,]/g, '');
 }
@@ -325,7 +400,56 @@ function numericClaims(text) {
   return new Set((String(text || '').match(pattern) || []).map(canonicalNumber));
 }
 
-function namedClaims(text) {
+const EXPLICIT_TECHNICAL_TERMS = new Set([
+  'r', 'dbt', 'pandas', 'numpy', 'scikit learn', 'python', 'docker',
+  'kubernetes', 'keras', 'tensorflow', 'pytorch', 'tableau', 'looker',
+  'snowflake', 'django', 'airflow', 'terraform', 'databricks', 'polars',
+  'duckdb', 'xgboost', 'postgres', 'postgresql', 'azure', 'fastapi',
+]);
+const KNOWN_TECHNICAL_TERMS = new Set([
+  ...EXPLICIT_TECHNICAL_TERMS,
+  'bm25', 'redis', 'celery', 'traefik', 'stella', 'temporal', 'react',
+  'rust', 'spark', 'spark sql', 'redshift', 'supabase', 'chromadb',
+  'langchain', 'github', 'github actions', 'palantir', 'palantir foundry',
+  'lookml', 'plotly', 'kepler.gl', 'excel', 'microsoft excel', 'geopandas',
+  'kafka', 'flink', 'bigquery', 'node.js', 'mlops',
+]);
+const STRICT_TOOL_CLAIMS = new Set([
+  ...KNOWN_TECHNICAL_TERMS,
+  'sql', 'aws', 'gcp', 'api', 'ai', 'ml', 'llm', 'etl', 'elt', 'bi',
+  'ci cd', 'c++', 'c#', '.net', 'node.js',
+]);
+
+function isStrictToolClaim(claim) {
+  return STRICT_TOOL_CLAIMS.has(claim)
+    || /^gpt(?:[ .]|\d)/u.test(claim)
+    || /^(?:s3|r2)$/u.test(claim);
+}
+
+function sourceContainsNamedClaim(sourceNormalized, claim) {
+  const aliases = claim === 'postgres'
+    ? ['postgres', 'postgresql']
+    : claim === 'postgresql'
+      ? ['postgresql', 'postgres']
+      : [claim];
+  return aliases.some((candidate) => containsNormalizedPhrase(sourceNormalized, candidate));
+}
+
+function maskExactPhrases(text, phrases) {
+  let masked = String(text || '').normalize('NFKC');
+  const ordered = [...new Set((phrases || []).map((value) => String(value || '').normalize('NFKC').trim()).filter(Boolean))]
+    .sort((left, right) => right.length - left.length);
+  for (const phrase of ordered) {
+    const escaped = phrase
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/\s+/g, '\\s+');
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}\\p{M}])${escaped}(?![\\p{L}\\p{N}\\p{M}])`, 'giu');
+    masked = masked.replace(pattern, ' ');
+  }
+  return masked;
+}
+
+export function namedClaims(text) {
   const value = String(text || '').normalize('NFKC');
   const claims = new Set();
   const add = (raw) => {
@@ -333,48 +457,103 @@ function namedClaims(text) {
     const normalized = normalizeEvidence(withoutFramingSuffix);
     if (normalized) claims.add(normalized);
   };
-  const patterns = [
-    /\b[A-Z][A-Z0-9+#.-]{1,}\b/g,
-    /\b(?:[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9+#.-]*)+|[A-Za-z][A-Za-z0-9+#-]*\.[A-Za-z0-9.+#-]+)\b/g,
-  ];
-  for (const pattern of patterns) {
-    for (const match of value.matchAll(pattern)) add(match[0]);
-  }
+  // Tokenize once so dotted qualifications/tools (B.Tech, Node.js, U.S.) are
+  // evaluated as whole terms. The previous overlapping regexes emitted the
+  // prefix "B." before seeing "B.Tech", creating a fail-closed false positive.
+  const tokenPattern = /(?:\.(?=\p{Lu}{2,}(?:\b|[+#./-]))|[\p{L}\p{N}])[\p{L}\p{N}\p{M}+#./-]*/gu;
+  for (const match of value.matchAll(tokenPattern)) {
+    const wholeToken = match[0].replace(/^[/-]+|[./-]+$/g, '');
+    const slashParts = wholeToken.split('/');
+    const keepComposite = slashParts.length > 1
+      && slashParts.every((part) => /^[\p{Lu}\p{N}]+$/u.test(part));
+    let partOffset = 0;
+    const candidates = keepComposite || slashParts.length === 1
+      ? [{ token: wholeToken, index: match.index }]
+      : slashParts.map((token) => {
+        const candidate = { token, index: match.index + partOffset };
+        partOffset += token.length + 1;
+        return candidate;
+      });
 
-  // A single TitleCase token is claim-like when it is not merely the first word
-  // of a sentence. This catches common tools such as Python, Docker, and Tableau
-  // without treating every sentence opener as a proper-noun claim.
-  const titleCase = /\b[A-Z][a-z][A-Za-z0-9+#.-]{2,}\b/g;
-  for (const match of value.matchAll(titleCase)) {
-    const before = value.slice(0, match.index).trimEnd();
-    if (!before || /[.!?]\s*$/.test(before)) continue;
-    add(match[0]);
+    for (const candidate of candidates) {
+      const claimToken = candidate.token.replace(/-(?:based|driven|powered|enabled|first|ready|grade|scale|level)$/i, '');
+      const normalizedToken = normalizeEvidence(claimToken);
+      if (/^(?:Q[1-4](?:-Q[1-4])?|H[12]|FY\d{2,4})$/i.test(claimToken)) continue;
+      if (
+        normalizedToken === 'r'
+        && /^\s*&\s*D\b/u.test(value.slice(candidate.index + candidate.token.length))
+      ) continue;
+      if (EXPLICIT_TECHNICAL_TERMS.has(normalizedToken)) {
+        add(claimToken);
+        continue;
+      }
+      if (!claimToken || [...claimToken].length < 2) continue;
+
+      const uppercase = claimToken.match(/\p{Lu}/gu)?.length || 0;
+      const lowercase = claimToken.match(/\p{Ll}/gu)?.length || 0;
+      const dotted = (claimToken.startsWith('.') && uppercase >= 2)
+        || (uppercase > 0 && /\p{L}[\p{L}\p{N}]*\.\p{L}/u.test(claimToken));
+      const symbolicTool = /[+#]/u.test(claimToken) && /\p{L}/u.test(claimToken);
+      const slashAcronym = /\p{Lu}[\p{Lu}\p{N}]*\/\p{Lu}[\p{Lu}\p{N}]*/u.test(claimToken);
+      const camelCase = /\p{Ll}[\p{L}\p{N}]*\p{Lu}|\p{Lu}[\p{L}\p{N}]*\p{Ll}[\p{L}\p{N}]*\p{Lu}/u.test(claimToken);
+      const acronymLike = uppercase >= 2 && (lowercase === 0 || /^\p{Lu}{2,}\p{Ll}/u.test(claimToken));
+      const versionedTool = /^(?:GPT-?\d[\p{L}\p{N}.-]*|S3|R2|EC2)$/u.test(claimToken);
+      if (dotted || symbolicTool || slashAcronym || camelCase || acronymLike || versionedTool) {
+        add(claimToken);
+        continue;
+      }
+
+      // A plain TitleCase word is too weak on its own: CV bullets routinely
+      // begin with Designed, Built, Machine, and other ordinary words. Only a
+      // known technical term gets this fallback; camelCase, acronyms, dotted
+      // names, symbols, and versioned tools were already handled above.
+      if (
+        KNOWN_TECHNICAL_TERMS.has(normalizedToken)
+        && /^\p{Lu}[\p{Ll}\p{M}][\p{L}\p{N}\p{M}+#.-]{2,}$/u.test(claimToken)
+      ) add(claimToken);
+    }
   }
   return claims;
 }
 
 function validateCandidateClaims(role, issues, { root, cvText, coverBody }) {
-  const output = `${cvText || ''}\n${coverBody || ''}`;
   const source = candidateClaimCorpus(root);
+  const toolSource = candidateToolClaimCorpus(root);
   const sourceNumbers = numericClaims(source);
-  for (const claim of numericClaims(output)) {
-    if (!sourceNumbers.has(claim)) {
-      issues.push(issue('error', 'claim-number-untraced', `Generated candidate content contains number ${JSON.stringify(claim)} that is absent from cv.md, article-digest.md, and config/profile.yml.`, role));
-    }
-  }
-
   const sourceNormalized = normalizeEvidence(source);
-  const allowedMetadata = normalizeEvidence([
-    role.company,
-    role.title,
-    ...(role.application_quality_review?.company_specific_references || []),
-    'Professional Summary Core Competencies Work Experience Projects Education Certifications Skills',
-  ].filter(Boolean).join(' '));
-  for (const claim of namedClaims(output)) {
-    if (!containsNormalizedPhrase(sourceNormalized, claim) && !containsNormalizedPhrase(allowedMetadata, claim)) {
-      issues.push(issue('error', 'claim-term-untraced', `Generated candidate content contains named term ${JSON.stringify(claim)} that is absent from the approved candidate sources.`, role));
+  const toolSourceNormalized = normalizeEvidence(toolSource);
+  const sectionHeadings = [
+    'Professional Summary', 'Core Competencies', 'Work Experience',
+    'Projects', 'Education', 'Certifications', 'Skills',
+  ];
+  const validateText = (text, label, trustedPhrases, reviewMetadata = '') => {
+    const candidateText = maskExactPhrases(text, trustedPhrases);
+    for (const claim of numericClaims(candidateText)) {
+      if (!sourceNumbers.has(claim)) {
+        issues.push(issue('error', 'claim-number-untraced', `${label} contains number ${JSON.stringify(claim)} that is absent from cv.md, article-digest.md, and candidate-facing config/profile.yml fields.`, role));
+      }
     }
-  }
+    const reviewed = normalizeEvidence(reviewMetadata);
+    for (const claim of namedClaims(candidateText)) {
+      const sourced = sourceContainsNamedClaim(
+        isStrictToolClaim(claim) ? toolSourceNormalized : sourceNormalized,
+        claim,
+      );
+      const metadataAllowed = !isStrictToolClaim(claim)
+        && containsNormalizedPhrase(reviewed, claim);
+      if (!sourced && !metadataAllowed) {
+        issues.push(issue('error', 'claim-term-untraced', `${label} contains named term ${JSON.stringify(claim)} that is absent from the approved candidate sources.`, role));
+      }
+    }
+  };
+
+  // Company/JD references may explain cover-letter proper nouns, but must
+  // never whitelist an unsupported CV claim or a known technical tool.
+  const trustedRolePhrases = [role.company, role.title, ...sectionHeadings];
+  validateText(cvText || '', 'Tailored CV', trustedRolePhrases);
+  validateText(coverBody || '', 'Cover letter', trustedRolePhrases, [
+    ...(role.application_quality_review?.company_specific_references || []),
+  ].filter(Boolean).join(' '));
 }
 
 function validateGenerationProvenance(role, issues, { root, quality, source }) {
@@ -422,15 +601,53 @@ function validateGenerationProvenance(role, issues, { root, quality, source }) {
   const recordedAssets = provenance.assets || {};
   for (const [kind, value] of Object.entries(roleAssetPaths(role))) {
     if (!value) continue;
-    const current = repoPath(root, value);
+    const current = resolveApplicationAsset(root, value, kind);
     const recorded = recordedAssets[kind];
-    if (!current || !existsSync(current.absolute)) continue; // missing-file errors are emitted elsewhere
+    if (!current) continue; // missing/out-of-scope errors are emitted elsewhere
     if (!recorded || recorded.path !== current.relative) {
       issues.push(issue('error', 'generation-provenance-path', `${kind} is not bound to its current path in generation provenance.`, role, current.relative));
       continue;
     }
     if (recorded.sha256 !== sha256File(current.absolute)) {
       issues.push(issue('error', 'generation-provenance-hash', `${kind} changed after generation provenance was recorded.`, role, current.relative));
+    }
+  }
+
+  const recordedSource = provenance.source_snapshot;
+  const currentSource = buildApplicationSourceSnapshot(root, role);
+  if (!recordedSource || typeof recordedSource !== 'object') {
+    issues.push(issue('error', 'generation-provenance-source-missing', 'Generation provenance does not bind the source files, inline JD, quality review, and role context used for these assets.', role));
+  } else {
+    if (recordedSource.schema !== currentSource.schema) {
+      issues.push(issue('error', 'generation-provenance-source-schema', `Generation source snapshot schema must be ${currentSource.schema}.`, role));
+    }
+    const recordedFiles = recordedSource.files || {};
+    const currentFiles = currentSource.files;
+    const recordedNames = Object.keys(recordedFiles).sort();
+    const currentNames = Object.keys(currentFiles).sort();
+    if (JSON.stringify(recordedNames) !== JSON.stringify(currentNames)) {
+      issues.push(issue('error', 'generation-provenance-source-set', 'The set of application source files changed after provenance was recorded.', role));
+    } else {
+      for (const name of currentNames) {
+        if (
+          recordedFiles[name]?.sha256 !== currentFiles[name].sha256
+          || recordedFiles[name]?.bytes !== currentFiles[name].bytes
+        ) {
+          issues.push(issue('error', 'generation-provenance-source-hash', `Application source changed after provenance was recorded: ${name}.`, role, name));
+        }
+      }
+    }
+    if (JSON.stringify(recordedSource.inline_jd ?? null) !== JSON.stringify(currentSource.inline_jd)) {
+      issues.push(issue('error', 'generation-provenance-jd', 'Inline JD text changed after provenance was recorded.', role));
+    }
+    if (JSON.stringify(recordedSource.jd_source ?? null) !== JSON.stringify(currentSource.jd_source)) {
+      issues.push(issue('error', 'generation-provenance-jd-source', 'The selected JD source changed after provenance was recorded.', role));
+    }
+    if (recordedSource.quality_review_sha256 !== currentSource.quality_review_sha256) {
+      issues.push(issue('error', 'generation-provenance-quality-review', 'The application quality review changed after provenance was recorded.', role));
+    }
+    if (JSON.stringify(recordedSource.role_context || {}) !== JSON.stringify(currentSource.role_context)) {
+      issues.push(issue('error', 'generation-provenance-role-context', 'Role context changed after provenance was recorded.', role));
     }
   }
 }
@@ -450,8 +667,8 @@ function validateQualityManifest(role, issues, { root, source, coverBody, qualit
     if (!covered) {
       issues.push(issue('error', 'quality-review-evidence', `Quality review requirement ${index + 1} needs sourced evidence or uncovered: true.`, role));
     } else if (item.uncovered !== true) {
-      const evidencePath = evidenceSourcePath(root, item.source);
-      if (!isAllowedEvidenceSource(item.source) || !evidencePath || !existsSync(evidencePath.absolute)) {
+      const evidencePath = resolveCandidateEvidenceSource(root, item.source);
+      if (!evidencePath) {
         issues.push(issue('error', 'quality-review-source', `Quality review requirement ${index + 1} cites a missing or out-of-scope source: ${JSON.stringify(item.source)}.`, role));
       } else if (quality.requireEvidenceSourceMatch) {
         const match = sourceContainsEvidence(evidencePath.absolute, item.evidence, quality.evidenceMinChars);
@@ -461,13 +678,23 @@ function validateQualityManifest(role, issues, { root, source, coverBody, qualit
       }
     }
   }
+  if (review.sources_used != null && !Array.isArray(review.sources_used)) {
+    issues.push(issue('error', 'quality-review-sources-used', 'Quality review sources_used must be an array of exact repository-relative paths.', role));
+  } else {
+    for (const sourceUsed of review.sources_used || []) {
+      if (!resolveOptionalApplicationInput(root, sourceUsed)) {
+        issues.push(issue('error', 'quality-review-sources-used', `Quality review cites a missing or out-of-scope additional input: ${JSON.stringify(sourceUsed)}.`, role));
+      }
+    }
+  }
   const references = Array.isArray(review.company_specific_references) ? review.company_specific_references : [];
   if (references.length < 2) {
     issues.push(issue('error', 'quality-review-specificity', 'Quality review must record at least two company-specific references used in the cover letter.', role));
   } else {
     const normalizedBody = normalizeIdentity(coverBody);
     for (const reference of references) {
-      if (!normalizedBody.includes(normalizeIdentity(reference))) {
+      const normalizedReference = normalizeIdentity(reference);
+      if (!normalizedReference || !containsNormalizedPhrase(normalizedBody, normalizedReference)) {
         issues.push(issue('error', 'quality-review-specificity', `Company-specific reference is not present in the cover body: ${JSON.stringify(reference)}.`, role));
       }
     }
@@ -518,24 +745,32 @@ export function validateApplicationRole(role, options = {}) {
 
   if (!requireAssets) return issues;
 
-  const cv = repoPath(root, role.cv_pdf);
-  if (!cv || !existsSync(cv.absolute)) {
-    issues.push(issue('error', 'cv-missing', 'Tailored CV PDF is missing or outside the repository.', role, role.cv_pdf || null));
+  for (const missing of missingRequiredApplicationSources(root)) {
+    issues.push(issue('error', 'application-source-required', `Required application source is missing, out of scope, or symlinked: ${missing}.`, role, missing));
+  }
+
+  if (!resolveRoleJdInput(root, role)) {
+    issues.push(issue('error', 'jd-source-missing', 'No substantive inline JD or approved jds/ source is available for this application.', role, role.jd_path || null));
+  }
+
+  const cv = resolveApplicationAsset(root, role.cv_pdf, 'cv_pdf');
+  if (!cv) {
+    issues.push(issue('error', 'cv-missing', 'Tailored CV PDF is missing, out of scope, symlinked, or has the wrong format.', role, role.cv_pdf || null));
   }
 
   const covers = coverPaths(role);
   for (const format of quality.coverRequiredFormats) {
-    const path = repoPath(root, covers[format]);
-    if (!path || !existsSync(path.absolute)) {
-      issues.push(issue('error', 'cover-format-missing', `Tailored cover ${format.toUpperCase()} is missing or outside the repository.`, role, covers[format] || null));
+    const path = resolveApplicationAsset(root, covers[format], `cover_${format}`);
+    if (!path) {
+      issues.push(issue('error', 'cover-format-missing', `Tailored cover ${format.toUpperCase()} is missing, out of scope, symlinked, or has the wrong format.`, role, covers[format] || null));
     }
   }
 
-  const coverMd = repoPath(root, covers.md);
-  const coverPayload = repoPath(root, covers.payload);
-  const cvHtml = cv ? { absolute: cv.absolute.replace(/\.pdf$/i, '.html'), relative: cv.relative.replace(/\.pdf$/i, '.html') } : null;
+  const coverMd = resolveApplicationAsset(root, covers.md, 'cover_md');
+  const coverPayload = resolveApplicationAsset(root, covers.payload, 'cover_payload');
+  const cvHtml = resolveApplicationAsset(root, roleAssetPaths(role).cv_html, 'cv_html');
 
-  if (!cvHtml || cvHtml.absolute === cv?.absolute || !existsSync(cvHtml.absolute)) {
+  if (!cvHtml) {
     issues.push(issue('error', 'cv-source-html-missing', 'The tailored CV source HTML must be retained beside the PDF for content QC and regeneration.', role, cvHtml?.relative || null));
   }
 
@@ -570,6 +805,13 @@ export function validateApplicationRole(role, options = {}) {
     }
   }
 
+  if (payload && coverMd) {
+    const markdown = readFileSync(coverMd.absolute, 'utf-8');
+    if (!coverMarkdownMatchesPayload(payload, markdown)) {
+      issues.push(issue('error', 'cover-markdown-divergent', 'Cover Markdown diverges from the canonical cover payload; re-render all cover formats.', role, coverMd.relative));
+    }
+  }
+
   if (coverMd && existsSync(coverMd.absolute) && !quality.coverAllowBullets) {
     const markdown = readFileSync(coverMd.absolute, 'utf-8');
     if (/^\s*[-*+]\s+/m.test(markdown)) {
@@ -587,7 +829,7 @@ export function validateApplicationRole(role, options = {}) {
 
   for (const [kind, path, maxPages] of [
     ['CV', cv, quality.cvMaxPages],
-    ['cover', repoPath(root, covers.pdf), quality.coverMaxPages],
+    ['cover', resolveApplicationAsset(root, covers.pdf, 'cover_pdf'), quality.coverMaxPages],
   ]) {
     if (!path || !existsSync(path.absolute)) continue;
     const pages = pdfPageCount(path.absolute);
@@ -602,8 +844,8 @@ export function validateApplicationRole(role, options = {}) {
   if (quality.requireFreshAssets) {
     const assets = [
       ['CV PDF', cv],
-      ['CV HTML', cvHtml && repoPath(root, cvHtml.relative)],
-      ...Object.entries(covers).map(([format, value]) => [`cover ${format}`, repoPath(root, value)]),
+      ['CV HTML', cvHtml],
+      ...Object.entries(covers).map(([format, value]) => [`cover ${format}`, resolveApplicationAsset(root, value, `cover_${format}`)]),
     ];
     for (const [label, path] of assets) {
       if (!path || !existsSync(path.absolute)) continue;
@@ -623,8 +865,7 @@ export function verifyUserData(options = {}) {
   const root = options.root || ROOT;
   let profile = options.profile;
   if (!profile) {
-    const profilePath = join(root, 'config', 'profile.yml');
-    profile = existsSync(profilePath) ? yaml.load(readFileSync(profilePath, 'utf-8')) || {} : {};
+    profile = loadApplicationProfile(root);
   }
   const queue = options.queue || loadQueue();
   const quality = applicationQualityConfig(profile);
