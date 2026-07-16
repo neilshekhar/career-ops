@@ -104,6 +104,13 @@ async function getContext(url, headless) {
   let host = 'generic';
   try { host = new URL(url).hostname.replace(/\./g, '-'); } catch {}
 
+  // Optional isolated run profile. This lets a refreshed fill open alongside an
+  // existing review window for the same portal without closing or replacing it.
+  const profileSuffix = String(process.env.CAREER_OPS_BROWSER_PROFILE_SUFFIX || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, '-');
+  if (profileSuffix) host = `${host}-${profileSuffix}`;
+
   const profilesDir  = join(ROOT, '.browser-profiles');
   const userDataDir  = join(profilesDir, host);
   mkdirSync(userDataDir, { recursive: true });
