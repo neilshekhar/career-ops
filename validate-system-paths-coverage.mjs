@@ -39,6 +39,41 @@ if (SYSTEM_PATHS.length === 0 || USER_PATHS.length === 0) {
 }
 const ALL_PATHS = [...SYSTEM_PATHS, ...USER_PATHS];
 
+// The live-application engine is system code shipped by this fork. Upstream
+// merge protection belongs in UPSTREAM_MERGE_CHECKLIST.md; it must never be
+// implemented by hiding release-critical files from this fork's own updater.
+const REQUIRED_APPLICATION_SYSTEM_PATHS = [
+  'modes/queue.md',
+  'answer-cache.mjs',
+  'application-answers.mjs',
+  'application-receipt.mjs',
+  'application-safety.mjs',
+  'credentials-store.mjs',
+  'dashboard-launch.mjs',
+  'dashboard-server.mjs',
+  'field-rules.mjs',
+  'form-fill.mjs',
+  'login-core.mjs',
+  'queue-ingest.mjs',
+  'queue-resolve.mjs',
+  'queue-store.mjs',
+  'queue-sweep.mjs',
+  'run-partition.mjs',
+  'screener-store.mjs',
+  'tracker-status-map.mjs',
+  'verify-application-contract.mjs',
+  'tests/',
+];
+
+const missingApplicationPaths = REQUIRED_APPLICATION_SYSTEM_PATHS.filter(
+  (path) => !SYSTEM_PATHS.includes(path),
+);
+if (missingApplicationPaths.length > 0) {
+  console.error('FAIL: live-application system paths missing from SYSTEM_PATHS:');
+  for (const path of missingApplicationPaths) console.error(`  ${path}`);
+  process.exit(1);
+}
+
 const EXCLUDES = [
   '.coderabbit.yaml',
   '.editorconfig',
@@ -61,47 +96,9 @@ const EXCLUDES = [
 // part of that isolation contract, not a coverage gap.
 const EXCLUDE_PREFIXES = ['web/'];
 
-// Fork-local layer (this fork's apply/queue engine and its support files):
-// deliberately NOT in SYSTEM_PATHS so `update-system.mjs apply` can never
-// overwrite them — the same isolation contract as web/, enforced as the
-// "engine zero-diff" gate in UPSTREAM_MERGE_CHECKLIST.md. Listing them here
-// records the contract instead of reporting it as a coverage gap.
-const FORK_LOCAL_EXCLUDES = [
-  'UPSTREAM_MERGE_CHECKLIST.md',
-  'answer-cache.mjs',
-  'apify-discover.mjs',
-  'credentials-store.mjs',
-  'dashboard-launch.mjs',
-  'dashboard-server.mjs',
-  'embed.mjs',
-  'field-rules.mjs',
-  'form-fill.mjs',
-  'format-au.mjs',
-  'generate-docx.mjs',
-  'liveness-http.mjs',
-  'login-core.mjs',
-  'migrate-queue-to-supabase.mjs',
-  'mint-cron-jwt.mjs',
-  'modes/queue.md',
-  'queue-ingest.mjs',
-  'queue-resolve.mjs',
-  'queue-store.mjs',
-  'queue-sweep.mjs',
-  'run-partition.mjs',
-  'screener-store.mjs',
-  'supabase-client.mjs',
-  'supabase/migrations/202606060001_queue_store.sql',
-  'test-cron-evict.mjs',
-  'test-cron-rls-negative.mjs',
-  'test-supabase-store.mjs',
-  'tools/embed_gemma.py',
-  'tracker-status-map.mjs',
-];
-
 function covered(file) {
   // If explicitly excluded, it is covered
   if (EXCLUDES.includes(file)) return true;
-  if (FORK_LOCAL_EXCLUDES.includes(file)) return true;
   if (EXCLUDE_PREFIXES.some((p) => file.startsWith(p))) return true;
 
   return ALL_PATHS.some((path) =>
@@ -126,6 +123,11 @@ if (process.argv.includes('--self-test')) {
 
   // Test exact matches in SYSTEM_PATHS / USER_PATHS
   assert(covered('CLAUDE.md') === true, 'CLAUDE.md must be covered (exact match)');
+  for (const path of REQUIRED_APPLICATION_SYSTEM_PATHS) {
+    assert(SYSTEM_PATHS.includes(path), `${path} must be an explicit SYSTEM_PATHS entry`);
+  }
+  assert(covered('tests/application-contract.test.mjs') === true, 'application contract tests must be covered by tests/');
+  assert(covered('tests/application-receipt.test.mjs') === true, 'application receipt tests must be covered by tests/');
   assert(covered('.claude/settings.json') === true, '.claude/settings.json must be covered (USER_PATHS exact match, #1408)');
   assert(covered('.claude/hooks/pre-push-backup.sh') === true, '.claude/hooks/ scripts must be covered (USER_PATHS dir prefix match, same class as #1408)');
 

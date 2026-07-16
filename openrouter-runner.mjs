@@ -8,7 +8,7 @@
  *   node openrouter-runner.mjs evaluate <url>    → Evaluate a job by URL
  *   node openrouter-runner.mjs evaluate          → Paste job text interactively
  *   node openrouter-runner.mjs pipeline          → Process all pending URLs from pipeline.md
- *   node openrouter-runner.mjs apply <report_no> → Generate draft application form answers
+ *   node openrouter-runner.mjs apply <report_no> → Generate offline draft answer suggestions
  *   node openrouter-runner.mjs models            → List available free models
  *   node openrouter-runner.mjs help              → Show this help
  *
@@ -318,10 +318,14 @@ async function callOpenRouter(systemPrompt, userMessage) {
 // ---------------------------------------------------------------------------
 function loadContext() {
   return {
-    cv:          readFile('cv.md')               ?? 'CV not found.',
-    profile:     readFile('config/profile.yml')  ?? '',
-    shared:      readFile('modes/_shared.md')    ?? '',
-    profileMode: readFile('modes/_profile.md')   ?? '',
+    cv:            readFile('cv.md')                         ?? 'CV not found.',
+    profile:       readFile('config/profile.yml')            ?? '',
+    articleDigest: readFile('article-digest.md')              ?? '',
+    storyBank:     readFile('interview-prep/story-bank.md')   ?? '',
+    voiceDna:      readFile('voice-dna.md')                   ?? '',
+    shared:        readFile('modes/_shared.md')               ?? '',
+    profileMode:   readFile('modes/_profile.md')              ?? '',
+    customMode:    readFile('modes/_custom.md')               ?? '',
   };
 }
 
@@ -329,6 +333,7 @@ function buildSystemPrompt(modeContent, ctx) {
   return [
     ctx.shared,
     ctx.profileMode,
+    ctx.customMode,
     modeContent,
     '---',
     'CANDIDATE PROFILE (YAML):',
@@ -336,6 +341,15 @@ function buildSystemPrompt(modeContent, ctx) {
     '---',
     'CV (Markdown):',
     ctx.cv,
+    '---',
+    'ARTICLE DIGEST (APPROVED FACTUAL PROOF POINTS):',
+    ctx.articleDigest,
+    '---',
+    'INTERVIEW STORY BANK (APPROVED CANDIDATE STORIES):',
+    ctx.storyBank,
+    '---',
+    'VOICE DNA (STYLE ONLY — NEVER FACTUAL EVIDENCE):',
+    ctx.voiceDna,
   ].filter(Boolean).join('\n\n');
 }
 
@@ -672,7 +686,22 @@ async function cmdPipeline(ctx) {
   console.log('\n✅ Pipeline processing complete.\n');
 }
 
-// -- APPLY --
+// -- APPLY (offline draft-only compatibility command) --
+export const OPENROUTER_APPLY_RUNTIME = 'offline-draft-only';
+
+export const OFFLINE_APPLY_DRAFT_DIRECTIVE = `
+OFFLINE DRAFT-ONLY COMPATIBILITY MODE
+
+This command has no live application page, browser controller, stable per-page field
+envelope, upload state, or executable resolver receipt. It may suggest source-grounded
+draft wording from the canonical candidate sources and supplied evaluation report, but it
+cannot satisfy the live per-page --lookup, L3, --teach, rendered-state verification,
+attachment, tab-preservation, persistence, or application-receipt gates in modes/apply.md.
+Do not claim that any field was filled, taught, verified, persisted, or made review-ready.
+Never submit an application. The active interactive agent must still execute the complete
+live workflow before candidate review.
+`;
+
 async function cmdApply(ref, ctx) {
   const modeContent = readFile('modes/apply.md') ?? '';
 
@@ -693,21 +722,24 @@ async function cmdApply(ref, ctx) {
 
   if (!reportContent) { console.error('Could not read report content.'); return; }
 
-  console.log('Generating application form answers...');
-  const systemPrompt = buildSystemPrompt(modeContent, ctx);
+  console.log('Generating offline draft answer suggestions (not review-ready)...');
+  const systemPrompt = buildSystemPrompt(`${OFFLINE_APPLY_DRAFT_DIRECTIVE}\n\n${modeContent}`, ctx);
 
   let result;
   try {
     result = await callOpenRouter(
       systemPrompt,
-      `Generate application form answers based on this evaluation report:\n\n${reportContent}`
+      `Suggest source-grounded draft wording that may help with a future live application. ` +
+      `Treat the report as role/JD context, not as an independent source of candidate facts. ` +
+      `Do not infer which fields are actually present and do not claim live workflow completion.\n\n` +
+      `EVALUATION REPORT CONTEXT:\n${reportContent}`
     );
   } catch (e) {
     console.error(`OpenRouter error: ${e.message}`);
     return;
   }
 
-  console.log('\n─── APPLICATION ANSWERS ─────────────────────────────\n');
+  console.log('\n─── OFFLINE DRAFT SUGGESTIONS — NOT REVIEW-READY ───\n');
   console.log(result);
   console.log('\n─────────────────────────────────────────────────────\n');
 }
@@ -760,7 +792,7 @@ COMMANDS:
   node openrouter-runner.mjs evaluate <url>    → Evaluate a listing by URL
   node openrouter-runner.mjs evaluate          → Paste a job description interactively
   node openrouter-runner.mjs pipeline          → Batch-evaluate all pending entries in pipeline.md
-  node openrouter-runner.mjs apply <report_no> → Generate application form answers from a report
+  node openrouter-runner.mjs apply <report_no> → Generate offline draft answer suggestions (never live/review-ready)
   node openrouter-runner.mjs models            → List available free models from OpenRouter
 
 SETUP:

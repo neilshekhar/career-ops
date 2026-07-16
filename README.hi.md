@@ -80,7 +80,7 @@
 
 Career-Ops ([career-ops.org](https://career-ops.org), जिसे **careerops** भी कहते हैं) किसी भी AI coding CLI को एक पूर्ण job search command center में बदल देता है। Applications को spreadsheet में manually track करने की जगह, आपको एक AI-powered pipeline मिलती है जो:
 
-- **Offers evaluate करती है** एक structured A-F scoring system के साथ (10 weighted dimensions)
+- **Offers evaluate करती है** एक structured A-G system के साथ (10 weighted score dimensions और posting-legitimacy analysis)
 - **Tailored PDFs generate करती है** -- job description के अनुसार customize किए गए ATS-optimized CVs
 - **Portals scan करती है** automatically (Greenhouse, Ashby, Lever, company pages)
 - **Batch में process करती है** -- sub-agents के साथ parallel में 10+ offers evaluate करती है
@@ -98,15 +98,15 @@ Career-ops agentic है: जो भी AI coding CLI आप चुनें �
 
 | Feature                  | Description                                                                                                                              |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Auto-Pipeline**        | URL paste करें, पूरा evaluation + PDF + tracker entry पाएं                                                                              |
-| **6-Block Evaluation**   | Role summary, CV match, level strategy, comp research, personalization, interview prep (STAR+R) -- plus Block G posting-legitimacy check जो scams और ghost jobs flag करता है |
+| **Auto-Pipeline**        | URL paste करें; पहले evaluation/score और verdict देखें। Tailored assets और application work केवल explicit continue/dashboard selection के बाद |
+| **A-G Evaluation**       | Role summary, CV match, level strategy, comp research, personalization, interview prep (STAR+R), और Block G posting-legitimacy check |
 | **Interview Story Bank** | Evaluations में STAR+Reflection stories accumulate करता है -- 5-10 master stories जो किसी भी behavioral question का जवाब देती हैं     |
 | **Negotiation Scripts**  | Salary negotiation frameworks, geographic discount pushback, competing offer leverage                                                    |
 | **ATS PDF Generation**   | Keyword-injected CVs with Space Grotesk + DM Sans design                                                                                 |
-| **Cover Letter Generator** | Research-backed cover letters with keyword mirroring, four interactive angle prompts (why/problems/approach/tone), draft-in-chat approval gate, और A4 PDF। Auto-drafts हर evaluation पर; demand पर `/career-ops cover` से generate करें |
+| **Cover Letter Generator** | Research-backed cover letters with keyword mirroring, four interactive angle prompts (why/problems/approach/tone), draft-in-chat approval gate, और A4 PDF। Explicit role selection के बाद authorized PREPARE में generate होता है, या demand पर `/career-ops cover` से |
 | **Portal Scanner**       | 45+ companies pre-configured (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + custom queries across Ashby, Greenhouse, Lever, Wellfound |
 | **Batch Processing**     | Headless CLI workers के साथ parallel evaluation (`claude -p` / `opencode run`)                                                          |
-| **Local Kanban Dashboard** | Applications को review, prioritize, prepare और fill करने के लिए browser dashboard                                                      |
+| **Local Kanban Dashboard** | Roles को review और prepare करने, active agent के लिए application requests queue करने और review-ready work inspect करने का browser dashboard |
 | **Human-in-the-Loop**    | AI evaluate और recommend करता है, आप decide और act करते हैं। System कभी application submit नहीं करता -- final call हमेशा आपका        |
 | **Pipeline Integrity**   | Automated merge, dedup, status normalization, health checks                                                                              |
 
@@ -137,7 +137,7 @@ claude   # या gemini / codex / qwen / opencode / agy / grok — यहाँ
 ```bash
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
-npx playwright install chromium   # केवल PDF generation के लिए ज़रूरी
+npx playwright install chromium   # PDF और Playwright browser/liveness verification के लिए ज़रूरी
 
 # 2. Setup check करें
 npm run doctor                     # सभी prerequisites validate करता है
@@ -273,7 +273,7 @@ Career-ops एक shared command router use करता है। CLIs मे�
 
 ```
 /career-ops                → सभी available commands दिखाएं
-/career-ops {JD paste करें}   → Full auto-pipeline (evaluate + PDF + tracker)
+/career-ops {JD paste करें}   → पहले evaluation/score और verdict; फिर explicit continue/dashboard selection का इंतज़ार
 /career-ops scan           → नए offers के लिए portals scan करें
 /career-ops pdf            → ATS-optimized CV generate करें
 /career-ops cover          → Cover letter generator (JD paste करें या /career-ops cover {slug})
@@ -287,7 +287,7 @@ Career-ops एक shared command router use करता है। CLIs मे�
 /career-ops project        → Portfolio project evaluate करें
 ```
 
-या बस job URL या description directly paste करें -- career-ops auto-detect करेगा और full pipeline run करेगा।
+या बस job URL या description directly paste करें -- career-ops उसे auto-detect करके evaluate/score करेगा और पहले verdict दिखाएगा। `modes/_custom.md` के अनुसार, explicit continue या dashboard में role selection से पहले tailored assets generate नहीं होंगे, tracker में application status आगे नहीं बढ़ेगा, कोई role select नहीं होगा, browser नहीं खुलेगा और live form fill नहीं होगा।
 
 Codex में, slash commands guaranteed नहीं हैं। Same mode names को एक prompt में use करें, या उन्हें `codex exec` से call करें।
 
@@ -303,14 +303,18 @@ Codex में, slash commands guaranteed नहीं हैं। Same mode n
 └────────┬─────────┘
          │
 ┌────────▼─────────┐
-│  A-F Evaluation  │  Match, gaps, comp research, STAR stories
+│  A-G Evaluation  │  Match, gaps, comp research, STAR stories, legitimacy
 │  (cv.md पढ़ता है) │
 └────────┬─────────┘
          │
-    ┌────┼────┐
-    ▼    ▼    ▼
- Report  PDF  Tracker
-  .md   .pdf   .tsv
+         ▼
+Score/verdict + report + tracker status: Evaluated
+         │
+         ▼
+Explicit continue या dashboard selection
+         │
+         ▼
+Tailored assets → browser/live fill → candidate review और submit
 ```
 
 ## Pre-configured Portals
@@ -344,7 +348,7 @@ Local kanban dashboard career-ops का primary review interface है। य�
 npm run launch   # http://127.0.0.1:7777 खोलता है
 ```
 
-इसका उपयोग fit scores review करने, prepare के लिए roles चुनने, form-fill launch करने, drafts/assets check करने और submit से पहले human review बनाए रखने के लिए करें। Dashboard कभी भी आपकी ओर से application submit नहीं करता।
+इसका उपयोग fit scores review करने, prepare के लिए roles चुनने, active agent के लिए durable application requests queue करने, drafts/assets check करने और submit से पहले human review बनाए रखने के लिए करें। Dashboard स्वयं browser automation launch नहीं करता और application fill या submit नहीं करता।
 
 ### Terminal Tracker TUI
 
@@ -403,7 +407,7 @@ career-ops/
 ![Bubble Tea](https://img.shields.io/badge/Bubble_Tea-FF75B5?style=flat&logo=go&logoColor=white)
 
 - **Agent**: Shared skills और modes के साथ AI coding CLI (`AGENTS.md` + CLI wrapper)
-- **PDF**: Playwright/Puppeteer + HTML template
+- **PDF**: Playwright + HTML template
 - **Cover letters**: HTML template + Playwright (A4 PDF, CVs जैसी same pipeline)
 - **Scanner**: Playwright + Greenhouse API + WebSearch
 - **Dashboard**: Go + Bubble Tea + Lipgloss (Catppuccin Mocha theme)

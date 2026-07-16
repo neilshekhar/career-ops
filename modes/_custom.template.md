@@ -56,7 +56,7 @@
 ## Off-Limits
 
 <!-- Things the agent must never do for you. Examples:
-     - Never auto-fill or submit an application without showing me first.
+     - Fill every authorized application, but never perform final job submission; show the completed forms for review first.
      - Never edit a system file to customize my setup -- put it here. -->
 
 (none yet -- add yours above)

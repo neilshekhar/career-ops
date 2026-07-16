@@ -5,12 +5,15 @@
  * persistence/dedup states used by active_roles/seen_urls.
  */
 
+import { parseTrackerRow, resolveColumns } from './tracker-parse.mjs';
+
 export const TRACKER_TO_QUEUE_DONE_STATUS = Object.freeze({
   evaluated: 'reviewed',
   applied:   'submitted',
   responded: 'submitted',
   interview: 'submitted',
   offer:     'submitted',
+  hired:     'submitted',
   rejected:  'closed',
   discarded: 'reviewed',
   skip:      'skipped',
@@ -26,13 +29,19 @@ export function normalizeTrackerStatus(status = '') {
 export function queueDoneStatusFromTracker(status = '', options = {}) {
   const normalized = normalizeTrackerStatus(status);
   if (!options.includeEvaluated && normalized === 'evaluated') return null;
-  return TRACKER_TO_QUEUE_DONE_STATUS[normalized] ?? null;
+  const mapped = TRACKER_TO_QUEUE_DONE_STATUS[normalized] ?? null;
+  // An Applied/Responded/Interview/Offer/Hired tracker label is not executable proof
+  // that the active live form crossed the receipt + candidate-submit gates.
+  // Historical migrations may opt in explicitly; live dashboard reconciliation
+  // must never promote an active queue role to submitted from tracker text alone.
+  if (mapped === 'submitted' && options.allowSubmittedEvidence !== true) return null;
+  return mapped;
 }
 
 // -- Done-board rows ----------------------------------------------------------
 //
 // Post-decision tracker statuses, grouped for the dashboard's Done column:
-//   'applied' group — application went out (Applied / Responded / Interview / Offer)
+//   'applied' group — application went out (Applied / Responded / Interview / Offer / Hired)
 //   'closed'  group — no longer pursued   (Rejected / Discarded / SKIP)
 // Evaluated rows are pre-decision and never appear on the Done board.
 
@@ -41,6 +50,7 @@ const DONE_GROUP_BY_TRACKER_STATUS = Object.freeze({
   responded: 'applied',
   interview: 'applied',
   offer:     'applied',
+  hired:     'applied',
   rejected:  'closed',
   discarded: 'closed',
   skip:      'closed',
@@ -52,30 +62,30 @@ const DONE_GROUP_BY_TRACKER_STATUS = Object.freeze({
  * [{ num, date, company, title, status, group, score }] sorted date desc
  * (ties broken by tracker num desc), capped at options.limit (default 100).
  *
- * Tracker column order: | # | Date | Company | Role | Score | Status | PDF | Report | Notes |
+ * Column order is detected from the tracker header; customized Location/Via
+ * layouts therefore use the same parser as every canonical tracker writer.
  */
 export function parseTrackerDoneRows(text = '', options = {}) {
   const limit = options.limit ?? 100;
   const rows = [];
+  const lines = String(text).split(/\r?\n/);
+  const colmap = resolveColumns(lines);
 
-  for (const line of String(text).split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) continue;
-    const cells = trimmed.slice(1, -1).split('|').map((c) => c.trim());
-    if (cells.length < 6 || !/^\d+$/.test(cells[0])) continue;
-
-    const normalized = normalizeTrackerStatus(cells[5]);
+  for (const line of lines) {
+    const parsed = parseTrackerRow(line, colmap);
+    if (!parsed) continue;
+    const normalized = normalizeTrackerStatus(parsed.status);
     const group = DONE_GROUP_BY_TRACKER_STATUS[normalized];
     if (!group) continue; // Evaluated / unknown — not a done row
 
     rows.push({
-      num:     parseInt(cells[0], 10),
-      date:    cells[1] ?? '',
-      company: cells[2] ?? '',
-      title:   cells[3] ?? '',
-      status:  cells[5].replace(/\*/g, '').trim(),
+      num:     parsed.num,
+      date:    parsed.date ?? '',
+      company: parsed.company ?? '',
+      title:   parsed.role ?? '',
+      status:  parsed.status.replace(/\*/g, '').trim(),
       group,
-      score:   cells[4] ?? '',
+      score:   parsed.score ?? '',
     });
   }
 

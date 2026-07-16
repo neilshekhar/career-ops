@@ -9,9 +9,14 @@
  *
  * Dedup: company normalized + role fuzzy match + report number match
  * If duplicate with higher score → update in-place, update report link
- * Validates status against states.yml (rejects non-canonical, logs warning)
+ * Validates status against states.yml. Normal evaluation additions enter as
+ * Evaluated. Post-application lifecycle imports are staged as Evaluated and
+ * may only be promoted through set-status.mjs with explicit external or
+ * historical provenance.
  *
  * Run: node career-ops/merge-tracker.mjs [--dry-run] [--verify]
+ *      node career-ops/merge-tracker.mjs --external-import
+ *      node career-ops/merge-tracker.mjs --historical-import
  */
 
 import { readFileSync, readdirSync, mkdirSync, renameSync, existsSync } from 'fs';
@@ -39,8 +44,21 @@ const DRY_RUN = process.argv.includes('--dry-run');
 const VERIFY = process.argv.includes('--verify');
 const MIGRATE = process.argv.includes('--migrate');
 const MIGRATE_VIA = process.argv.includes('--migrate-via');
+const EXTERNAL_IMPORT = process.argv.includes('--external-import');
+const HISTORICAL_IMPORT = process.argv.includes('--historical-import');
 const MERGE_HOLD_MS = Number(process.env.CAREER_OPS_MERGE_HOLD_MS) || 0;
 const MERGE_READY_IPC = process.env.CAREER_OPS_MERGE_READY_IPC === '1';
+
+if (EXTERNAL_IMPORT && HISTORICAL_IMPORT) {
+  console.error('❌ --external-import and --historical-import are mutually exclusive provenance modes');
+  process.exit(1);
+}
+
+const IMPORT_PROVENANCE = HISTORICAL_IMPORT
+  ? 'historical'
+  : EXTERNAL_IMPORT
+    ? 'external'
+    : null;
 
 const TRACKER_LOCK_DIR = trackerLockDirFor(APPS_FILE);
 
@@ -98,7 +116,17 @@ try {
 }
 
 // Canonical states and aliases
-const CANONICAL_STATES = ['Evaluated', 'Applied', 'Responded', 'Interview', 'Offer', 'Rejected', 'Discarded', 'SKIP'];
+const CANONICAL_STATES = ['Evaluated', 'Applied', 'Responded', 'Interview', 'Offer', 'Hired', 'Rejected', 'Discarded', 'SKIP'];
+const LIFECYCLE_STATES = new Set(['Applied', 'Responded', 'Interview', 'Offer', 'Hired', 'Rejected']);
+// Canonical forward order for import promotions on an existing row. Rejected
+// shares the top rank so it can close out any active row, while an equal or
+// lower rank is never an advance (a re-imported old TSV cannot walk an
+// Interview row back to Applied). Discarded/SKIP rows have no rank: an import
+// never resurrects a row the candidate closed — that takes a deliberate
+// `set-status --external`.
+const LIFECYCLE_RANK = {
+  Evaluated: 0, Applied: 1, Responded: 2, Interview: 3, Offer: 4, Hired: 5, Rejected: 5,
+};
 
 /**
  * Convert raw addition status text into one canonical tracker state.
@@ -127,6 +155,7 @@ function validateStatus(status) {
     'respondido': 'Responded',
     'entrevista': 'Interview',
     'oferta': 'Offer',
+    'contratado': 'Hired', 'contratada': 'Hired', 'hired': 'Hired', 'accepted': 'Hired', 'accept': 'Hired',
     'rechazado': 'Rejected', 'rechazada': 'Rejected',
     'descartado': 'Discarded', 'descartada': 'Discarded', 'cerrada': 'Discarded', 'cancelada': 'Discarded',
     'no aplicar': 'SKIP', 'no_aplicar': 'SKIP', 'skip': 'SKIP', 'monitor': 'SKIP',
@@ -231,6 +260,22 @@ function roleTokens(s) {
 function extractReportNum(reportStr) {
   const m = reportStr.match(/\[(\d+)\]/);
   return m ? parseInt(m[1]) : null;
+}
+
+function reportTarget(reportStr) {
+  const raw = String(reportStr ?? '').trim();
+  return /\]\(([^)]+)\)/.exec(raw)?.[1]?.trim() || raw;
+}
+
+function sameReportIdentity(left, right) {
+  const leftNum = extractReportNum(String(left ?? ''));
+  const rightNum = extractReportNum(String(right ?? ''));
+  if (leftNum != null || rightNum != null) {
+    return leftNum != null && rightNum != null && leftNum === rightNum;
+  }
+  const leftTarget = reportTarget(left);
+  const rightTarget = reportTarget(right);
+  return Boolean(leftTarget && rightTarget && leftTarget === rightTarget);
 }
 
 // Matches the req/job-number labels actually seen in this tracker's free-text
@@ -460,6 +505,34 @@ function parseTsvContent(content, filename) {
   return addition;
 }
 
+/**
+ * Enforce the tracker-addition boundary for post-application states.
+ *
+ * TSV is the canonical path for creating an evaluation row, not proof that an
+ * application or later lifecycle event happened. Even an explicitly imported
+ * lifecycle state is therefore written as Evaluated first; after the tracker
+ * lock is released the canonical set-status writer performs the provenance-
+ * marked promotion. Without an import flag a fresh lifecycle claim is safely
+ * downgraded to Evaluated and no promotion is scheduled; when the row already
+ * exists the TSV is deferred (left pending) instead, because that is the
+ * signature of a provenanced import whose promotion failed — a routine merge
+ * must not consume its retry source.
+ *
+ * @param {object} addition Parsed addition.
+ * @param {string} filename Source TSV filename.
+ * @returns {object} The same addition, annotated with requestedLifecycleStatus.
+ */
+function stageLifecycleStatus(addition, filename) {
+  if (!LIFECYCLE_STATES.has(addition.status)) return addition;
+
+  addition.requestedLifecycleStatus = addition.status;
+  addition.status = 'Evaluated';
+  if (IMPORT_PROVENANCE) {
+    console.log(`🛡️  ${filename}: staging Evaluated before canonical ${addition.requestedLifecycleStatus} promotion (${IMPORT_PROVENANCE} import)`);
+  }
+  return addition;
+}
+
 // ---- Main ----
 
 // Read applications.md
@@ -578,11 +651,15 @@ console.log(`📥 Found ${tsvFiles.length} pending additions`);
 let added = 0;
 let updated = 0;
 let skipped = 0;
+let deferred = 0;
 const newLines = [];
+const lifecyclePromotions = [];
+const deferredFiles = new Set();
 
 for (const file of tsvFiles) {
   const content = readFileSync(join(ADDITIONS_DIR, file), 'utf-8').trim();
-  const addition = parseTsvContent(content, file);
+  const parsedAddition = parseTsvContent(content, file);
+  const addition = parsedAddition ? stageLifecycleStatus(parsedAddition, file) : null;
   if (!addition) { skipped++; continue; }
 
   // A via= tag can only be stored if the tracker has a Via column — warn
@@ -662,20 +739,71 @@ for (const file of tsvFiles) {
   }
 
   if (duplicate) {
+    if (addition.requestedLifecycleStatus && !IMPORT_PROVENANCE) {
+      // A lifecycle TSV whose Evaluated row already landed is the failed-
+      // promotion signature: a provenanced import merged the row but its
+      // set-status promotion did not commit. Consuming it here would silently
+      // drop the pending lifecycle event, so leave it for the retry.
+      console.warn(
+        `⚠️  ${file}: lifecycle status ${addition.requestedLifecycleStatus} for existing #${duplicate.num} looks like a pending import promotion; ` +
+        'leaving the TSV pending — rerun with --external-import/--historical-import, or delete the file if the claim is wrong',
+      );
+      deferredFiles.add(file);
+      deferred++;
+      continue;
+    }
+    if (IMPORT_PROVENANCE && addition.requestedLifecycleStatus) {
+      const currentRank = LIFECYCLE_RANK[duplicate.status];
+      const requestedRank = LIFECYCLE_RANK[addition.requestedLifecycleStatus];
+      if (currentRank != null && requestedRank != null && requestedRank > currentRank) {
+        lifecyclePromotions.push({
+          trackerNum: duplicate.num,
+          status: addition.requestedLifecycleStatus,
+          filename: file,
+        });
+      } else {
+        console.warn(
+          `⚠️  ${file}: existing #${duplicate.num} is already ${duplicate.status}; skipping non-advancing ${addition.requestedLifecycleStatus} promotion`,
+        );
+      }
+    }
     const newScore = parseScore(addition.score);
     const oldScore = parseScore(duplicate.score);
+    const scoreUpgrade = newScore > oldScore;
+    // A later PDF generation run is metadata, not a lifecycle event. Permit a
+    // monotonic ❌ → ✅ upgrade even when the evaluation score is unchanged,
+    // but never downgrade ✅ and never adopt the TSV's status. This lets pdf
+    // mode use the same locked addition/merge path without hand-editing the
+    // tracker or fabricating an Applied-style transition.
+    const pdfUpgrade = sanitizeCell(addition.pdf) === '✅'
+      && sanitizeCell(duplicate.pdf) !== '✅'
+      && sameReportIdentity(addition.report, duplicate.report)
+      && (scoreUpgrade || newScore === oldScore);
 
-    if (newScore > oldScore) {
-      console.log(`🔄 Update: #${duplicate.num} ${addition.company} — ${addition.role} (${oldScore}→${newScore})`);
+    if (scoreUpgrade || pdfUpgrade) {
+      const changes = [
+        scoreUpgrade ? `score ${oldScore}→${newScore}` : null,
+        pdfUpgrade ? 'PDF ❌→✅' : null,
+      ].filter(Boolean).join(', ');
+      console.log(`🔄 Update: #${duplicate.num} ${addition.company} — ${addition.role} (${changes})`);
       const lineIdx = appLines.indexOf(duplicate.raw);
       if (lineIdx >= 0) {
         const updatedLine = buildRow({
-          num: duplicate.num, date: addition.date, company: addition.company, role: addition.role,
-          via: addition.via || duplicate.via || '—',
-          location: addition.location || duplicate.location || '—',
-          score: addition.score, status: duplicate.status, pdf: duplicate.pdf,
-          report: addition.report,
-          notes: `Re-eval ${addition.date} (${oldScore}→${newScore}). ${addition.notes}`,
+          num: duplicate.num,
+          date: scoreUpgrade ? addition.date : duplicate.date,
+          company: scoreUpgrade ? addition.company : duplicate.company,
+          role: scoreUpgrade ? addition.role : duplicate.role,
+          via: scoreUpgrade ? (addition.via || duplicate.via || '—') : (duplicate.via || '—'),
+          location: scoreUpgrade ? (addition.location || duplicate.location || '—') : (duplicate.location || '—'),
+          score: scoreUpgrade ? addition.score : duplicate.score,
+          // Lifecycle truth always comes from the existing tracker row. A TSV
+          // cannot reset or advance it during either score or PDF metadata work.
+          status: duplicate.status,
+          pdf: pdfUpgrade ? '✅' : duplicate.pdf,
+          report: scoreUpgrade ? addition.report : duplicate.report,
+          notes: scoreUpgrade
+            ? `Re-eval ${addition.date} (${oldScore}→${newScore}). ${addition.notes}`
+            : duplicate.notes,
         });
         appLines[lineIdx] = updatedLine;
         updated++;
@@ -698,6 +826,17 @@ for (const file of tsvFiles) {
     });
     newLines.push(newLine);
     added++;
+    if (IMPORT_PROVENANCE && addition.requestedLifecycleStatus) {
+      lifecyclePromotions.push({
+        trackerNum: entryNum,
+        status: addition.requestedLifecycleStatus,
+        filename: file,
+      });
+    } else if (addition.requestedLifecycleStatus) {
+      console.warn(
+        `⚠️  ${file}: lifecycle status ${addition.requestedLifecycleStatus} has no --external-import/--historical-import provenance; importing as Evaluated`,
+      );
+    }
     console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (${addition.score})`);
   }
 }
@@ -720,18 +859,59 @@ if (newLines.length > 0) {
 // Write back
 if (!DRY_RUN) {
   writeFileAtomic(APPS_FILE, appLines.join('\n'));
-
-  // Move processed files to merged/
-  if (!existsSync(MERGED_DIR)) mkdirSync(MERGED_DIR, { recursive: true });
-  for (const file of tsvFiles) {
-    renameSync(join(ADDITIONS_DIR, file), join(MERGED_DIR, file));
-  }
-  console.log(`\n✅ Moved ${tsvFiles.length} TSVs to merged/`);
 }
 
-console.log(`\n📊 Summary: +${added} added, 🔄${updated} updated, ⏭️${skipped} skipped`);
+console.log(`\n📊 Summary: +${added} added, 🔄${updated} updated, ⏭️${skipped} skipped${deferred ? `, ⏸️${deferred} deferred` : ''}`);
 if (DRY_RUN) console.log('(dry-run — no changes written)');
 trackerLock.release();
+
+// Lifecycle claims never enter the tracker through the addition writer. Once
+// the Evaluated row is durably present and the merge lock is released, promote
+// explicit external/historical imports through the canonical status writer.
+// Keep TSVs pending until every promotion succeeds so a retry is idempotent and
+// cannot lose a requested lifecycle event after a transient failure.
+let promotionFailed = false;
+if (!DRY_RUN) {
+  for (const promotion of lifecyclePromotions) {
+    const provenanceNote = `[tracker-import:${IMPORT_PROVENANCE}] source=${promotion.filename}`;
+    try {
+      execFileSync(process.execPath, [
+        join(CAREER_OPS, 'set-status.mjs'),
+        String(promotion.trackerNum),
+        promotion.status,
+        '--external',
+        '--note', provenanceNote,
+        '--json',
+      ], {
+        cwd: CAREER_OPS,
+        env: process.env,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 30_000,
+      });
+      console.log(`✅ Canonical ${IMPORT_PROVENANCE} import: #${promotion.trackerNum} → ${promotion.status}`);
+    } catch (err) {
+      promotionFailed = true;
+      const detail = String(err.stderr || err.stdout || err.message).trim().slice(0, 500);
+      console.error(`❌ Could not promote #${promotion.trackerNum} to ${promotion.status}; TSV remains pending: ${detail}`);
+      break;
+    }
+  }
+
+  if (!promotionFailed) {
+    const consumedFiles = tsvFiles.filter((file) => !deferredFiles.has(file));
+    if (consumedFiles.length && !existsSync(MERGED_DIR)) mkdirSync(MERGED_DIR, { recursive: true });
+    for (const file of consumedFiles) {
+      renameSync(join(ADDITIONS_DIR, file), join(MERGED_DIR, file));
+    }
+    if (consumedFiles.length) console.log(`\n✅ Moved ${consumedFiles.length} TSVs to merged/`);
+    if (deferredFiles.size) {
+      console.log(`⏸️  ${deferredFiles.size} lifecycle TSV(s) remain pending in tracker-additions/ awaiting a provenanced import`);
+    }
+  }
+}
+
+if (promotionFailed) process.exit(1);
 
 // Optional verify
 if (VERIFY && !DRY_RUN) {

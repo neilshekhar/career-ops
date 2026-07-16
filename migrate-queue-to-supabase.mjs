@@ -101,7 +101,10 @@ function seenRowsFromApplications(path) {
       url,
       company: cells[3] || null,
       title: cells[4] || null,
-      final_status: queueDoneStatusFromTracker(cells[6], { includeEvaluated: true }) ?? 'reviewed',
+      final_status: queueDoneStatusFromTracker(cells[6], {
+        includeEvaluated: true,
+        allowSubmittedEvidence: true,
+      }) ?? 'reviewed',
       first_seen: cells[2] || null,
       decided_at: cells[2] ? `${cells[2]}T00:00:00.000Z` : null,
     });

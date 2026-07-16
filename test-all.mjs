@@ -31,6 +31,24 @@ import { tmpdir } from 'os';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { pass, fail, warn, run, fileExists, finish, ROOT, QUICK, NODE, getBash, toBashPath } from './tests/helpers.mjs';
 
+// The default suite is local-only: it must never load repository .env secrets or
+// perform remote Supabase writes merely because the developer has cloud credentials.
+// Live mutation proofs are a separate, explicit opt-in and consume process.env only.
+const LIVE_SUPABASE_TEST_FLAG = 'CAREER_OPS_RUN_LIVE_SUPABASE_TESTS';
+const RUN_LIVE_SUPABASE_TESTS = process.env[LIVE_SUPABASE_TEST_FLAG] === '1';
+process.env.DOTENV_CONFIG_PATH = join(tmpdir(), `career-ops-no-dotenv-${process.pid}.env`);
+process.env.DOTENV_CONFIG_QUIET = 'true';
+if (!RUN_LIVE_SUPABASE_TESTS) {
+  for (const name of [
+    'SUPABASE_URL',
+    'SUPABASE_DASHBOARD_KEY',
+    'SUPABASE_CRON_PUBLISHABLE_KEY',
+    'SUPABASE_CRON_JWT',
+  ]) delete process.env[name];
+  process.env.CAREER_OPS_QUEUE_BACKEND = 'local';
+  process.env.RUN_SUPABASE_INTEGRATION = '0';
+}
+
 /**
  * Read a repo-relative text file as UTF-8.
  *
@@ -1219,10 +1237,11 @@ if (
 const applyMode = readFile('modes/apply.md');
 if (
   applyMode.includes('## Step 5 — Preflight gate') &&
-  applyMode.includes('verify liveness with Playwright') &&
-  applyMode.includes('matching report has been loaded') &&
-  applyMode.includes('Do not continue to Step 6 until this preflight is resolved') &&
-  applyMode.includes('refuse to generate final copy')
+  applyMode.includes('node check-liveness.mjs <url>') &&
+  applyMode.includes('Playwright page/snapshot') &&
+  applyMode.includes('Compare visible company, title, requisition, and URL') &&
+  applyMode.includes('the intended live role is authorized and Step 6 begins') &&
+  applyMode.includes('A definitively closed role is closed/skipped')
 ) {
   pass('apply mode includes liveness and role-match preflight gate');
 } else {
@@ -1233,12 +1252,31 @@ if (
   applyMode.includes('## Application Answers') &&
   applyMode.includes('**State:** filled') &&
   applyMode.includes('**State:** submitted') &&
-  applyMode.includes('Do not rename, reorder, or edit the existing A-H report blocks') &&
+  applyMode.includes('Do not rename, reorder, or edit the existing A-G report blocks') &&
+  applyMode.includes('any legacy Section H that is already present') &&
   applyMode.includes('application-answers.mjs')
 ) {
   pass('apply mode persists filled/submitted answers in an additive report section');
 } else {
   fail('apply mode missing additive Application Answers persistence instructions');
+}
+
+const customApplyMode = readFile('modes/_custom.md');
+const receiptSource = readFile('application-receipt.mjs');
+if (
+  /upload_controls` array \(including `\[\]` when none exist\)/.test(applyMode) &&
+  /\{control_id,kind,expected,displayed,asset_sha256,verified:true\}/.test(applyMode) &&
+  /verified CV in every enabled `cv` control/.test(applyMode) &&
+  /verified cover letter in every enabled `cover` or `supporting` control/.test(applyMode) &&
+  /upload_controls:\[\{control_id,label,kind,required,multiple,enabled,accepts\}\]/.test(customApplyMode) &&
+  /asset_sha256,verified:true/.test(customApplyMode) &&
+  receiptSource.includes('cleanUploadControls') &&
+  receiptSource.includes('assertRoleAttachments') &&
+  receiptSource.includes('asset_sha256')
+) {
+  pass('apply contract binds every upload to an observed control ID and validated asset SHA');
+} else {
+  fail('apply upload-control/content-hash contract is incomplete');
 }
 
 try {
@@ -1365,13 +1403,12 @@ if (
   ofertaMode.includes('Do not invoke `deep-research`') &&
   ofertaMode.includes('Do not spawn subagents') &&
   ofertaMode.includes('Do not continue researching after the query cap is reached') &&
-  autoPipelineMode.includes('bounded research budget') &&
-  autoPipelineMode.includes('must not invoke `deep-research`') &&
-  autoPipelineMode.includes('must not spawn subagents')
+  autoPipelineMode.includes('Read and execute `modes/oferta.md` once, in full') &&
+  autoPipelineMode.includes('Do not repeat those writes in this wrapper')
 ) {
-  pass('eval modes bound company/comp research to a non-recursive query budget (#1235)');
+  pass('auto-pipeline delegates once to oferta, which owns the bounded non-recursive research budget (#1235)');
 } else {
-  fail('eval modes do not bound company/comp research against recursive fanout (#1235)');
+  fail('auto-pipeline does not delegate cleanly to oferta bounded research (#1235)');
 }
 
 if (
@@ -2372,9 +2409,9 @@ for (const section of requiredSections) {
   }
 }
 
-// ── 11. APPLY PREFILL CONTRACT ───────────────────────────────────
+// ── 11. APPLY ACTIVE-AGENT DISPATCH CONTRACT ─────────────────────
 
-console.log('\n11. Apply prefill contract');
+console.log('\n11. Apply active-agent dispatch contract');
 
 try {
   const { ACTIVE_STATUSES, LANE_STATUSES } = await import(pathToFileURL(join(ROOT, 'queue-store.mjs')).href);
@@ -2395,38 +2432,81 @@ try {
     fail('states.yml missing prefilled');
   }
 
-  if (/const fillStatus = HEADLESS \? 'prefilled' : 'filled'/.test(formFill)) {
-    pass('headless form-fill records prefilled, not filled');
+  if (formFill.includes("FORM_FILL_RUNTIME = 'offline-plan-only'") &&
+      formFill.includes("browser_owner: 'active-agent'") &&
+      !/from ['"]playwright['"]|launchPersistentContext|\b(?:setStatus|mutateQueue)\s*\(/.test(formFill) &&
+      formFill.includes('application-receipt.mjs')) {
+    pass('form-fill is a read-only application plan and hands off to the receipt workflow');
   } else {
-    fail('headless form-fill no longer records prefilled');
+    fail('form-fill restored private browser or status mutation behavior');
   }
 
-  if (/if \(HEADLESS\)[\s\S]{0,400}process\.exit\(1\)/.test(formFill)) {
-    pass('headless login timeout exits so parallel runs do not hang');
+  if (dashboardServer.includes('function enqueueActiveAgentRequest') &&
+      !/spawnFill|form-fill\.mjs|launchPersistentContext/.test(dashboardServer)) {
+    pass('dashboard queues active-agent work and contains no private browser worker');
   } else {
-    fail('headless login timeout exit guard missing');
+    fail('dashboard restored a private browser worker');
   }
 
-  if (/decision === 'submitted' && role\.status === 'prefilled'/.test(dashboardServer)) {
-    pass('dashboard API blocks submitted decisions for prefilled roles');
+  if (dashboardServer.includes("role status is '${role.status}', not receipt-gated 'filled'") &&
+      dashboardServer.includes('submissionReadinessErrors(role)')) {
+    pass('dashboard API blocks every non-filled submitted decision, including legacy prefilled roles');
   } else {
     fail('dashboard API prefilled submit gate missing');
   }
 
-  if (/submitBtn\.disabled = isPrefilled/.test(dashboardApp)) {
-    pass('dashboard UI disables submit for prefilled roles');
+  const trackerDecisionBlock = dashboardServer.slice(
+    dashboardServer.indexOf('function writeTrackerTsv'),
+    dashboardServer.indexOf('// ── Tracker → queue reconciliation'),
+  );
+  const candidateDecisionBlock = dashboardServer.slice(
+    dashboardServer.indexOf('function apiRoleDecision'),
+    dashboardServer.indexOf('// ── Kanban board — drag-to-move'),
+  );
+  if (
+    /decision === 'submitted' && !receiptId/.test(trackerDecisionBlock) &&
+    /const stagedStatus = decision === 'submitted' \? 'Evaluated' : status/.test(trackerDecisionBlock) &&
+    /role\.company, role\.title, stagedStatus, score/.test(trackerDecisionBlock) &&
+    trackerDecisionBlock.includes("'set-status.mjs'") &&
+    trackerDecisionBlock.includes("'--receipt'") &&
+    trackerDecisionBlock.includes("'--report'") &&
+    trackerDecisionBlock.includes('function beginCandidateDecision') &&
+    trackerDecisionBlock.includes("state: 'pending'") &&
+    candidateDecisionBlock.includes('beginCandidateDecision(queue, id, decision)') &&
+    candidateDecisionBlock.includes('promoteOrReconcileSubmittedReport') &&
+    candidateDecisionBlock.includes('writeTrackerTsv(workingRole, decision') &&
+    candidateDecisionBlock.includes("transaction.state = 'committed'") &&
+    candidateDecisionBlock.includes('retry_same_decision: true') &&
+    !/tracker write-back failed|Non-fatal: the TSV/.test(candidateDecisionBlock + trackerDecisionBlock)
+  ) {
+    pass('candidate-confirmed submission uses a durable retryable transaction across report, tracker, and queue');
   } else {
-    fail('dashboard UI prefilled submit disable missing');
+    fail('dashboard candidate decision can drift between queue and tracker or omit receipt provenance');
   }
 
-  if (
-    formFill.includes('^(yes|true|1|checked|check|on)\\b') &&
-    formFill.includes('^(no|false|0|unchecked|uncheck|off)\\b')
-  ) {
-    pass('checkbox mapper accepts leading yes/no consent phrases');
+  if (/const canMarkSubmitted = role\.submission_ready === true/.test(dashboardApp) &&
+      /submitBtn\.disabled = !canMarkSubmitted/.test(dashboardApp)) {
+    pass('dashboard UI enables submission recording only for receipt-gated roles');
   } else {
-    fail('checkbox mapper no longer accepts leading yes/no consent phrases');
+    fail('dashboard UI can record submission without a receipt-gated role');
   }
+
+  const submissionClientBlock = dashboardApp.slice(
+    dashboardApp.indexOf('async function requestSubmittedDecision'),
+    dashboardApp.indexOf('async function doDecision'),
+  );
+  if (dashboardServer.includes('new SubmissionConfirmationStore(') &&
+      dashboardServer.includes('function apiSubmissionConfirmation') &&
+      candidateDecisionBlock.includes('submissionConfirmations.consume(id, confirmationNonce)') &&
+      submissionClientBlock.includes('/submission-confirmation') &&
+      submissionClientBlock.includes('data.confirmation_nonce') &&
+      /doDecision\(\s*['"]submitted['"]\s*,\s*roleId\s*,\s*data\.confirmation_nonce\s*\)/.test(submissionClientBlock) &&
+      !/doDecision\(\s*['"]submitted['"]\s*\)/.test(dashboardApp)) {
+    pass('every dashboard submitted mutation requires a server-issued role-bound one-use nonce');
+  } else {
+    fail('dashboard contains a submitted mutation path that can bypass the confirmation nonce');
+  }
+
 } catch (e) {
   fail(`Apply prefill contract checks crashed: ${e.message}`);
 }
@@ -5669,7 +5749,7 @@ try {
 
   if (
     migrationScript.includes("import { queueDoneStatusFromTracker } from './tracker-status-map.mjs'") &&
-    migrationScript.includes('queueDoneStatusFromTracker(cells[6], { includeEvaluated: true })') &&
+    migrationScript.includes('allowSubmittedEvidence: true') &&
     !/function statusFromTracker/.test(migrationScript)
   ) {
     pass('migrate-queue-to-supabase.mjs uses the shared tracker-to-queue status mapper');
@@ -6183,10 +6263,10 @@ try {
 
 // ── 16. FORM-FILL SUBMIT SAFETY ─────────────────────────────────
 
-console.log('\n16. Form-fill submit safety — FINAL_SUBMIT_DENYLIST and NAV_ALLOWLIST');
+console.log('\n16. Form-fill offline ownership + final-submit denylist');
 
 try {
-  const { FINAL_SUBMIT_DENYLIST, NAV_ALLOWLIST } = await import(pathToFileURL(join(ROOT, 'form-fill.mjs')).href);
+  const { FINAL_SUBMIT_DENYLIST, FORM_FILL_RUNTIME } = await import(pathToFileURL(join(ROOT, 'form-fill.mjs')).href);
   const { formatPhone, formatPhoneWithoutCountryCode } = await import(pathToFileURL(join(ROOT, 'format-au.mjs')).href);
 
   // Every final-submit label must match FINAL_SUBMIT_DENYLIST
@@ -6199,32 +6279,14 @@ try {
     else fail(`FINAL_SUBMIT_DENYLIST does NOT block "${label}"`);
   }
 
-  // Every nav label must match NAV_ALLOWLIST AND must NOT match FINAL_SUBMIT_DENYLIST
-  const navLabels = [
-    'Continue', 'Next', 'Save and continue', 'Save & continue',
-    'Review', 'Proceed', 'Next step', 'Next page',
-  ];
-  for (const label of navLabels) {
-    if (NAV_ALLOWLIST.test(label) && !FINAL_SUBMIT_DENYLIST.test(label)) {
-      pass(`"${label}" is in NAV_ALLOWLIST and not in denylist`);
-    } else if (!NAV_ALLOWLIST.test(label)) {
-      fail(`"${label}" is NOT in NAV_ALLOWLIST — navigation will stall`);
-    } else {
-      fail(`"${label}" is in BOTH lists — denylist would block navigation`);
-    }
-  }
-
-  // No overlap between the two lists (deny wins on any overlap — catch accidental collision)
-  const overlap = navLabels.filter(l => FINAL_SUBMIT_DENYLIST.test(l));
-  if (overlap.length === 0) pass('No NAV_ALLOWLIST label appears in FINAL_SUBMIT_DENYLIST (lists are disjoint)');
-  else fail(`Overlap between nav and deny lists: ${overlap.join(', ')}`);
-
-  // The click-path guard is still in place (source check — ensures the regex is actually used)
+  // The compatibility helper is read-only and contains no browser/navigation path.
   const formFillSrc = readFile('form-fill.mjs');
-  if (formFillSrc.includes('if (FINAL_SUBMIT_DENYLIST.test(text)) continue;')) {
-    pass('findNavButton still contains FINAL_SUBMIT_DENYLIST short-circuit guard');
+  if (FORM_FILL_RUNTIME === 'offline-plan-only' &&
+      !/from ['"]playwright['"]|launchPersistentContext|NAV_ALLOWLIST|findNavButton/.test(formFillSrc) &&
+      !/\b(?:setStatus|mutateQueue|saveQueue)\s*\(/.test(formFillSrc)) {
+    pass('form-fill is offline-plan-only with no browser, Next, or queue-mutation path');
   } else {
-    fail('findNavButton FINAL_SUBMIT_DENYLIST guard missing — click path could reach deny labels');
+    fail('form-fill restored a browser/navigation/status-mutation path');
   }
 
   const formattedAu = formatPhone('0412 345 678', '+61');
@@ -6248,12 +6310,6 @@ try {
     fail(`formatPhoneWithoutCountryCode expected 412345678 from leading-zero mobile, got ${JSON.stringify(splitAuLeadingZero)}`);
   }
 
-  if (formFillSrc.includes('formatPhoneWithoutCountryCode') && formFillSrc.includes('hasSelectedCountryCodeControl')) {
-    pass('form-fill strips phone country code only when a matching country-code control is selected');
-  } else {
-    fail('form-fill is not wired to strip +61 beside a separate country-code selector');
-  }
-
   // Market neutrality: phone/date reformatting must be gated on the profile's
   // formatting block — no hardcoded market default (e.g. || '+61') may remain.
   if (!/\|\|\s*'\+61'/.test(formFillSrc) && !/\|\|\s*'DD\/MM\/YYYY'/.test(formFillSrc)) {
@@ -6262,19 +6318,12 @@ try {
     fail("form-fill still falls back to a hardcoded market default (|| '+61' or || 'DD/MM/YYYY')");
   }
 
-  // intl-tel-input flag-dropdown widgets (Greenhouse job-boards): a fresh
-  // widget has no country selected, so phoneValueForInput must prime it with
-  // the full international number (selects the flag) and then hand back the
-  // national number — the dropdown owns the dial code, the input never shows it.
-  const pvBlock = formFillSrc.slice(
-    formFillSrc.indexOf('async function phoneValueForInput'),
-    formFillSrc.indexOf('// ── Confirmation capture')
-  );
-  if (pvBlock.includes(".closest('.iti')") && pvBlock.includes('formatPhoneWithoutCountryCode') &&
-      pvBlock.includes('formatPhone(value, countryCode)')) {
-    pass('phoneValueForInput primes intl-tel-input widgets then fills the national number');
+  // Widget-specific phone handling belongs to the active browser controller;
+  // the offline helper must not contain stale DOM/widget logic.
+  if (!/phoneValueForInput|hasSelectedCountryCodeControl|\.closest\(['"]\.iti['"]\)/.test(formFillSrc)) {
+    pass('offline form-fill contains no stale phone-widget browser logic');
   } else {
-    fail('phoneValueForInput missing the intl-tel-input prime-then-national handling');
+    fail('offline form-fill retained phone-widget browser logic');
   }
 } catch (e) {
   fail(`Form-fill submit safety checks crashed: ${e.message}`);
@@ -6350,16 +6399,14 @@ try {
     fail('Resolver missing provenance labels for deterministic or cache — traceability broken');
   }
 
-  // form-fill provenanceLabel handles all 3 sources
+  // The live resolver owns provenance; the offline form-fill plan must not
+  // duplicate or reinterpret layer labels.
   const formFillSrc = readFile('form-fill.mjs');
-  if (
-    formFillSrc.includes("if (source === 'cache')") &&
-    formFillSrc.includes("if (source === 'model')") &&
-    formFillSrc.includes('return `deterministic')
-  ) {
-    pass('form-fill provenanceLabel handles all 3 sources: cache, model, deterministic');
+  if (formFillSrc.includes("FORM_FILL_RUNTIME = 'offline-plan-only'") &&
+      !formFillSrc.includes('provenanceLabel')) {
+    pass('form-fill stays offline-only and leaves provenance classification to queue-resolve');
   } else {
-    fail('form-fill provenanceLabel missing a source branch — provenance labels will be wrong');
+    fail('form-fill duplicated live resolver provenance logic');
   }
 } catch (e) {
   fail(`Resolver layer precedence checks crashed: ${e.message}`);
@@ -6416,38 +6463,47 @@ try {
   fail(`Cron JWT mint+verify crashed: ${e.message}`);
 }
 
-// Wire test-cron-rls-negative.mjs into the gate (skip-clean if Supabase env absent)
+// Default cron boundary checks are local/no-secret. Live Supabase mutations are
+// opt-in only via CAREER_OPS_RUN_LIVE_SUPABASE_TESTS=1 with process env creds.
 try {
-  const envPath = join(ROOT, '.env');
-  const envContent = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : '';
-  const hasSupabaseCreds = [
-    'SUPABASE_URL', 'SUPABASE_DASHBOARD_KEY',
-    'SUPABASE_CRON_PUBLISHABLE_KEY', 'SUPABASE_CRON_JWT',
-  ].every(k => envContent.includes(k + '='));
-
-  if (!hasSupabaseCreds) {
-    warn('test-cron-rls-negative.mjs skipped — Supabase env vars not in .env (expected on fresh clone)');
+  const rlsSource = readFile('test-cron-rls-negative.mjs');
+  const evictSource = readFile('test-cron-evict.mjs');
+  if (!/readFileSync\s*\(\s*['"]\.env['"]|dotenv\/config|\bconfig\(\)/.test(rlsSource + evictSource) &&
+      rlsSource.includes(LIVE_SUPABASE_TEST_FLAG) &&
+      evictSource.includes(LIVE_SUPABASE_TEST_FLAG)) {
+    pass('cron boundary scripts never load .env and require the explicit live-test flag');
   } else {
-    const result = run(NODE, ['test-cron-rls-negative.mjs'], { stdio: ['pipe', 'pipe', 'pipe'] });
-    if (result !== null) {
-      pass('test-cron-rls-negative.mjs (RLS boundary suite) exits cleanly');
-    } else {
-      fail('test-cron-rls-negative.mjs exited with error — RLS boundary broken');
-    }
+    fail('cron boundary scripts can read .env or bypass the explicit live-test flag');
+  }
+
+  const result = run(NODE, ['test-cron-rls-negative.mjs'], { stdio: ['pipe', 'pipe', 'pipe'] });
+  if (result === null) {
+    fail('test-cron-rls-negative.mjs exited with error');
+  } else if (RUN_LIVE_SUPABASE_TESTS) {
+    pass('test-cron-rls-negative.mjs live RLS mutation proof exits cleanly');
+  } else if (result.includes('SKIP: live Supabase RLS mutation proofs disabled')) {
+    pass('live Supabase RLS mutation proof skipped cleanly (explicit opt-in not set)');
+  } else {
+    fail('test-cron-rls-negative.mjs did not emit the required clean default skip');
   }
 } catch (e) {
   fail(`test-cron-rls-negative.mjs wiring crashed: ${e.message}`);
 }
 
-// Wire test-cron-evict.mjs into the gate.
-// Proof 3 (shouldEvict app-logic guard) runs on every clone; network proofs
-// self-skip when Supabase env vars are absent and the test still exits 0.
+// Proof 3 (shouldEvict app-logic guard) runs on every clone. Network mutation
+// proofs use the same explicit opt-in and otherwise report a clean skip.
 try {
   const result = run(NODE, ['test-cron-evict.mjs'], { stdio: ['pipe', 'pipe', 'pipe'] });
-  if (result !== null) {
-    pass('test-cron-evict.mjs (eviction guard + boundary suite) exits cleanly');
+  if (result === null) {
+    fail('test-cron-evict.mjs exited with error — local eviction guard broken');
+  } else if (!result.includes('EVICT GUARD PROVEN')) {
+    fail('test-cron-evict.mjs did not prove the local shouldEvict guard');
+  } else if (RUN_LIVE_SUPABASE_TESTS) {
+    pass('test-cron-evict.mjs local guard + live mutation proofs exit cleanly');
+  } else if (result.includes('SKIP: live Supabase eviction mutation proofs disabled')) {
+    pass('test-cron-evict.mjs local guard passes; live mutation proofs skipped cleanly');
   } else {
-    fail('test-cron-evict.mjs exited with error — eviction guard broken');
+    fail('test-cron-evict.mjs did not emit the required clean default skip');
   }
 } catch (e) {
   fail(`test-cron-evict.mjs wiring crashed: ${e.message}`);
@@ -6758,6 +6814,7 @@ try {
     /responded:\s+['"]submitted['"]/.test(statusMapSrc) &&
     /interview:\s+['"]submitted['"]/.test(statusMapSrc) &&
     /offer:\s+['"]submitted['"]/.test(statusMapSrc) &&
+    /hired:\s+['"]submitted['"]/.test(statusMapSrc) &&
     /rejected:\s+['"]closed['"]/.test(statusMapSrc) &&
     /discarded:\s+['"]reviewed['"]/.test(statusMapSrc) &&
     /skip:\s+['"]skipped['"]/.test(statusMapSrc)
@@ -6765,6 +6822,18 @@ try {
     pass('tracker-status-map.mjs maps terminal tracker statuses to done queue statuses');
   } else {
     fail('tracker-status-map.mjs terminal tracker status mapping is missing or incomplete');
+  }
+
+  const { queueDoneStatusFromTracker } = await import(pathToFileURL(join(ROOT, 'tracker-status-map.mjs')).href);
+  if (queueDoneStatusFromTracker('Applied') === null &&
+      queueDoneStatusFromTracker('Interview') === null &&
+      queueDoneStatusFromTracker('Hired') === null &&
+      queueDoneStatusFromTracker('Applied', { allowSubmittedEvidence: true }) === 'submitted' &&
+      queueDoneStatusFromTracker('Hired', { allowSubmittedEvidence: true }) === 'submitted' &&
+      queueDoneStatusFromTracker('Rejected') === 'closed') {
+    pass('live tracker reconciliation cannot self-attest submission; historical migration opt-in remains explicit');
+  } else {
+    fail('tracker status mapping can promote an active role to submitted without explicit historical evidence');
   }
 
   if (
@@ -6807,7 +6876,7 @@ try {
 
   // Server: endpoint is a marker only — toggles flags + saves queue, never sets status
   const flagBlock = serverSrc.slice(serverSrc.indexOf('function apiRoleFlag'), serverSrc.indexOf('function apiRoleFlag') + 1400);
-  if (flagBlock.includes('role.flags') && flagBlock.includes('saveQueue(queue)') && !flagBlock.includes('setStatus(')) {
+  if (flagBlock.includes('role.flags') && flagBlock.includes('mutateQueue(') && !flagBlock.includes('setStatus(')) {
     pass('apiRoleFlag toggles role.flags and persists, without touching status/lane (marker only)');
   } else {
     fail('apiRoleFlag does not behave as a pure flag marker (must toggle flags + save, never setStatus)');
@@ -6877,7 +6946,7 @@ try {
     fail('dashboard-server.mjs missing /api/autofill route or apiSetAutoFillAll handler');
   }
   const autoAllBlock = serverSrc.slice(serverSrc.indexOf('function apiSetAutoFillAll'), serverSrc.indexOf('function apiRoleFill'));
-  if (autoAllBlock.includes('saveQueue(queue)') && !autoAllBlock.includes('setStatus(') &&
+  if (autoAllBlock.includes('mutateQueue(') && !autoAllBlock.includes('setStatus(') &&
       !autoAllBlock.includes('form-fill.mjs') && !autoAllBlock.includes('spawn')) {
     pass('apiSetAutoFillAll persists the setting only — never sets status or launches a fill');
   } else {
@@ -6892,16 +6961,18 @@ try {
   }
 
   // Honour rule lives in the SYSTEM layer (modes/queue.md Phase 2), so every CLI's
-  // prepare agent sees it: a flagged role (or all roles under auto_fill_all) chains
-  // prepared → form-fill in one shot, an unflagged role parks at prepared, and
+  // prepare agent sees it: a flagged role (or all roles under auto_fill_all) queues
+  // canonical active-agent work in one shot, an unflagged role parks at prepared, and
   // Submit stays manual in both paths.
   const queueMd = readFile('modes/queue.md');
   const queuePlain = queueMd.replace(/[*_`]/g, '');
+  const queueLower = queuePlain.toLowerCase();
   // (check auto_fill_all against the raw file — the emphasis strip removes underscores)
-  if (queuePlain.includes('auto-fill') && queuePlain.includes('form-fill.mjs') &&
+  if (queuePlain.includes('auto-fill') && /active.agent/i.test(queuePlain) &&
       queueMd.includes('auto_fill_all') &&
-      /without.{1,20}the flag.{1,80}stop at .?prepared/is.test(queuePlain) &&
-      /never (clicks )?submit/i.test(queuePlain)) {
+      queueLower.includes('roles without the flag') && queueLower.includes('stop at prepared') &&
+      /nothing\s+is\s+ever\s+submitted\s+by\s+an\s+agent/.test(queueLower) &&
+      queuePlain.includes('application-receipt.mjs --finalize')) {
     pass('modes/queue.md documents the one-shot chain (per-role flag + global setting, unflagged unchanged, never submits)');
   } else {
     fail('modes/queue.md missing the auto-fill one-shot chaining rule (flag + auto_fill_all)');
@@ -6919,25 +6990,51 @@ try {
     fail('modes/apply.md missing the deep-eval → oferta-first apply rule');
   }
 
-  // Dispatch durability (single fill): a deep-eval-marked role must route to the agent path
-  // BEFORE any deterministic form-fill, or the dashboard would bypass the oferta-first guarantee.
+  // Dispatch durability (single fill): scored selections persist the PREPARE
+  // transition, and only prepared/prefilled roles may reach the durable active-agent
+  // request helper. ATS type and deep-eval flags never bypass that asset gate.
   const fillBlock = serverSrc.slice(serverSrc.indexOf('function apiRoleFill'), serverSrc.indexOf('function apiRoleDecision'));
-  const deepIdx = fillBlock.indexOf('isDeepEval(role)');
-  const fillIdx = fillBlock.indexOf("'form-fill.mjs'");
-  if (deepIdx !== -1 && fillIdx !== -1 && deepIdx < fillIdx) {
-    pass('apiRoleFill routes deep-eval roles to the agent path before any deterministic fill');
+  const scoredIdx = fillBlock.indexOf("freshRole.status === 'scored'");
+  const prepareIdx = fillBlock.indexOf("setStatus(freshQueue, freshRole.id, 'prepare-queued')");
+  const gateIdx = fillBlock.indexOf('FILLABLE_STATUSES.has(freshRole.status)');
+  const requestIdx = fillBlock.indexOf('enqueueActiveAgentRequest(');
+  if (scoredIdx !== -1 && prepareIdx > scoredIdx && gateIdx > prepareIdx && requestIdx > gateIdx &&
+      !/freshRole\.ats\s*===\s*['"]custom['"][\s\S]{0,300}enqueueActiveAgentRequest|isDeepEval\(freshRole\)[\s\S]{0,300}enqueueActiveAgentRequest/.test(fillBlock) &&
+      !/spawnFill|form-fill\.mjs|launchPersistentContext/.test(fillBlock)) {
+    pass('apiRoleFill persists scored selection for PREPARE and asset-gates active-agent work');
   } else {
-    fail('apiRoleFill can headless-fill a deep-eval role (bypasses the oferta-first guarantee)');
+    fail('apiRoleFill can bypass PREPARE or no longer enforces single active-agent browser ownership');
+  }
+  if (/recordCandidateSelectionOverride\s*\([\s\S]*?['"]dashboard-fill['"]/.test(fillBlock)) {
+    pass('apiRoleFill persists the candidate selection override before its quality/dispatch result');
+  } else {
+    fail('apiRoleFill can select a low-score role without persisting the candidate override');
   }
 
-  // Dispatch durability (batch run): partitionRunRoles is the pure routing logic behind the
-  // apiRun "Run" dispatch. Test it BEHAVIORALLY (handover Lessons #26/#27 — a source-text
-  // check passes even against a flipped condition). A deep-eval-marked role must land in
-  // agentPath and never in the headless deterministic/login-gated buckets, whatever its ATS.
-  if (serverSrc.includes('partitionRunRoles(roles)')) {
-    pass('apiRun wires the run dispatch through partitionRunRoles (pure, unit-tested)');
+  // Dispatch durability (batch run): apiRun mutates selected scored rows inside the
+  // queue transaction, so it owns a selectedForPrepare lane and only dispatches rows
+  // that are already fillable. The pure partition helper independently defines that
+  // prepared/prefilled boundary for consumers that do not mutate status.
+  const runBlockSelection = serverSrc.slice(
+    serverSrc.indexOf('function apiRun'),
+    serverSrc.indexOf('// ── Provenance summary helper'),
+  );
+  if (runBlockSelection.includes('const selectedForPrepare = []') &&
+      runBlockSelection.includes("role.status === 'scored'") &&
+      runBlockSelection.includes("setStatus(freshQueue, role.id, 'prepare-queued')") &&
+      runBlockSelection.includes('selectedForPrepare.push(') &&
+      runBlockSelection.includes('FILLABLE_STATUSES.has(role.status)') &&
+      runBlockSelection.includes('enqueueActiveAgentRequest(') &&
+      /prepareQueued:\s*dispatch\.selectedForPrepare\.length/.test(runBlockSelection) &&
+      /notPrepared:\s*dispatch\.notPrepared\.length/.test(runBlockSelection)) {
+    pass('apiRun separates durable PREPARE selection from fillable active-agent dispatch');
   } else {
-    fail('apiRun no longer routes through partitionRunRoles — partition logic may have drifted back inline');
+    fail('apiRun PREPARE/dispatch lanes or response counters have drifted');
+  }
+  if (/recordCandidateSelectionOverride\s*\([\s\S]*?['"]dashboard-run['"]/.test(runBlockSelection)) {
+    pass('apiRun persists candidate overrides for explicit checkbox selections');
+  } else {
+    fail('apiRun can dispatch explicit low-score selections without candidate override evidence');
   }
   try {
     const { partitionRunRoles } = await import(pathToFileURL(join(ROOT, 'run-partition.mjs')).href);
@@ -6952,47 +7049,26 @@ try {
       { id: 'gh-filled',    ats: 'greenhouse', status: 'filled',         flags: [] },
       { id: 'gh-prefilled', ats: 'greenhouse', status: 'prefilled',      flags: [] },
     ];
-    const { deterministic, loginGated, headedReopen, agentPath, notPrepared } = partitionRunRoles(sample);
+    const { agentPath, filledCheck, notPrepared, ...unexpectedLanes } = partitionRunRoles(sample);
     const ids = (arr) => arr.map((r) => r.id);
-    const detIds = ids(deterministic), loginIds = ids(loginGated), reopenIds = ids(headedReopen),
-          agentIds = ids(agentPath), skipIds = ids(notPrepared);
+    const agentIds = ids(agentPath), filledIds = ids(filledCheck), skipIds = ids(notPrepared);
 
-    if (detIds.includes('gh-plain') && !detIds.includes('gh-deep') && !detIds.includes('login-deep')) {
-      pass('partitionRunRoles: plain ATS role → deterministic; deep-eval roles excluded from deterministic');
+    if (Object.keys(unexpectedLanes).length === 0 &&
+        ['gh-plain', 'gh-deep', 'login', 'login-deep', 'gh-prefilled']
+          .every((id) => agentIds.includes(id)) &&
+        !agentIds.includes('custom') &&
+        filledIds.length === 1 && filledIds[0] === 'gh-filled') {
+      pass('partitionRunRoles: fillable work and filled receipt checks use distinct canonical lanes');
     } else {
-      fail(`partitionRunRoles deterministic bucket wrong: ${JSON.stringify(detIds)}`);
+      fail(`partitionRunRoles lanes wrong: ${JSON.stringify({ agentIds, filledIds, unexpectedLanes })}`);
     }
-    if (agentIds.includes('gh-deep') && agentIds.includes('custom') && agentIds.includes('login-deep')) {
-      pass('partitionRunRoles: deep-eval + custom roles → agent path (oferta-first guarantee holds)');
+    // ATS type and deep-eval flags do not bypass the asset gate: every scored or
+    // prepare-queued row is non-fillable until PREPARE produces a prepared state.
+    if (['custom', 'gh-scored', 'gh-queued'].every((id) => skipIds.includes(id)) &&
+        ['custom', 'gh-scored', 'gh-queued'].every((id) => !agentIds.includes(id))) {
+      pass('partitionRunRoles: all unprepared roles → notPrepared, regardless of ATS/flags');
     } else {
-      fail(`partitionRunRoles agentPath bucket wrong: ${JSON.stringify(agentIds)}`);
-    }
-    if (loginIds.includes('login') && !loginIds.includes('login-deep')) {
-      pass('partitionRunRoles: login role → login-gated; a deep-eval login role escalates to agent path');
-    } else {
-      fail(`partitionRunRoles loginGated bucket wrong: ${JSON.stringify(loginIds)}`);
-    }
-    // Asset gate parity with the single-card Fill endpoint: unprepared roles
-    // land in notPrepared (notice only) and never in a fill lane — regardless
-    // of login flags. A custom-ATS role stays agentPath from any status
-    // (guidance only; the apply flow runs PREPARE itself).
-    if (skipIds.includes('gh-scored') && skipIds.includes('gh-queued') &&
-        !detIds.includes('gh-scored') && !loginIds.includes('gh-queued') &&
-        !skipIds.includes('custom')) {
-      pass('partitionRunRoles: unprepared roles → notPrepared (bulk asset gate), never a fill lane');
-    } else {
-      fail(`partitionRunRoles notPrepared bucket wrong: ${JSON.stringify(skipIds)} (det: ${JSON.stringify(detIds)}, login: ${JSON.stringify(loginIds)})`);
-    }
-    // Headless is for FIRST fills only: an existing fill (prefilled/filled)
-    // must re-open HEADED — a headless pass would rewrite a headed-reviewed
-    // 'filled' role back to 'prefilled', silently discarding its reviewed
-    // state (Codex QC 2026-07-03).
-    if (reopenIds.includes('gh-filled') && reopenIds.includes('gh-prefilled') &&
-        !detIds.includes('gh-filled') && !detIds.includes('gh-prefilled') &&
-        !reopenIds.includes('login') && !reopenIds.includes('gh-plain')) {
-      pass('partitionRunRoles: prefilled/filled re-opens → headedReopen, never the headless deterministic lane');
-    } else {
-      fail(`partitionRunRoles headedReopen bucket wrong: ${JSON.stringify(reopenIds)} (det: ${JSON.stringify(detIds)})`);
+      fail(`partitionRunRoles notPrepared bucket wrong: ${JSON.stringify(skipIds)}`);
     }
   } catch (err) {
     fail(`partitionRunRoles behavioral test crashed: ${err.message}`);
@@ -7173,21 +7249,16 @@ try {
   }
 
   const ffSrc = readFile('form-fill.mjs');
-  if (ffSrc.includes('chooseCoverFormat') && ffSrc.includes('coverLetterPaths') && ffSrc.includes('cover_letter_paths')) {
-    pass('form-fill.mjs auto-picks cover format from cover_letter_paths via chooseCoverFormat');
+  if (ffSrc.includes("FORM_FILL_RUNTIME = 'offline-plan-only'") &&
+      ffSrc.includes('cover_letter_paths') && ffSrc.includes('compactAssetList')) {
+    pass('offline application plan exposes prepared cover assets to the canonical active agent');
   } else {
-    fail('form-fill.mjs does not wire the cover format decision');
+    fail('offline application plan does not expose prepared cover assets');
   }
-  if (ffSrc.includes('acceptAllowsDocx') && ffSrc.includes('acceptAllowsPdf') && ffSrc.includes('resolveRolePath')) {
-    pass('form-fill.mjs filters cover-letter fallbacks by accepted file types and supports absolute paths');
+  if (!/setInputFiles|from ['"]playwright['"]|launchPersistentContext/.test(ffSrc)) {
+    pass('form-fill.mjs has no live upload/browser path; active agent verifies accepted types on-page');
   } else {
-    fail('form-fill.mjs may attach an incompatible cover-letter fallback or mishandle absolute paths');
-  }
-  // Back-compat: a bare cover_letter_path is still honored as the polished PDF.
-  if (ffSrc.includes('role.cover_letter_path') && ffSrc.includes('!set.pdf')) {
-    pass('form-fill.mjs keeps cover_letter_path back-compat (treated as polished PDF)');
-  } else {
-    fail('form-fill.mjs dropped cover_letter_path back-compat');
+    fail('form-fill.mjs restored a live upload/browser path');
   }
 } catch (e) {
   fail(`Cover orchestrator/apply wiring test crashed: ${e.message}`);
@@ -8055,7 +8126,8 @@ try {
     // We test the structural guard in teachAnswers source rather than running a full
     // CLI roundtrip (no spawning headless workers in test-all.mjs).
     const qrSrcReusable = readFileSync(join(ROOT, 'queue-resolve.mjs'), 'utf-8');
-    if (qrSrcReusable.includes("if (it.reusable)") && qrSrcReusable.includes("learnReason: 'reusable:false'")) {
+    if ((qrSrcReusable.includes("if (it.reusable)") || qrSrcReusable.includes("if (reusable)")) &&
+        qrSrcReusable.includes("'reusable:false'")) {
       pass('teachAnswers: reusable:false gate present — non-reusable radio/select items are NOT written to screener store');
     } else {
       fail('teachAnswers: missing reusable:false gate — non-reusable screener answers may leak cross-portal');
@@ -8132,18 +8204,30 @@ try {
     fail("queue-resolve.mjs missing --lookup CLI routing");
   }
 
-  // liveResolve calls resolveFields
-  if (resolveSrc.includes('function liveResolve') && resolveSrc.includes('resolveFields(role, fields, profile)')) {
-    pass('liveResolve() delegates to resolveFields() — no gate drift between --pre and --lookup');
+  // Both CLI paths share one commit helper, and that helper alone invokes the
+  // resolver core. This keeps lock-aware persistence DRY without requiring the
+  // public entry points to repeat the call text.
+  const resolverHelper = resolveSrc.slice(
+    resolveSrc.indexOf('function resolveLiveFieldsAndCommit'),
+    resolveSrc.indexOf('// ── --pre'),
+  );
+  const preBlock = resolveSrc.slice(resolveSrc.indexOf('function preResolve'), resolveSrc.indexOf('// ── --lookup'));
+  const liveBlock = resolveSrc.slice(resolveSrc.indexOf('function liveResolve'), resolveSrc.indexOf('// ── --teach'));
+  if (resolveSrc.includes('function liveResolve') &&
+      liveBlock.includes('resolveLiveFieldsAndCommit(roleId, envelope.items, profile, envelope)') &&
+      resolverHelper.includes('resolveFields(workingRole, resolverFields, profile')) {
+    pass('liveResolve() delegates through the shared lock-aware resolveFields() helper');
   } else {
-    fail('liveResolve() does not call resolveFields() — --lookup and --pre may use different logic');
+    fail('liveResolve() does not delegate through the shared resolveFields() helper');
   }
 
   // preResolve also delegates (DRY)
-  if (resolveSrc.includes('function preResolve') && (resolveSrc.match(/resolveFields\(role/g) || []).length >= 2) {
-    pass('preResolve() also delegates to resolveFields() — single resolver core for both paths');
+  if (resolveSrc.includes('function preResolve') &&
+      preBlock.includes('resolveLiveFieldsAndCommit(roleId, fields, profile)') &&
+      (resolverHelper.match(/resolveFields\(/g) || []).length === 1) {
+    pass('preResolve() delegates through the same single resolver core');
   } else {
-    fail('preResolve() does not call resolveFields() — resolver core is duplicated');
+    fail('preResolve() does not delegate through the single shared resolver core');
   }
 
   // @file support in --lookup (same as --teach)
@@ -8356,11 +8440,27 @@ try {
     fail('parseTrackerDoneRows() ignores the limit option');
   }
 
+  const customTrackerMd = [
+    '# Applications Tracker',
+    '',
+    '| # | Date | Company | Role | Via | Location | Score | Status | PDF | Report | Notes |',
+    '|---|------|---------|------|-----|----------|-------|--------|-----|--------|-------|',
+    '| 9 | 2026-06-05 | ZetaCo | Staff Analyst | Referral | Melbourne | 4.8/5 | Hired | ✅ | [9](reports/hired.md) | n |',
+  ].join('\n');
+  const customRows = parseTrackerDoneRows(customTrackerMd);
+  if (customRows.length === 1 && customRows[0].company === 'ZetaCo' &&
+      customRows[0].status === 'Hired' && customRows[0].group === 'applied' &&
+      customRows[0].score === '4.8/5') {
+    pass('parseTrackerDoneRows() is header-aware and includes Hired on customized tracker layouts');
+  } else {
+    fail(`parseTrackerDoneRows() custom-layout/Hired handling wrong: ${JSON.stringify(customRows)}`);
+  }
+
   // Wiring: server payload + board columns present
   const serverSrc31 = readFile('dashboard-server.mjs');
   if (serverSrc31.includes('computeStage(r)') &&
       serverSrc31.includes('parseTrackerDoneRows') &&
-      serverSrc31.includes('roles: enriched, done')) {
+      /respond\(res, 200, \{[\s\S]{0,240}roles:\s*enriched,[\s\S]{0,80}done,/.test(serverSrc31)) {
     pass('dashboard-server.mjs enriches roles with stage and ships tracker done rows');
   } else {
     fail('dashboard-server.mjs missing stage enrichment or done payload');
@@ -8380,6 +8480,12 @@ try {
   } else {
     fail('app.js missing stage nav, Done lane renderer, or To Do CTA');
   }
+  if (appSrc31.includes("roleStatus === 'filled'") &&
+      appSrc31.includes('application-receipt.mjs --repair-filled')) {
+    pass('dashboard drag UI preserves receipt-gated Filled and directs corrupt rows through repair');
+  } else {
+    fail('dashboard drag UI can still present Filled as a bare backward status flip');
+  }
 } catch (e) {
   fail(`kanban board tests crashed: ${e.message}`);
 }
@@ -8397,12 +8503,13 @@ try {
   const ALL_STATUSES = [...new Set([...active32, ...done32]), 'bogus-status'];
 
   // Only these exact (status, targetStage) pairs may produce a non-null result —
-  // this is the full allowed transition table from the plan (Inbox<->To Do,
-  // and Prepared/In Review -> To Do "send back for redo"). Everything else must
-  // be null: forward moves into 'prepared'/'review'/'done' are never a bare
-  // status flip in this system.
+  // this is the full allowed transition table (Inbox<->To Do, Prepared→To Do,
+  // and legacy Prefilled→To Do). Receipt-gated Filled is immutable here and
+  // corrupt historical Filled uses application-receipt --repair-filled.
+  // Everything else must be null: forward moves into prepared/review/done are
+  // never a bare status flip in this system.
   const EXPECTED = {
-    todo:  { scored: 'prepare-queued', prepared: 'prepare-queued', filled: 'prepare-queued', prefilled: 'prepare-queued' },
+    todo:  { scored: 'prepare-queued', prepared: 'prepare-queued', prefilled: 'prepare-queued' },
     inbox: { 'prepare-queued': 'scored' },
   };
 
@@ -8415,19 +8522,19 @@ try {
     }
   }
   if (matrixFails.length === 0) {
-    pass(`stageDragTarget() full matrix correct (${stageOrder32.length} stages × ${ALL_STATUSES.length} statuses, only the 5 documented transitions produce a status)`);
+    pass(`stageDragTarget() full matrix correct (${stageOrder32.length} stages × ${ALL_STATUSES.length} statuses, only the 4 documented transitions produce a status)`);
   } else {
     fail(`stageDragTarget() matrix wrong: ${matrixFails.slice(0, 5).join('; ')}${matrixFails.length > 5 ? ` (+${matrixFails.length - 5} more)` : ''}`);
   }
 
-  // Explicitly re-assert the backward-to-To-Do "send back for redo" moves, so
-  // a future refactor of the transition table can't silently drop them.
+  // Explicitly re-assert the safe backward-to-To-Do moves and the Filled guard,
+  // so a future refactor cannot silently bypass the receipt repair boundary.
   if (stageDragTarget({ status: 'prepared' }, 'todo') === 'prepare-queued' &&
-      stageDragTarget({ status: 'filled' },   'todo') === 'prepare-queued' &&
-      stageDragTarget({ status: 'prefilled' },'todo') === 'prepare-queued') {
-    pass('stageDragTarget() allows Prepared/In Review → To Do "send back for redo"');
+      stageDragTarget({ status: 'prefilled' },'todo') === 'prepare-queued' &&
+      stageDragTarget({ status: 'filled' },   'todo') === null) {
+    pass('stageDragTarget() allows Prepared/Prefilled redo but preserves receipt-gated Filled');
   } else {
-    fail('stageDragTarget() does not allow the requested Prepared/In Review → To Do reverts');
+    fail('stageDragTarget() bypasses the Filled repair boundary or lost a safe redo transition');
   }
 
   // Forward moves that require a real action (asset generation, fill, submit)
@@ -8447,10 +8554,11 @@ try {
   if (serverSrc32.includes('function apiRoleStage') &&
       serverSrc32.includes('apiRoleStage(req, res,') &&
       serverSrc32.includes('stageDragTarget(role, stage)') &&
-      serverSrc32.includes('DRAG_TARGET_STAGES.includes(stage)')) {
-    pass('dashboard-server.mjs registers POST /api/role/:id/stage and validates via DRAG_TARGET_STAGES + stageDragTarget');
+      serverSrc32.includes('DRAG_TARGET_STAGES.includes(stage)') &&
+      serverSrc32.includes('application-receipt.mjs --repair-filled')) {
+    pass('dashboard stage API uses canonical transitions and directs invalid Filled through receipt repair');
   } else {
-    fail('dashboard-server.mjs missing the /stage endpoint or its validation');
+    fail('dashboard stage endpoint is missing canonical transition or Filled repair enforcement');
   }
 
   // The exported target-stage list must stay in lockstep with the table.
@@ -8462,47 +8570,54 @@ try {
     fail(`DRAG_TARGET_STAGES wrong: ${JSON.stringify(dragTargets32)}`);
   }
 
-  // Asset gate on the single deterministic fill: only prepared/prefilled/filled
-  // may launch form-fill.mjs — a reverted (prepare-queued) or unscored role must
-  // 409 instead of re-attaching stale/missing assets. The gate must sit AFTER
-  // the agent-path branches (custom/deep-eval guidance stays reachable). The
-  // status set is imported from run-partition.mjs so the single-card gate and
-  // the bulk-run notPrepared lane can never drift apart.
+  // Asset gate on the single active-agent request: scored selections are first
+  // persisted as prepare-queued; only prepared/prefilled roles are fillable.
+  // Filled is validated separately, and custom/deep flags cannot bypass PREPARE.
   const fillBlock32 = serverSrc32.slice(
     serverSrc32.indexOf('function apiRoleFill'),
     serverSrc32.indexOf('function apiRoleDecision')
   );
-  const gateIdx32   = fillBlock32.indexOf('FILLABLE_STATUSES.has(role.status)');
-  const customIdx32 = fillBlock32.indexOf("ats === 'custom'");
+  const scoredIdx32 = fillBlock32.indexOf("freshRole.status === 'scored'");
+  const prepareIdx32 = fillBlock32.indexOf("setStatus(freshQueue, freshRole.id, 'prepare-queued')");
+  const gateIdx32 = fillBlock32.search(/FILLABLE_STATUSES\.has\((?:freshR|r)ole\.status\)/);
+  const requestIdx32 = fillBlock32.indexOf('enqueueActiveAgentRequest(');
   const partitionSrc32 = readFile('run-partition.mjs');
-  if (partitionSrc32.includes("export const FILLABLE_STATUSES = new Set(['prepared', 'prefilled', 'filled'])") &&
+  if (partitionSrc32.includes("export const FILLABLE_STATUSES = new Set(['prepared', 'prefilled'])") &&
+      partitionSrc32.includes('filledCheck') &&
       serverSrc32.includes('FILLABLE_STATUSES') &&
       serverSrc32.includes("from './run-partition.mjs'") &&
-      gateIdx32 !== -1 && customIdx32 !== -1 && customIdx32 < gateIdx32) {
-    pass('apiRoleFill gates the deterministic fill via the shared FILLABLE_STATUSES, after the agent-path branches');
+      scoredIdx32 !== -1 && prepareIdx32 > scoredIdx32 && gateIdx32 > prepareIdx32 &&
+      requestIdx32 > gateIdx32 && !/spawnFill|form-fill\.mjs|launchPersistentContext/.test(fillBlock32)) {
+    pass('apiRoleFill persists scored selection, asset-gates, then queues one active-agent request');
   } else {
-    fail('apiRoleFill is missing the shared asset-gate status check (or it blocks the agent-path branches)');
+    fail('apiRoleFill asset gate or active-agent-only dispatch has drifted');
   }
 
-  // Bulk Start run must apply the same asset gate: apiRun surfaces the
-  // notPrepared lane (skip notice + count) instead of launching form-fill
-  // for unprepared roles.
-  if (serverSrc32.includes('notPrepared') &&
-      serverSrc32.includes('notPrepared:  notPrepared.length') &&
-      serverSrc32.includes('run /career-ops queue prepare to generate fresh assets')) {
-    pass('apiRun surfaces the notPrepared asset-gate lane (bulk parity with single fill)');
+  // Bulk Start run has separate PREPARE-selection and invalid-state lanes.
+  // Scored/custom/deep selections become prepare-queued; only other non-fillable
+  // states remain notPrepared, and neither lane launches browser work.
+  const runBlock32 = serverSrc32.slice(
+    serverSrc32.indexOf('function apiRun'),
+    serverSrc32.indexOf('// ── Provenance summary helper')
+  );
+  if (runBlock32.includes('const selectedForPrepare = []') &&
+      runBlock32.includes("role.status === 'scored'") &&
+      runBlock32.includes("setStatus(freshQueue, role.id, 'prepare-queued')") &&
+      runBlock32.includes('selectedForPrepare.push(') &&
+      /prepareQueued:\s*dispatch\.selectedForPrepare\.length/.test(runBlock32) &&
+      /notPrepared:\s*dispatch\.notPrepared\.length/.test(runBlock32)) {
+    pass('apiRun reports selectedForPrepare and notPrepared as distinct bulk lanes');
   } else {
-    fail('apiRun does not surface the notPrepared lane — bulk runs may bypass the asset gate');
+    fail('apiRun bulk PREPARE/notPrepared lane reporting has drifted');
   }
 
-  // Bulk re-opens run headed: apiRun must drive the headedReopen lane through
-  // the serial headed runner (spawnFillDetached(role.id, false)), never the
-  // headless deterministic pool.
-  if (serverSrc32.includes('headedReopen: headedReopen.length') &&
-      serverSrc32.includes('for (const role of headedReopen)')) {
-    pass('apiRun runs prefilled/filled re-opens through the serial headed lane');
+  // Bulk Run must only persist active-agent requests; no server-owned browser
+  // worker or headed/headless lane may survive.
+  if (runBlock32.includes('enqueueActiveAgentRequest(') &&
+      !/spawnFill|form-fill\.mjs|launchPersistentContext|headedReopen|loginGated|deterministic:/.test(runBlock32)) {
+    pass('apiRun persists canonical active-agent requests only');
   } else {
-    fail('apiRun does not route headedReopen through the serial headed runner');
+    fail('apiRun restored a private browser or legacy worker lane');
   }
 
   // GET /api/queue must not turn a persistent reconcile-save failure into a
@@ -8514,16 +8629,18 @@ try {
     fail('apiGetQueue reconcile-save backoff missing');
   }
 
-  // saveQueue: after the Supabase RPC commits, a local sidecar/shadow failure
-  // must warn, not throw — throwing reports a misleading 503 for a write that
-  // already landed in the durable store.
+  // saveQueue: local-only evidence must be durable before the Supabase status
+  // RPC. Only the non-authoritative whole-queue shadow may fail after commit.
   const storeSrc32 = readFile('queue-store.mjs');
   const rpcIdx32   = storeSrc32.indexOf("rpcSync('save_queue'");
-  const localTry32 = storeSrc32.indexOf('Supabase save committed but local sidecar/shadow write failed');
-  if (rpcIdx32 !== -1 && localTry32 !== -1 && rpcIdx32 < localTry32) {
-    pass('saveQueue() downgrades post-RPC local write failures to a loud warning');
+  const sidecarIdx32 = storeSrc32.indexOf('saveSidecar(nextSidecar)');
+  const rollbackIdx32 = storeSrc32.indexOf('saveSidecar(existingSidecar)');
+  const shadowWarningIdx32 = storeSrc32.indexOf('queue shadow refresh failed');
+  if (sidecarIdx32 !== -1 && rpcIdx32 !== -1 && sidecarIdx32 < rpcIdx32 &&
+      rollbackIdx32 > rpcIdx32 && shadowWarningIdx32 > rpcIdx32) {
+    pass('saveQueue() commits local evidence before cloud status and compensates an RPC failure');
   } else {
-    fail('saveQueue() still throws (or lost the warning) when local writes fail after the Supabase commit');
+    fail('saveQueue() can advance cloud status before local evidence or lacks RPC compensation');
   }
 
   // Wiring: frontend has draggable cards, the drop-action table, and calls the endpoint
@@ -9203,87 +9320,43 @@ try {
   fail(`match-star tests crashed: ${e.message}`);
 }
 
-// ── PREPARE-APPLICATION — ATS AUTO-FILL CONTRACT ────────────────
+// ── PREPARE-APPLICATION — FAIL-CLOSED TOMBSTONE ─────────────────
 
-console.log('\n prepare-application: ATS auto-fill contract');
+console.log('\n prepare-application: retired fail-closed contract');
 
 try {
   const src = readFile('prepare-application.mjs');
+  const pkg = JSON.parse(readFile('package.json'));
+  const updater = readFile('update-system.mjs');
 
-  // Must not make any network requests
-  if (!/\bfetch\s*\(/.test(src) && !/https?\.request/.test(src) && !/createConnection/.test(src)) {
-    pass('prepare-application.mjs makes no network requests');
+  if (/PREPARE_APPLICATION_RETIRED\s*=\s*true/.test(src) &&
+      /process\.exitCode\s*=\s*2/.test(src) &&
+      /active.agent/i.test(src)) {
+    pass('prepare-application.mjs is a fail-closed active-agent redirect tombstone');
   } else {
-    fail('prepare-application.mjs calls a network API — must be prefill-only, no POST');
+    fail('prepare-application.mjs is not fail-closed');
   }
 
-  // Must have concrete handler functions for all three ATS
-  for (const fn of ['buildGreenhouseFields', 'buildAshbyFields', 'buildLeverFields']) {
-    if (new RegExp(`function ${fn}`).test(src)) {
-      pass(`prepare-application.mjs defines ${fn}`);
-    } else {
-      fail(`prepare-application.mjs missing concrete handler: ${fn}`);
-    }
+  if (!/build(?:Greenhouse|Ashby|Lever)Fields|detectAts\s*\(|config\/profile\.yml/.test(src)) {
+    pass('retired prepare-application contains no ATS field-map/profile workflow');
+  } else {
+    fail('retired prepare-application regrew a parallel ATS workflow');
   }
 
-  // EU Lever instance must be allowlisted in both the top-level host gate and
-  // detectAts()'s LEV set — missing either one silently drops EU apply URLs.
-  // Inspect the actual literals, not a raw source-wide substring count, so a
-  // duplicate elsewhere (or a comment) can't mask a missing entry in either one.
-  const allowedHostsLiteral = src.match(/const ALLOWED_HOSTS = new Set\(\[([\s\S]*?)\]\)/)?.[1] || '';
-  const levLiteral = src.match(/const LEV = new Set\(\[([^\]]*)\]\)/)?.[1] || '';
-  const allowedHostsOk = /jobs\.eu\.lever\.co/.test(allowedHostsLiteral);
-  const levOk = /jobs\.eu\.lever\.co/.test(levLiteral);
-  if (allowedHostsOk && levOk) {
-    pass('prepare-application.mjs allowlists jobs.eu.lever.co in ALLOWED_HOSTS and detectAts() LEV set');
+  if (!pkg.scripts?.['prepare:application'] && !pkg.scripts?.fill &&
+      pkg.scripts?.['apply:plan'] === 'node form-fill.mjs') {
+    pass('package exposes only the offline apply:plan compatibility command');
   } else {
-    const missing = [!allowedHostsOk && 'ALLOWED_HOSTS', !levOk && 'LEV'].filter(Boolean).join(', ');
-    fail(`prepare-application.mjs missing jobs.eu.lever.co from: ${missing}`);
+    fail('package exposes a retired prepare/fill application command');
   }
 
-  // Must read config/profile.yml
-  if (/config\/profile\.yml/.test(src)) {
-    pass('prepare-application.mjs reads config/profile.yml');
+  if (/Fail-closed tombstone[\s\S]{0,160}prepare-application\.mjs/.test(updater)) {
+    pass('system updates ship the tombstone to overwrite unsafe legacy copies');
   } else {
-    fail('prepare-application.mjs does not read config/profile.yml');
-  }
-
-  // Must restrict PDF to output/ directory — either the legacy startsWith
-  // prefix check or the path.relative() containment guard counts.
-  if (/output[^'"`\n]*startsWith|startsWith.*output|relative\(outputDir/.test(src)) {
-    pass('prepare-application.mjs restricts PDF path to output/');
-  } else {
-    fail('prepare-application.mjs missing output/ directory restriction for --pdf');
-  }
-
-  // Must enforce https-only
-  if (/protocol.*https:|https:.*protocol/.test(src)) {
-    pass('prepare-application.mjs enforces https-only URLs');
-  } else {
-    fail('prepare-application.mjs missing https enforcement');
-  }
-
-  // Must not reference old script name
-  if (!/submit-resume/.test(src)) {
-    pass('prepare-application.mjs does not reference old submit-resume name');
-  } else {
-    fail('prepare-application.mjs still references submit-resume');
-  }
-
-  // package.json must expose prepare:application, not submit:resume
-  const pkg = readFile('package.json');
-  if (/prepare.application.*prepare-application\.mjs/.test(pkg)) {
-    pass('package.json exposes prepare:application script');
-  } else {
-    fail('package.json missing prepare:application script pointing to prepare-application.mjs');
-  }
-  if (!/submit.resume/.test(pkg)) {
-    pass('package.json does not reference removed submit-resume.mjs');
-  } else {
-    fail('package.json still references removed submit-resume.mjs');
+    fail('update manifest does not ship the prepare-application tombstone');
   }
 } catch (e) {
-  fail(`prepare-application contract check crashed: ${e.message}`);
+  fail(`prepare-application retirement check crashed: ${e.message}`);
 }
 
 // ── 54. _http.mjs — error messages are status code + reason phrase only ──

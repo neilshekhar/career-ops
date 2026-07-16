@@ -17,6 +17,7 @@
 let allRoles   = [];
 let doneRows   = []; // tracker-sourced Done column rows (read-only)
 let settings   = { score_threshold: null };
+let csrfToken  = '';
 let query      = '';
 
 // cursor: { stageKey, idx } — which card is highlighted (Done column not navigable)
@@ -31,7 +32,7 @@ const STAGE_NAV = ['inbox', 'todo', 'prepared', 'review'];
 
 // Risk-lane badge (orthogonal to stage): how carefully to look at the card.
 const LANE_BADGE = {
-  'needs-input':      '<span class="badge badge-lane-needs"  title="Has unresolved custom/manual fields">⚠ needs input</span>',
+  'needs-input':      '<span class="badge badge-lane-needs"  title="Requires active-agent L3 completion; candidate input is not requested">⚠ agent L3</span>',
   'review-carefully': '<span class="badge badge-lane-review" title="Eligibility / ambiguity / low confidence — review carefully">🔶 review</span>',
 };
 
@@ -40,8 +41,10 @@ const LANE_BADGE = {
 // Most column boundaries on this board aren't a bare relabel — Prepared needs a
 // real tailored CV + cover letter, In Review needs a real form-fill, Done needs
 // a real submission. So a drop either (a) writes a pure status flip via
-// POST /api/role/:id/stage — only Inbox↔To Do and Prepared/In Review→To Do
-// qualify — or (b) triggers the exact same action the Fill Form / Mark Submitted
+// POST /api/role/:id/stage — only Inbox↔To Do, Prepared→To Do, and legacy
+// Prefilled→To Do qualify. Receipt-gated Filled stays in review; corrupt Filled
+// rows use the explicit repair command. A drop otherwise (b) triggers the exact
+// same action the Fill Form / Mark Submitted
 // buttons already call, or (c) is rejected with an explanatory toast. Nothing
 // here ever lets a card claim to be further along than it actually is.
 
@@ -57,8 +60,9 @@ const DROP_ACTIONS = {
   done:   { review: 'submit' },
 };
 
-function dropActionFor(fromStage, toStage) {
+function dropActionFor(fromStage, toStage, roleStatus = null) {
   if (fromStage === toStage) return null;
+  if (fromStage === 'review' && toStage === 'todo' && roleStatus === 'filled') return null;
   return DROP_ACTIONS[toStage]?.[fromStage] ?? null;
 }
 
@@ -72,7 +76,7 @@ function setupDragAndDrop() {
 
     lane.addEventListener('dragover', (e) => {
       if (!dragSource) return;
-      const action = dropActionFor(dragSource.stage, stage);
+      const action = dropActionFor(dragSource.stage, stage, dragSource.status);
       if (action) {
         e.preventDefault(); // permits the drop; otherwise the browser shows its native no-drop cursor
         e.dataTransfer.dropEffect = 'move';
@@ -103,13 +107,15 @@ function setupDragAndDrop() {
 async function handleDrop(id, fromStage, toStage) {
   if (fromStage === toStage) return; // dropped back in the same column — no-op
 
-  const action = dropActionFor(fromStage, toStage);
   const role = allRoles.find(r => r.id === id);
+  const action = dropActionFor(fromStage, toStage, role?.status);
   const name = role ? `${role.company} – ${role.title}` : 'This role';
 
   if (!action) {
     if (toStage === 'prepared') {
       toast("Prepared requires generating a tailored CV + cover letter — run /career-ops queue prepare (can't skip asset generation)", 5000);
+    } else if (fromStage === 'review' && toStage === 'todo' && role?.status === 'filled') {
+      toast('A receipt-gated Filled role stays review-ready. If its receipt is corrupt, run application-receipt.mjs --repair-filled first.', 5000);
     } else {
       toast(`Can't move a role from ${STAGE_LABEL[fromStage]} to ${STAGE_LABEL[toStage]} by dragging — use the existing workflow`, 4000);
     }
@@ -117,27 +123,39 @@ async function handleDrop(id, fromStage, toStage) {
   }
 
   if (action === 'stage-flip') {
-    try {
-      const res = await fetch(`/api/role/${encodeURIComponent(id)}/stage`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ stage: toStage }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        toast(err.error || 'Move failed', 3000);
-        return;
+    const moveRole = async (confirmation = null) => {
+      try {
+        const res = await postJson(`/api/role/${encodeURIComponent(id)}/stage`, {
+          stage: toStage,
+          ...(confirmation ? selectionConfirmationBody(confirmation) : {}),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast(err.error || 'Move failed', 3000);
+          return;
+        }
+        // A send-back revert leaves the old CV/cover letter on the role — remind
+        // that PREPARE must regenerate them before the next fill.
+        if (toStage === 'todo' && (fromStage === 'prepared' || fromStage === 'review')) {
+          toast(`${name} selected for PREPARE redo — regenerate assets before filling`, 5000);
+        } else {
+          toast(`${name} moved to ${STAGE_LABEL[toStage]}`);
+        }
+        await loadQueue();
+      } catch {
+        toast('Move failed — check server logs', 4000);
       }
-      // A send-back revert leaves the old CV/cover letter on the role — remind
-      // that PREPARE must regenerate them before the next fill.
-      if (toStage === 'todo' && (fromStage === 'prepared' || fromStage === 'review')) {
-        toast(`${name} sent back to To Do — run /career-ops queue prepare to regenerate assets before filling`, 5000);
-      } else {
-        toast(`${name} moved to ${STAGE_LABEL[toStage]}`);
-      }
-      await loadQueue();
-    } catch {
-      toast('Move failed — check server logs', 4000);
+    };
+
+    if (toStage === 'todo') {
+      requestCandidateSelection(
+        [id],
+        'stage-prepare',
+        `Select ${name} for PREPARE? This records your choice but never submits an application.`,
+        moveRole,
+      );
+    } else {
+      await moveRole();
     }
     return;
   }
@@ -151,10 +169,10 @@ async function handleDrop(id, fromStage, toStage) {
     // Mirror the inbox panel's guard (its Submit button is disabled for
     // prefilled) — don't offer a confirm the decision path will refuse.
     if (role?.status === 'prefilled') {
-      toast('Re-open with headed Fill Form and review before marking submitted.', 4000);
+      toast('Queue Fill so the active agent can complete the durable receipt before submission.', 4000);
       return;
     }
-    confirmToast(`Mark ${name} as submitted?`, () => doDecision('submitted', id));
+    requestSubmittedDecision(id);
   }
 }
 
@@ -172,6 +190,7 @@ async function loadQueue() {
   try {
     const res  = await fetch('/api/queue');
     const data = await res.json();
+    csrfToken = data.csrf_token || '';
     allRoles = data.roles || [];
     doneRows = data.done  || [];
     settings = data.settings || {};
@@ -185,6 +204,48 @@ async function loadQueue() {
     console.error('Failed to load queue:', err);
     toast('Failed to load queue — is the server running?', 4000);
   }
+}
+
+async function postJson(url, body = {}) {
+  if (!csrfToken) throw new Error('dashboard authorization token is not loaded');
+  return fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Career-Ops-CSRF': csrfToken,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+const SELECTION_CONFIRMATION_PHRASE = 'I selected these roles for preparation or filling';
+
+function selectionConfirmationBody(confirmation) {
+  return {
+    selection_confirmation_nonce: confirmation.selection_confirmation_nonce,
+    selection_intent_id: confirmation.selection_intent_id,
+  };
+}
+
+function requestCandidateSelection(ids, action, message, onConfirmed) {
+  const roleIds = [...new Set(ids.map(String))];
+  confirmToast(message, async () => {
+    try {
+      const res = await postJson('/api/selection-confirmation', {
+        ids: roleIds,
+        action,
+        confirmation: SELECTION_CONFIRMATION_PHRASE,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.selection_confirmation_nonce || !data.selection_intent_id) {
+        toast(data.error || 'Could not create role-selection confirmation', 4000);
+        return;
+      }
+      await onConfirmed(data);
+    } catch {
+      toast('Could not confirm role selection — check server logs', 4000);
+    }
+  });
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -398,7 +459,7 @@ function buildCard(role, stageKey, idx) {
   const HANDLED_FLAGS = new Set([
     'ambiguous-employment', 'large-co-visa-cap', 'pr-citizenship-required',
     'login-required', 'ksc-required', 'cover-letter-required', 'knockout-flag',
-    'manual-field', 'deep-eval', 'auto-fill',
+    'manual-field', 'agent-l3-required', 'deep-eval', 'auto-fill',
   ]);
   const extraFlags = (role.flags || [])
     .filter(f => !HANDLED_FLAGS.has(f))
@@ -446,7 +507,7 @@ function buildCard(role, stageKey, idx) {
 
   // Drag source
   card.addEventListener('dragstart', (e) => {
-    dragSource = { id: role.id, stage: stageKey };
+    dragSource = { id: role.id, stage: stageKey, status: role.status };
     card.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', role.id);
@@ -516,7 +577,7 @@ function renderInbox(role) {
         <div class="inbox-section-value">${esc(role.cv_pdf)}</div>
       </div>`
     : `<div class="inbox-section">
-        <div class="inbox-section-value" style="color:var(--overlay0)">CV not yet generated — run <code>/career-ops queue prepare</code></div>
+        <div class="inbox-section-value" style="color:var(--overlay0)">CV and cover letter not yet generated — run <code>/career-ops queue prepare</code></div>
       </div>`;
 
   const provHtml = role.provenance_summary
@@ -567,10 +628,11 @@ function renderInbox(role) {
   const note = document.getElementById('inbox-note');
   const submitBtn = document.getElementById('btn-submit');
   const isPrefilled = role.status === 'prefilled';
-  submitBtn.disabled = isPrefilled;
-  submitBtn.title = isPrefilled
-    ? 'Re-open with headed Fill Form and review before marking submitted'
-    : 'Mark submitted after manual submission';
+  const canMarkSubmitted = role.submission_ready === true;
+  submitBtn.disabled = !canMarkSubmitted;
+  submitBtn.title = canMarkSubmitted
+    ? 'Mark submitted only after you completed the portal submission manually'
+    : 'A finalized receipt-bound filled form is required before submission can be recorded';
 
   const deepBtn = document.getElementById('btn-deep-eval');
   if (deepBtn) {
@@ -588,22 +650,26 @@ function renderInbox(role) {
     autoBtn.classList.toggle('active', marked);
     autoBtn.textContent = marked ? '⚡ Auto-fill ✓' : '⚡ Auto-fill';
     autoBtn.title = marked
-      ? 'One-shot on — PREPARE chains straight into the fill. Click to unmark.'
-      : 'One-shot: PREPARE chains straight into the fill (still never submits)';
+      ? 'One-shot on — PREPARE queues canonical active-agent application work. Click to unmark.'
+      : 'One-shot: PREPARE queues canonical active-agent application work (still never submits)';
   }
 
   if (role.employment_type === 'ambiguous') {
-    note.textContent = '⚠ Employment type is ambiguous — confirm before filling.';
+    note.textContent = '⚠ Employment type is ambiguous — if selected, the agent uses a conservative answer and flags it for final review.';
   } else if (role.eligibility === 'blocked') {
-    note.textContent = '⛔ Eligibility blocker — confirm manually before applying.';
+    note.textContent = '⛔ Eligibility blocker — review the warning; if selected, the agent answers truthfully and flags the rejection risk.';
   } else if ((role.flags || []).includes('knockout-flag')) {
-    note.textContent = '⛔ Screener/knockout question detected — answer truthfully in the browser.';
+    note.textContent = '⛔ Screener/knockout detected — the agent fills it truthfully and flags it for final review.';
   } else if (isPrefilled) {
-    note.textContent = 'Headless pre-fill completed. Click Fill Form to re-open headed, review the live form, then submit manually.';
+    note.textContent = 'Legacy non-review-ready checkpoint. Click Fill Form to queue active-agent receipt completion.';
+  } else if (role.status === 'filled' && (role.application_progress?.report_state === 'submitted')) {
+    note.textContent = 'Submission is already recorded in the receipt report. Retry Mark Submitted to finish any pending queue sync.';
+  } else if (role.status === 'filled' && !canMarkSubmitted) {
+    note.textContent = `Receipt gate incomplete: ${(role.receipt_errors || []).join(' | ') || 'verification required'}`;
   } else if ((role.flags || []).includes('login-required')) {
-    note.textContent = '🔐 Portal requires login — form-fill will handle registration/login automatically.';
+    note.textContent = '🔐 Portal requires login — the active agent follows the canonical registration/login state machine.';
   } else if (!role.cv_pdf) {
-    note.textContent = 'Run /career-ops queue prepare to generate a tailored CV.';
+    note.textContent = 'Run /career-ops queue prepare to generate and validate the tailored CV + cover letter.';
   } else if (role.status === 'scored' || role.status === 'prepare-queued') {
     // A cv_pdf on a pre-PREPARE status means the role was sent back for redo —
     // the assets on record are from the earlier PREPARE run and must be
@@ -655,19 +721,24 @@ function buildFreeTextSections(role) {
 
 function buildManualFields(role) {
   if (!role.free_text_fields || role.free_text_fields.length === 0) return '';
-  const customs = role.free_text_fields.filter(f => f.kind === 'custom');
-  if (customs.length === 0 && !(role.flags || []).includes('manual-field')) return '';
+  const customs = role.free_text_fields.filter(f =>
+    f.kind === 'custom' && !(role.drafts && role.drafts[f.key])
+  );
+  const needsAgent = (role.flags || []).some((flag) =>
+    flag === 'agent-l3-required' || flag === 'manual-field'
+  );
+  if (customs.length === 0 && !needsAgent) return '';
 
   const items = customs.map(f =>
     `<div class="manual-field-item">
       <div class="field-label">${esc(f.label)}${f.required ? ' *' : ''}</div>
-      <div class="field-note">Custom field — fill manually</div>
+      <div class="field-note">Novel field — interactive agent must answer with L3</div>
     </div>`
   ).join('');
 
   return `<div class="inbox-section">
-    <div class="inbox-section-label" style="color:var(--yellow)">⚠ Manual fields (left blank by auto-fill)</div>
-    ${items || '<div class="inbox-section-value" style="color:var(--overlay0)">See flags — manual input required</div>'}
+    <div class="inbox-section-label" style="color:var(--yellow)">⚠ Agent L3 completion required</div>
+    ${items || '<div class="inbox-section-value" style="color:var(--overlay0)">Resume through the interactive apply workflow; candidate input is not requested.</div>'}
   </div>`;
 }
 
@@ -711,23 +782,48 @@ function clearAll() {
 
 async function startRun() {
   if (checkedIds.size === 0) { toast('No roles selected', 2000); return; }
+  if (checkedIds.size > 4) {
+    toast('Select at most 4 roles for one browser-controller run', 4000);
+    return;
+  }
+
+  const ids = Array.from(checkedIds);
+  const names = ids
+    .map((id) => allRoles.find((role) => role.id === id))
+    .filter(Boolean)
+    .map((role) => `${role.company} – ${role.title}`);
+  requestCandidateSelection(
+    ids,
+    'run',
+    `Start the selected ${ids.length} role${ids.length === 1 ? '' : 's'}? ${names.join('; ')}. This may queue PREPARE/filling but never submits.`,
+    (confirmation) => executeStartRun(ids, confirmation),
+  );
+}
+
+async function executeStartRun(ids, confirmation) {
 
   // Show activity panel
   document.getElementById('activity-panel').removeAttribute('hidden');
 
-  const ids = Array.from(checkedIds);
   try {
-    const res  = await fetch('/api/run', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ ids }),
+    const res  = await postJson('/api/run', {
+      ids,
+      ...selectionConfirmationBody(confirmation),
     });
     const data = await res.json();
-    const skippedNote = data.notPrepared > 0
-      ? `, ${data.notPrepared} skipped (not prepared — run /career-ops queue prepare)`
+    if (!res.ok) {
+      toast(data.error || 'Failed to start run', 4000);
+      return;
+    }
+    const prepareNote = data.prepareQueued > 0
+      ? `, ${data.prepareQueued} selected for PREPARE`
       : '';
-    const headedCount = (data.loginGated ?? 0) + (data.headedReopen ?? 0);
-    toast(`Run started: ${data.deterministic} headless, ${headedCount} headed, ${data.agentPath} agent-path${skippedNote}`, data.notPrepared > 0 ? 5000 : 2500);
+    const skippedNote = data.notPrepared > 0
+      ? `, ${data.notPrepared} need scoring/repair before PREPARE`
+      : '';
+    const readyNote = data.reviewReady > 0 ? `, ${data.reviewReady} already review-ready` : '';
+    const qualityNote = data.qualityBlocked > 0 ? `, ${data.qualityBlocked} blocked by asset quality` : '';
+    toast(`Queued ${data.agentPath} canonical active-agent application${data.agentPath === 1 ? '' : 's'}${prepareNote}${readyNote}${qualityNote}${skippedNote}`, (data.notPrepared > 0 || data.qualityBlocked > 0) ? 5000 : 3000);
     clearAll();
   } catch {
     toast('Failed to start run — check server logs', 4000);
@@ -752,9 +848,8 @@ function connectActivityFeed() {
   };
 }
 
-// A fill runs as a detached child process, so the board can't know when the
-// status actually advances — the SSE terminal events are that signal. Debounced
-// so a bulk run's burst of events triggers one reload, not one per role.
+// Dashboard Fill/Run only queue active-agent work. SSE events report that durable
+// dispatch and later canonical receipt outcomes; debounce reload bursts.
 let activityReloadTimer;
 const ACTIVITY_TERMINAL_EVENTS = new Set(['success', 'failure', 'login-wall', 'knockout-flag']);
 
@@ -798,45 +893,94 @@ function appendActivityEntry(entry) {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
-async function doFill(roleId = activeId) {
+async function doFill(roleId = activeId, confirmation = null) {
   if (!roleId) return;
+  if (!confirmation) {
+    const role = allRoles.find((item) => item.id === roleId);
+    const name = role ? `${role.company} – ${role.title}` : 'this role';
+    const action = role?.status === 'scored'
+      ? 'select it for PREPARE'
+      : 'queue or resume its active-agent form fill';
+    requestCandidateSelection(
+      [roleId],
+      'fill',
+      `Confirm ${name}: ${action}? This never submits the application.`,
+      (issued) => doFill(roleId, issued),
+    );
+    return;
+  }
   try {
-    const res  = await fetch(`/api/role/${encodeURIComponent(roleId)}/fill`, { method: 'POST' });
+    const res  = await postJson(`/api/role/${encodeURIComponent(roleId)}/fill`, {
+      ...selectionConfirmationBody(confirmation),
+    });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       toast(err.error || 'Fill failed — check server logs', 4000);
       return;
     }
     const data = await res.json();
-    if (data.method === 'agent') {
-      toast(data.message, 6000);
-    } else {
-      toast('Playwright fill launched — browser opening…');
-    }
-    // The fill runs as a detached child process, so status hasn't advanced yet;
-    // this refresh only picks up stats/settings. The card moves on a later
-    // refresh once form-fill.mjs persists the new status.
+    toast(data.message, data.method === 'review-ready' ? 4000 : 6000);
+    // Dispatch does not change application status. The active agent owns the live
+    // tab and the card moves only after the canonical receipt finalizer succeeds.
     await loadQueue();
   } catch {
-    toast('Fill request failed — check server logs', 4000);
+    toast('Could not queue active-agent application work — check server logs', 4000);
   }
 }
 
-async function doDecision(decision, roleId = activeId) {
+const SUBMISSION_CONFIRMATION_PHRASE = 'I submitted this application in the portal';
+
+async function requestSubmittedDecision(roleId = activeId) {
   if (!roleId) return;
   const role = allRoles.find(r => r.id === roleId);
+  if (role?.status === 'prefilled') {
+    toast('Queue Fill so the active agent can complete the receipt before submission.', 4000);
+    return;
+  }
+  const name = role ? `${role.company} – ${role.title}` : 'this role';
+  confirmToast(
+    `Confirm only after you personally clicked the portal's final submit control for ${name}. Mark it submitted?`,
+    async () => {
+      try {
+        const res = await postJson(
+          `/api/role/${encodeURIComponent(roleId)}/submission-confirmation`,
+          { confirmation: SUBMISSION_CONFIRMATION_PHRASE },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.confirmation_nonce) {
+          toast(data.error || 'Could not create submission confirmation', 4000);
+          return;
+        }
+        await doDecision('submitted', roleId, data.confirmation_nonce);
+      } catch {
+        toast('Could not confirm submission — check server logs', 4000);
+      }
+    },
+  );
+}
+
+async function doDecision(decision, roleId = activeId, confirmationNonce = null) {
+  if (!roleId) return;
+  const role = allRoles.find(r => r.id === roleId);
+  if (decision === 'submitted' && !confirmationNonce) {
+    requestSubmittedDecision(roleId);
+    return;
+  }
   if (decision === 'submitted' && role?.status === 'prefilled') {
-    toast('Re-open with headed Fill Form and review before marking submitted.', 4000);
+    toast('Queue Fill so the active agent can complete the receipt before submission.', 4000);
     return;
   }
   const label = { submitted: 'Submitted', skipped: 'Skipped', reviewed: 'Reviewed' }[decision];
   try {
-    const res = await fetch(`/api/role/${encodeURIComponent(roleId)}/decision`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decision }),
+    const res = await postJson(`/api/role/${encodeURIComponent(roleId)}/decision`, {
+      decision,
+      ...(confirmationNonce ? { confirmation_nonce: confirmationNonce } : {}),
     });
-    if (!res.ok) { toast('Action failed', 3000); return; }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      toast(data.error || 'Action failed', 3000);
+      return;
+    }
     toast(`${label} — advancing to next role…`);
     const wasActive = roleId === activeId;
     if (wasActive) closeInbox();
@@ -858,10 +1002,9 @@ async function toggleRoleFlag(flag, { onMsg, offMsg }) {
   const role = allRoles.find(r => r.id === activeId);
   const marked = (role?.flags || []).includes(flag);
   try {
-    const res = await fetch(`/api/role/${encodeURIComponent(activeId)}/flag`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ flag, value: !marked }),
+    const res = await postJson(`/api/role/${encodeURIComponent(activeId)}/flag`, {
+      flag,
+      value: !marked,
     });
     if (!res.ok) { toast('Could not update mark', 3000); return; }
     const data = await res.json();
@@ -889,26 +1032,23 @@ async function toggleAutoFill() {
 }
 
 // Global one-shot default (settings.auto_fill_all): PREPARE chains into the fill
-// for EVERY role, no per-card flag needed. Marker only — nothing launches now.
+// for every explicitly selected role in that PREPARE phase, no per-card flag
+// needed. It never selects roles. Marker only — nothing launches now.
 function syncAutoFillAllButton() {
   const btn = document.getElementById('btn-auto-fill-all');
   if (!btn) return;
   const on = settings.auto_fill_all === true;
   btn.classList.toggle('active', on);
-  btn.textContent = on ? '⚡ One-shot: ALL' : '⚡ One-shot: off';
+  btn.textContent = on ? '⚡ One-shot: ALL selected' : '⚡ One-shot: off';
 }
 
 async function toggleAutoFillAll() {
   const next = !(settings.auto_fill_all === true);
   try {
-    const res = await fetch('/api/autofill', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ value: next }),
-    });
+    const res = await postJson('/api/autofill', { value: next });
     if (!res.ok) { toast('Could not update one-shot setting', 3000); return; }
     toast(next
-      ? '⚡ One-shot ON for all roles — every PREPARE chains straight into the fill (never submits)'
+      ? '⚡ One-shot ON for all explicitly selected roles — their PREPARE chains straight into fill (never selects or submits)'
       : 'One-shot off — roles park at Prepared unless individually ⚡ flagged', 4000);
     await loadQueue();
   } catch {
@@ -938,13 +1078,10 @@ function toggleTheme() {
 async function setThreshold() {
   const val = parseFloat(document.getElementById('threshold-input').value);
   if (isNaN(val) || val < 0 || val > 5) { toast('Enter a threshold between 0 and 5'); return; }
-  const res  = await fetch('/api/threshold', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value: val }),
-  });
+  const res  = await postJson('/api/threshold', { value: val });
   const data = await res.json();
-  toast(`Threshold set to ${val} — ${data.flipped} role(s) queued for prepare.`);
+  if (!res.ok) { toast(data.error || 'Could not update threshold', 3000); return; }
+  toast(`Selection threshold set to ${val} — no roles were queued or changed.`);
   await loadQueue();
 }
 
@@ -973,7 +1110,7 @@ document.addEventListener('keydown', (e) => {
     case ' ':                    e.preventDefault(); toggleCurrentCheck(); break;
     case 'Escape':               closeInbox(); break;
     case 'f':  if (activeId)                doFill();               break;
-    case 's':  if (activeId)                doDecision('submitted'); break;
+    case 's':  if (activeId)                requestSubmittedDecision(); break;
     case 'x':  if (activeId)                doDecision('skipped');  break;
     case 'r':  loadQueue(); break;
     case 'o':  openCurrentUrl(); break;
@@ -1083,7 +1220,7 @@ function setupEventListeners() {
   });
 
   document.getElementById('btn-fill').addEventListener('click', () => doFill());
-  document.getElementById('btn-submit').addEventListener('click', () => doDecision('submitted'));
+  document.getElementById('btn-submit').addEventListener('click', () => requestSubmittedDecision());
   document.getElementById('btn-skip').addEventListener('click', () => doDecision('skipped'));
   document.getElementById('btn-reviewed').addEventListener('click', () => doDecision('reviewed'));
   document.getElementById('btn-deep-eval').addEventListener('click', toggleDeepEval);

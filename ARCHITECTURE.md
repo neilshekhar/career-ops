@@ -8,7 +8,7 @@ Career-ops is built on three commitments that every design decision serves:
 
 - **Local-first.** Everything runs on your machine against your files. No account required, no server in the loop for the core tool.
 - **AI-agnostic.** The logic lives in Markdown prompt files under `modes/`, executed by whatever AI coding CLI you use (Claude Code, Codex, OpenCode, Gemini, Qwen, Grok, Antigravity) or by standalone Node scripts. No single model is hardcoded.
-- **Human-in-the-loop.** The tool prepares and evaluates; the human reviews and clicks. It never submits applications on your behalf.
+- **Human-in-the-loop.** The tool evaluates, prepares, and may fill authorized forms; the candidate reviews and performs the final submission. It never submits applications on the candidate's behalf.
 
 ## The two layers (the data contract)
 
@@ -55,7 +55,7 @@ The heart of the tool. `oferta.md` defines the A–G evaluation blocks; `_shared
 `generate-pdf.mjs` (Playwright HTML→PDF), `generate-latex.mjs` / `build-cv-latex.mjs`, `generate-cover-letter.mjs`. ATS-safe templates live in `templates/` and `fonts/`.
 
 ### Tracking — `data/` + `reports/` + tracker scripts
-Every evaluated offer is registered. `data/applications.md` is the canonical tracker table; `reports/{NNN}-{company}-{date}.md` holds full evaluations. `tracker.mjs`, `merge-tracker.mjs`, `dedup-tracker.mjs`, `normalize-statuses.mjs`, and `reconcile-pipeline.mjs` keep it consistent (atomic writes + a SQLite index). Report numbers are claimed atomically via `reserve-report-num.mjs`.
+Every evaluated offer is registered. `data/applications.md` is the canonical tracker table; `reports/{NNN}-{company}-{date}.md` holds full evaluations. `merge-tracker.mjs` creates evaluation rows as `Evaluated`; post-application lifecycle imports require an explicit external/historical mode and are promoted through the locked `set-status.mjs --external` path with provenance. `tracker.mjs`, `dedup-tracker.mjs`, `normalize-statuses.mjs`, and `reconcile-pipeline.mjs` keep the remaining views consistent (atomic writes + a SQLite index). Report numbers are claimed atomically via `reserve-report-num.mjs`.
 
 ### Liveness — never evaluate a dead posting
 `check-liveness.mjs` / `liveness-*.mjs` verify a posting is still open (zero-token) before it costs evaluation time.
@@ -64,19 +64,26 @@ Every evaluated offer is registered. `data/applications.md` is the canonical tra
 Safely pulls new system files from upstream without touching user data. It backs up, fetches, re-execs the target updater (resolving its import closure so a new import can't break the upgrade), then checks out only `SYSTEM_PATHS`. `BOOTSTRAP_PATHS` covers very old installs.
 
 ### Multi-CLI entry files
-Each CLI reads its own entry file, all of which point at the canonical `AGENTS.md`: `CLAUDE.md` (full), and thin `@AGENTS.md` redirect wrappers `OPENCODE.md`, `CODEX.md`, `GEMINI.md`, plus the `.agents/skills/` skill entrypoints. This is the [open agent skill standard](https://agentskills.io).
+Each CLI reads its own entry file, all of which point at the canonical `AGENTS.md`: `CLAUDE.md` (full), thin `@AGENTS.md` redirect wrappers such as `OPENCODE.md` and `CODEX.md`, the Antigravity skill entrypoint, and the `.agents/skills/` skill entrypoints. `GEMINI.md` is an intentional legacy no-op so Antigravity does not load the same instructions twice. This follows the [open agent skill standard](https://agentskills.io).
 
-### Dashboard (optional)
-A standalone Go TUI under `dashboard/` for browsing the pipeline. Isolated from the core — never required.
+### Dashboard and review surfaces
+The primary review UI is the local Kanban dashboard opened with `npm run launch` at `http://127.0.0.1:7777`. It displays scored roles, records explicit selection/override decisions, queues durable application requests for the active agent, and surfaces review-ready work. Dashboard actions do not directly own a browser or submit an application. The standalone Go TUI under `dashboard/` remains an optional secondary tracker/report view.
 
 ## Data flow (a typical run)
 
 ```
-scan ──► data/pipeline.md ──► evaluate (oferta + cv) ──► reports/NNN-*.md
-                                          │                      │
-                                          └──► data/applications.md (tracker)
-                                                         │
-                                          apply (human reviews + clicks)
+scan ──► data/pipeline.md ─┐
+direct JD/URL ─────────────┴──► evaluate (A-G + cv) ──► score/verdict + report
+                                                          │
+                                                          └──► tracker: Evaluated
+                                                                     │
+                                                  explicit continue/dashboard selection
+                                                                     │
+                                       PREPARE assets ──► verify-userdata.mjs
+                                                                     │
+                                      active-agent live fill ──► application receipt
+                                                                     │
+                                                    candidate review + final submit
 ```
 
 ## Quality gates
@@ -84,6 +91,7 @@ scan ──► data/pipeline.md ──► evaluate (oferta + cv) ──► repor
 - `test-all.mjs` — the full suite (500+ checks across scoring, scan, tracker, PDF, security, updater).
 - `verify-userdata.mjs` — fail-closed application release gate: source-backed evidence and candidate claims, fresh role-matched assets, page/format rules, and allowlisted, hash-bound interactive generation provenance.
 - `generation-provenance.mjs` — stamps the final interactive PREPARE flow, exact CLI/model and optional effort labels, asset paths, and SHA-256 hashes. Its provider-neutral policy accepts arbitrary model IDs in `open` mode or enforces a user's exact model/effort choices; batch provenance remains draft-only and cannot advance to fill.
+- `application-receipt.mjs` — executable per-page evidence and review-readiness gate for live applications; only a finalized receipt may promote a role to `filled`.
 - `updater-migration-tests.mjs` — enforces the system/user boundary and safe cross-version upgrades.
 - CI: `test` + CodeQL are required; CodeRabbit reviews every PR; Renovate keeps deps current.
 

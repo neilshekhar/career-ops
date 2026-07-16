@@ -73,7 +73,7 @@
 
 Career-Ops ([career-ops.org](https://career-ops.org), also known as **careerops**) turns any AI coding CLI into a full job search command center. Instead of manually tracking applications in a spreadsheet, you get an AI-powered pipeline that:
 
-- **Evaluates offers** with a structured A-F scoring system (10 weighted dimensions)
+- **Evaluates offers** with a structured A-G evaluation system (10 weighted score dimensions plus posting-legitimacy analysis)
 - **Generates tailored PDFs** -- ATS-optimized CVs customized per job description
 - **Scans portals** automatically (Greenhouse, Ashby, Lever, company pages)
 - **Processes in batch** -- evaluate 10+ offers in parallel with sub-agents
@@ -92,16 +92,16 @@ Originally built by [santifer](https://santifer.io), who used it to evaluate 740
 
 | Feature                  | Description                                                                                                                              |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Auto-Pipeline**        | Paste a URL, get a full evaluation + PDF + tracker entry                                                                                 |
-| **6-Block Evaluation**   | Role summary, CV match, level strategy, comp research, personalization, interview prep (STAR+R) -- plus a Block G posting-legitimacy check that flags scams and ghost jobs |
+| **Auto-Pipeline**        | Paste a URL to evaluate/score it and see the verdict first; tailored assets and application work require explicit continue/dashboard selection |
+| **A-G Evaluation**       | Role summary, CV match, level strategy, comp research, personalization, interview prep (STAR+R), and a Block G posting-legitimacy check that flags scams and ghost jobs |
 | **Interview Story Bank** | Accumulates STAR+Reflection stories across evaluations -- 5-10 master stories that answer any behavioral question                        |
 | **Negotiation Scripts**  | Salary negotiation frameworks, geographic discount pushback, competing offer leverage                                                    |
 | **ATS PDF Generation**   | Keyword-injected CVs with Space Grotesk + DM Sans design                                                                                 |
-| **Cover Letter Generator** | Research-backed cover letters with keyword mirroring, four interactive angle prompts (why/problems/approach/tone), draft-in-chat approval gate, and A4 PDF via the same HTML + Playwright pipeline as CVs. Auto-drafts on every evaluation; complete and generate on demand via `/career-ops cover` |
+| **Cover Letter Generator** | Research-backed cover letters with keyword mirroring, four interactive angle prompts (why/problems/approach/tone), draft-in-chat approval gate, and A4 PDF via the same HTML + Playwright pipeline as CVs. Generated during authorized PREPARE after explicit role selection, or on demand via `/career-ops cover` |
 | **Application Email Drafts** | Formal recruiter/referral/cold application emails from a report or pasted JD, with subject line, attachment checklist, source-backed fit points, and a profile-driven contact block. Draft-only -- career-ops never sends, submits, or clicks anything. |
 | **Portal Scanner**       | 45+ companies pre-configured (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + custom queries across Ashby, Greenhouse, Lever, Wellfound |
 | **Batch Processing**     | Parallel evaluation with headless CLI workers (`claude -p` / `opencode run`)                                                             |
-| **Local Kanban Dashboard** | Browser dashboard to review, triage, prepare, and fill applications from a localhost-only queue                                        |
+| **Local Kanban Dashboard** | Browser dashboard to review and triage roles, queue application requests for the active agent, and inspect review-ready work           |
 | **Human-in-the-Loop**    | AI evaluates and recommends, you decide and act. The system never submits an application -- you always have the final call               |
 | **Pipeline Integrity**   | Automated merge, dedup, status normalization, health checks                                                                              |
 | **Beyond the CV**        | Company research ([`deep`](modes/deep.md)) surfaces AI strategy, recent moves, engineering culture, and the angle your profile should take. Contact discovery ([`contacto`](modes/contacto.md)) identifies the hiring manager, recruiter, or team peer worth reaching out to and drafts a ≤300-character LinkedIn message tuned to each contact type. Formal application email drafts ([`email`](modes/email.md)) turn an evaluated report or pasted JD into a subject line, body, and attachment checklist without sending, submitting, or clicking anything. Applications get you in the queue; research gets you a conversation. |
@@ -125,7 +125,8 @@ npm run launch   # open the local kanban dashboard
 
 **Everything runs on your machine and your own AI subscription — nothing is
 hosted for you, nothing phones home.** By default the whole pipeline (queue,
-dashboard, form-fill, PDFs) is local with zero accounts. Optional cloud
+dashboard, offline fill planning, PDFs, and agent-driven live application work)
+is local with zero infrastructure accounts. Optional cloud
 upgrades — a free Supabase queue + GitHub scan cron, and Apify job-board
 discovery (~$5 free credit monthly) — use *your own* free-tier accounts:
 see [Infrastructure Tiers](docs/TIERS.md).
@@ -138,7 +139,7 @@ see [Infrastructure Tiers](docs/TIERS.md).
 ```bash
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
-npx playwright install chromium   # only needed for PDF generation
+npx playwright install chromium   # needed for PDFs and Playwright browser/liveness verification
 
 # 2. Check setup
 npm run doctor                     # Validates all prerequisites
@@ -275,7 +276,7 @@ Career-ops uses a shared command router. In CLIs that register slash commands, i
 
 ```
 /career-ops                → Show all available commands
-/career-ops {paste a JD}   → Full auto-pipeline (evaluate + PDF + tracker)
+/career-ops {paste a JD}   → Evaluate/score + verdict first; wait for explicit continue/dashboard selection
 /career-ops scan           → Scan portals for new offers
 /career-ops pdf            → Generate ATS-optimized CV
 /career-ops cover          → Cover letter generator (paste JD or /career-ops cover {slug})
@@ -290,7 +291,7 @@ Career-ops uses a shared command router. In CLIs that register slash commands, i
 /career-ops project        → Evaluate a portfolio project
 ```
 
-Or just paste a job URL or description directly -- career-ops auto-detects it and runs the full pipeline.
+Or just paste a job URL or description directly -- career-ops auto-detects it, evaluates/scores it, and shows the verdict first. Under `modes/_custom.md`, it does not generate tailored assets, advance the tracker into an application state, select a role, open a browser, or live-fill a form until you explicitly continue or select the role in the dashboard.
 
 In Codex, slash commands are not guaranteed. Use the same mode names in a prompt instead, or call them from `codex exec`.
 
@@ -306,14 +307,18 @@ You paste a job URL or description
 └────────┬─────────┘
          │
 ┌────────▼─────────┐
-│  A-F Evaluation  │  Match, gaps, comp research, STAR stories
+│  A-G Evaluation  │  Match, gaps, comp research, STAR stories, legitimacy
 │  (reads cv.md)   │
 └────────┬─────────┘
          │
-    ┌────┼────┐
-    ▼    ▼    ▼
- Report  PDF  Tracker
-  .md   .pdf   .tsv
+         ▼
+ Score/verdict + report + tracker status: Evaluated
+         │
+         ▼
+ Explicit continue or dashboard selection
+         │
+         ▼
+ Tailored assets → browser/live fill → candidate review and submit
 ```
 
 ## Pre-configured Portals
@@ -349,9 +354,10 @@ moving roles through Inbox, To Do, Prepared, In Review, and Done.
 npm run launch   # open http://127.0.0.1:7777
 ```
 
-Use it to review fit scores, select roles to prepare, launch form-fill, track
-drafts/assets, and keep human review before submission. The dashboard never
-submits applications for you.
+Use it to review fit scores, select roles to prepare, queue durable application
+requests for the active agent, track drafts/assets, and keep human review before
+submission. The dashboard never launches browser automation, fills, or submits an
+application itself.
 
 ### Terminal Tracker TUI
 
@@ -413,7 +419,7 @@ career-ops/
 ![Bubble Tea](https://img.shields.io/badge/Bubble_Tea-FF75B5?style=flat&logo=go&logoColor=white)
 
 - **Agent**: AI coding CLI with shared skills and modes (`AGENTS.md` + CLI wrapper)
-- **PDF**: Playwright/Puppeteer + HTML template
+- **PDF**: Playwright + HTML template
 - **Cover letters**: HTML template + Playwright (A4 PDF, same pipeline as CVs)
 - **Scanner**: Playwright + Greenhouse API + WebSearch
 - **Dashboard**: Go + Bubble Tea + Lipgloss (Catppuccin Mocha theme)

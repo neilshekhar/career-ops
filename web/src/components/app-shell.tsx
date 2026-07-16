@@ -9,7 +9,6 @@ import { MobileNav } from "@/components/mobile-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { JobsProvider } from "@/components/jobs/job-store";
 import { PipelineProvider } from "@/components/pipeline/pipeline-provider";
-import { ApplyProvider } from "@/components/apply/apply-provider";
 import { ExploreProvider } from "@/components/explore/explore-provider";
 import { FirstScoreView } from "@/components/explore/first-score-view";
 import { BetaBanner } from "@/components/beta/beta-banner";
@@ -23,7 +22,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <JobsProvider>
       <PipelineProvider>
-      <ApplyProvider>
       <ExploreProvider>
       <MobileNav />
       <div className="flex min-h-screen">
@@ -76,7 +74,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <BetaBanner />
       </div>
       </ExploreProvider>
-      </ApplyProvider>
       </PipelineProvider>
     </JobsProvider>
   );

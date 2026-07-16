@@ -23,9 +23,9 @@ Session की शुरुआत में Claude को explicitly बता�
 
 या
 
-> "Evaluation और applications हिन्दी में करो — `modes/hi/_shared.md` और `modes/hi/naukri.md` use करो।"
+> "हिन्दी evaluation के लिए `modes/hi/naukri.md`; application के लिए `modes/hi/aavedan.md` use करो। Application wrapper हमेशा canonical root workflow चलाता है।"
 
-Claude फिर `modes/` की जगह इस folder की files पढ़ेगा।
+Agent इस folder के language wrappers को canonical `modes/` workflows के साथ load करेगा; local files root execution rules को replace नहीं करतीं।
 
 ### Option 2 — Permanently, Profile से
 
@@ -44,9 +44,9 @@ language:
 | File | Translated From | Purpose |
 |------|-----------------|---------|
 | `_shared.md` | `modes/_shared.md` (EN) | Shared context, archetypes, global rules, India market specifics |
-| `naukri.md` | `modes/oferta.md` (ES) | Single job offer का complete evaluation (Blocks A-F) |
-| `aavedan.md` | `modes/apply.md` (EN) | Application form के लिए live assistant |
-| `pipeline.md` | `modes/pipeline.md` (ES) | URL inbox / collected offers के लिए second brain |
+| `naukri.md` | `modes/oferta.md` (EN) | हिन्दी language wrapper; canonical A-G evaluation को redefine किए बिना चलाता है |
+| `aavedan.md` | `modes/apply.md` (EN) | हिन्दी language wrapper; canonical workflow root file से चलता है |
+| `pipeline.md` | `modes/pipeline.md` (EN) | हिन्दी language wrapper; canonical URL pipeline को redefine किए बिना चलाता है |
 
 बाकी modes (`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`) EN/ES originals से काम करते रहते हैं — उनकी content mostly tooling, paths, और configuration commands हैं जो language-independent रहनी चाहिए।
 
@@ -75,7 +75,7 @@ language:
 
 - `cv.md`, `pipeline`, `tracker`, `report`, `score`, `archetype`, `proof point`
 - Tool names (`Playwright`, `WebSearch`, `WebFetch`, `Read`, `Write`, `Edit`, `Bash`)
-- Tracker status values (`Evaluated`, `Applied`, `Interview`, `Offer`, `Rejected`)
+- Tracker status values (`Evaluated`, `Applied`, `Responded`, `Interview`, `Offer`, `Hired`, `Rejected`, `Discarded`, `SKIP`)
 - Code snippets, file paths, commands
 
 Modes वैसी Hindi tech language use करते हैं जैसी Bengaluru, Hyderabad, Pune, और Gurugram की real engineering teams में बोली जाती है: Hindi prose, English technical terms जहाँ यह standard है। "Pipeline" को ज़बरदस्ती "पाइपलाइन" में translate नहीं किया जाता, "Deploy" को "तैनाती" नहीं कहा जाता।
@@ -129,5 +129,5 @@ Modes customize या extend करते समय इस vocabulary का �
 1. `CONTRIBUTING.md` के अनुसार Issue खोलें
 2. ऊपर के vocabulary का follow करें — consistent tone के लिए
 3. Word-for-word translation नहीं — idiomatic और natural Hindi
-4. Structural elements (Blocks A-F, tables, code blocks, tool instructions) exactly वैसे ही रखें
+4. केवल language और regional vocabulary बदलें; locale files में canonical workflows को copy या redefine न करें
 5. PR खोलने से पहले एक real Indian job offer (Naukri.com, Instahyre, या LinkedIn India) से test करें

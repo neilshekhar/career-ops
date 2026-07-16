@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import {
   applicationQualityConfig,
+  createApplicationQualityEvidence,
   identityMatches,
   namedClaims,
   validateApplicationRole,
+  validateApplicationQualityEvidence,
   verifyUserData,
   wordCount,
 } from '../verify-userdata.mjs';
@@ -28,16 +30,37 @@ import {
 import { recordCandidateSelectionOverride } from '../queue-store.mjs';
 import { buildMarkdown } from '../generate-cover-markdown.mjs';
 import {
+  buildPdfLayoutEvidence,
   buildGenerationProvenance,
   BATCH_DRAFT_FLOW,
   isAllowedBatchAssetModel,
   isAllowedReleaseEffort,
   isAllowedReleaseGenerator,
   isAllowedReleaseModelEffort,
+  persistPdfLayoutEvidence,
+  printablePageBox,
   releaseModelPolicy,
 } from '../generation-provenance.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'career-ops-userdata-'));
+const PDF_FIXTURE = Buffer.from('%PDF-1.7\n1 0 obj <</Type /Page>> endobj\n%%EOF');
+
+function writePdfFixture(path, utilization = 0.82) {
+  writeFileSync(path, PDF_FIXTURE);
+  const printable = printablePageBox('a4');
+  persistPdfLayoutEvidence(path, buildPdfLayoutEvidence({
+    pdfPath: path,
+    pdfBuffer: PDF_FIXTURE,
+    format: 'a4',
+    pageCount: 1,
+    measurement: {
+      top_px: 0,
+      bottom_px: printable.height_px * utilization,
+      height_px: printable.height_px * utilization,
+    },
+    measuredAt: new Date('2099-01-01T00:00:00.000Z'),
+  }));
+}
 
 try {
   mkdirSync(join(root, 'config'), { recursive: true });
@@ -173,9 +196,9 @@ try {
   };
 
   writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>SQL evidence. B.Tech with Node.js, U.S. clients, C++, C#, CI/CD, .NET, and GPT-4.</p></body></html>');
-  writeFileSync(join(root, 'output', 'acme-cv.pdf'), '%PDF-1.7\n1 0 obj <</Type /Page>> endobj\n%%EOF');
+  writePdfFixture(join(root, 'output', 'acme-cv.pdf'));
   writeFileSync(join(root, 'output', 'acme-cover.md'), buildMarkdown(payload));
-  writeFileSync(join(root, 'output', 'acme-cover.pdf'), '%PDF-1.7\n1 0 obj <</Type /Page>> endobj\n%%EOF');
+  writePdfFixture(join(root, 'output', 'acme-cover.pdf'));
   writeFileSync(join(root, 'output', 'acme-cover.docx'), 'docx fixture');
   writeFileSync(join(root, 'output', 'acme-cover.payload.json'), JSON.stringify(payload));
 
@@ -310,6 +333,24 @@ try {
   assert.equal(isAllowedReleaseModelEffort('claude', 'claude-sonnet-5', 'high', profile), true);
   const initialIssues = validateApplicationRole(role, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') });
   assert.equal(initialIssues.length, 0, JSON.stringify(initialIssues, null, 2));
+  writePdfFixture(join(root, 'output', 'acme-cv.pdf'), 0.3);
+  const sparseCvCodes = validateApplicationRole(role, {
+    root, profile, quality, now: new Date('2026-07-13T00:00:00Z'),
+  }).map((item) => item.code);
+  assert(sparseCvCodes.includes('pdf-one-page-underfilled'));
+  writePdfFixture(join(root, 'output', 'acme-cv.pdf'), 0.82);
+  const qualityEvidence = createApplicationQualityEvidence(role, {
+    root, profile, quality, now: new Date('2026-07-13T00:00:00Z'),
+  });
+  assert.equal(validateApplicationQualityEvidence(role, qualityEvidence, {
+    root, profile, maxAgeMs: Number.POSITIVE_INFINITY,
+  }).fingerprint, qualityEvidence.fingerprint);
+  const originalCvPdf = readFileSync(join(root, 'output', 'acme-cv.pdf'));
+  writeFileSync(join(root, 'output', 'acme-cv.pdf'), Buffer.concat([originalCvPdf, Buffer.from('\ntampered')]));
+  assert.throws(() => validateApplicationQualityEvidence(role, qualityEvidence, {
+    root, profile, maxAgeMs: Number.POSITIVE_INFINITY,
+  }), /layout evidence does not match|no longer matches/);
+  writeFileSync(join(root, 'output', 'acme-cv.pdf'), originalCvPdf);
 
   writeFileSync(join(root, 'output', 'acme-cover.md'), `${buildMarkdown(payload)}\nFabricated divergent paragraph.\n`);
   const divergentMarkdownCodes = validateApplicationRole(role, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
@@ -555,8 +596,8 @@ try {
   // Recreate the unchanged binary fixtures after the deliberate source-mtime
   // mutation above. The hash-bound provenance stays valid, while the separate
   // conservative mtime gate correctly sees freshly rendered assets.
-  writeFileSync(join(root, 'output', 'acme-cv.pdf'), '%PDF-1.7\n1 0 obj <</Type /Page>> endobj\n%%EOF');
-  writeFileSync(join(root, 'output', 'acme-cover.pdf'), '%PDF-1.7\n1 0 obj <</Type /Page>> endobj\n%%EOF');
+  writePdfFixture(join(root, 'output', 'acme-cv.pdf'));
+  writePdfFixture(join(root, 'output', 'acme-cover.pdf'));
   writeFileSync(join(root, 'output', 'acme-cover.docx'), 'docx fixture');
   const result = verifyUserData({
     root,

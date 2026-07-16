@@ -25,9 +25,9 @@ Sag Claude zu Beginn der Session ausdrücklich:
 
 oder
 
-> "Bewerten und Bewerbungen auf Deutsch — verwende `modes/de/_shared.md` und `modes/de/angebot.md`."
+> "Bewertungen auf Deutsch: `modes/de/angebot.md`; Bewerbungen: `modes/de/bewerben.md`. Die Bewerbungshülle führt immer den kanonischen Root-Workflow aus."
 
-Claude liest dann die Dateien aus diesem Ordner statt aus `modes/`.
+Der Agent lädt die Sprach-Wrapper aus diesem Ordner zusammen mit den kanonischen Workflows in `modes/`; die lokalen Dateien ersetzen die Root-Regeln nicht.
 
 ### Weg 2 — Dauerhaft, per Profil
 
@@ -50,9 +50,9 @@ Diese erste Iteration deckt die vier Modi mit dem höchsten Hebel ab:
 | Datei | Übersetzt aus | Zweck |
 |-------|---------------|-------|
 | `_shared.md` | `modes/_shared.md` (EN) | Geteilter Kontext, Archetypen, globale Regeln, DACH-Markt-Spezifika |
-| `angebot.md` | `modes/oferta.md` (ES) | Vollständige Bewertung einer einzelnen Stellenanzeige (Blöcke A-F) |
-| `bewerben.md` | `modes/apply.md` (EN) | Live-Assistent fürs Bewerbungsformular |
-| `pipeline.md` | `modes/pipeline.md` (ES) | URL-Inbox / Second Brain für gesammelte Stellenanzeigen |
+| `angebot.md` | `modes/oferta.md` (EN) | Deutscher Sprach-Wrapper; führt die kanonische A-G-Bewertung unverändert aus |
+| `bewerben.md` | `modes/apply.md` (EN) | Deutsche Sprachhülle; der kanonische Ablauf bleibt in der Root-Datei |
+| `pipeline.md` | `modes/pipeline.md` (EN) | Deutscher Sprach-Wrapper; führt den kanonischen URL-Workflow unverändert aus |
 
 Die übrigen Modi (`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`) sind absichtlich nicht in diesem PR dabei. Sie funktionieren weiter über die EN/ES-Originale, weil ihr Inhalt zu großen Teilen aus Tooling, Pfaden und Konfigurationskommandos besteht — diese sollen sprachunabhängig bleiben.
 
@@ -64,7 +64,7 @@ Bewusst nicht eingedeutscht, weil Standard-Tech-Vokabular:
 
 - `cv.md`, `pipeline`, `tracker`, `report`, `score`, `archetype`, `proof point`
 - Tool-Namen (`Playwright`, `WebSearch`, `WebFetch`, `Read`, `Write`, `Edit`, `Bash`)
-- Status-Werte im Tracker (`Evaluated`, `Applied`, `Interview`, `Offer`, `Rejected`)
+- Status-Werte im Tracker (`Evaluated`, `Applied`, `Responded`, `Interview`, `Offer`, `Hired`, `Rejected`, `Discarded`, `SKIP`)
 - Code-Snippets, Pfade, Befehle
 
 Die Modi verwenden deutsches Tech-Deutsch, wie es in echten Engineering-Teams in Berlin, München oder Zürich gesprochen wird: deutscher Fließtext, englische Fachbegriffe da, wo sie üblich sind. Keine erzwungene Eindeutschung von "Pipeline" zu "Förderband", kein "Lebenslauf-Datei" für `cv.md`.
@@ -108,5 +108,5 @@ Wenn du eine Übersetzung verbessern oder einen weiteren Modus eindeutschen will
 1. Öffne ein Issue mit dem Vorschlag (laut `CONTRIBUTING.md`)
 2. Halte dich an das Vokabular oben, um den Ton konsistent zu halten
 3. Übersetze sinngemäß und idiomatisch — keine wörtlichen Wort-für-Wort-Übersetzungen
-4. Behalte die strukturellen Elemente (Block A-F, Tabellen, Code-Blöcke, Tool-Anweisungen) exakt bei
+4. Ändere nur Sprache und regionales Vokabular; kopiere oder definiere die kanonischen Workflows nie in Locale-Dateien neu
 5. Teste mit einer echten deutschen Stellenanzeige (z. B. von StepStone oder XING), bevor du den PR aufmachst

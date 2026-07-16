@@ -44,7 +44,7 @@ career-ops is designed to help individuals make better career decisions, not to 
 
 Unacceptable use includes:
 
-- Auto-submitting applications without human review
+- Letting an agent, script, dashboard, or plugin perform final job-application submission; the candidate alone clicks the final submit control after review
 - Scraping platforms that prohibit automated access
 - Submitting AI-generated content without verifying its accuracy
 - Using the tool to discriminate, deceive, or misrepresent qualifications

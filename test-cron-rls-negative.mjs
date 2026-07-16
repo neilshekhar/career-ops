@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
-for (const line of readFileSync(".env", "utf8").split("\n")) {
-  const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-  if (m) process.env[m[1]] ??= m[2].replace(/^["']|["']$/g, "");
+const LIVE_TEST_FLAG = "CAREER_OPS_RUN_LIVE_SUPABASE_TESTS";
+if (process.env[LIVE_TEST_FLAG] !== "1") {
+  console.log(`SKIP: live Supabase RLS mutation proofs disabled (set ${LIVE_TEST_FLAG}=1 and provide credentials in the process environment to opt in)`);
+  process.exit(0);
 }
 
 const URL = process.env.SUPABASE_URL;
@@ -11,7 +11,8 @@ const DASH = process.env.SUPABASE_DASHBOARD_KEY;
 const CRON_APIKEY = process.env.SUPABASE_CRON_PUBLISHABLE_KEY;
 const CRON_JWT = process.env.SUPABASE_CRON_JWT;
 if (!URL || !DASH || !CRON_APIKEY || !CRON_JWT) {
-  console.error("Missing a required SUPABASE_* var in .env"); process.exit(1);
+  console.error(`LIVE TEST CONFIG ERROR: ${LIVE_TEST_FLAG}=1 requires SUPABASE_URL, SUPABASE_DASHBOARD_KEY, SUPABASE_CRON_PUBLISHABLE_KEY, and SUPABASE_CRON_JWT in process.env`);
+  process.exit(1);
 }
 
 const REST = `${URL}/rest/v1`;

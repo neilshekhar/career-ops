@@ -105,8 +105,8 @@ const HEADER_9 = `# Applications Tracker
 `;
 
 // TSV column order (status BEFORE score): num,date,company,role,status,score,pdf,report,notes[,location]
-const TSV_WITH_LOCATION = '2\t2026-02-02\tGlobex\tManager\tApplied\tN/A\t✅\t—\tnew row\tSingapore\n';
-const TSV_NO_LOCATION = '2\t2026-02-02\tGlobex\tManager\tApplied\tN/A\t✅\t—\tnew row\n';
+const TSV_WITH_LOCATION = '2\t2026-02-02\tGlobex\tManager\tEvaluated\tN/A\t✅\t—\tnew row\tSingapore\n';
+const TSV_NO_LOCATION = '2\t2026-02-02\tGlobex\tManager\tEvaluated\tN/A\t✅\t—\tnew row\n';
 
 // ── Test 1: 10-column tracker merges into the correct columns ──────────────
 {
@@ -123,7 +123,7 @@ const TSV_NO_LOCATION = '2\t2026-02-02\tGlobex\tManager\tApplied\tN/A\t✅\t—\
     else fail(`Location column populated — got "${cells[5]}" in row: ${row}`);
     if (cells[6] === 'N/A') pass('Score sits in the Score column');
     else fail(`Score in Score column — got "${cells[6]}" in row: ${row}`);
-    if (cells[7] === 'Applied') pass('Status sits in the Status column');
+    if (cells[7] === 'Evaluated') pass('Status sits in the Status column');
     else fail(`Status in Status column — got "${cells[7]}" in row: ${row}`);
   }
   rmSync(sb.dir, { recursive: true, force: true });
@@ -149,7 +149,7 @@ const TSV_NO_LOCATION = '2\t2026-02-02\tGlobex\tManager\tApplied\tN/A\t✅\t—\
   const row = dataRows(sb.tracker).find(l => l.includes('Globex'));
   const cells = row ? row.split('|').map(s => s.trim()) : [];
   // cells: ['', num, date, company, role, score, status, pdf, report, notes, '']
-  if (merge.code === 0 && cells[5] === 'N/A' && cells[6] === 'Applied') {
+  if (merge.code === 0 && cells[5] === 'N/A' && cells[6] === 'Evaluated') {
     pass('9-col tracker still merges into correct columns');
   } else {
     fail(`9-col tracker merge (code ${merge.code}) row: ${row}`);
@@ -330,13 +330,13 @@ const HEADER_VIA = `# Applications Tracker
 // field (`via=Hays`) instead of another positional slot, so a stale writer
 // omitting the empty-location pad can't silently shift columns.
 {
-  const TSV_VIA = '3\t2026-02-02\t?\tPlatform Engineer\tApplied\t4.1/5\t✅\t—\tblind agency listing\tvia=Hays\n';
+  const TSV_VIA = '3\t2026-02-02\t?\tPlatform Engineer\tEvaluated\t4.1/5\t✅\t—\tblind agency listing\tvia=Hays\n';
   const sb = makeSandbox(HEADER_VIA, { '3-blind.tsv': TSV_VIA });
   const res = runScript('merge-tracker.mjs', [], sb);
   const row = dataRows(sb.tracker).find(l => l.includes('Platform Engineer'));
   const cells = row ? row.split('|').map(s => s.trim()) : [];
   // cells: ['', num, date, company, via, role, score, status, pdf, report, notes, '']
-  if (res.code === 0 && cells[3] === '?' && cells[4] === 'Hays' && cells[6] === '4.1/5' && cells[7] === 'Applied') {
+  if (res.code === 0 && cells[3] === '?' && cells[4] === 'Hays' && cells[6] === '4.1/5' && cells[7] === 'Evaluated') {
     pass('merge: via= tag lands in the Via column, ? company preserved');
   } else {
     fail(`merge: via= tag (code ${res.code}) row: ${row}\n${res.stdout}`);
@@ -346,8 +346,8 @@ const HEADER_VIA = `# Applications Tracker
 
 // ── Test 11: ambiguous TSV extras are rejected loudly, never merged ─────────
 {
-  const TWO_UNTAGGED = '4\t2026-02-02\tGlobex\tManager\tApplied\tN/A\t✅\t—\tnote\tSingapore\tHays\n';
-  const TWO_TAGS = '5\t2026-02-02\tGlobex\tManager\tApplied\tN/A\t✅\t—\tnote\tvia=Hays\tvia=Randstad\n';
+  const TWO_UNTAGGED = '4\t2026-02-02\tGlobex\tManager\tEvaluated\tN/A\t✅\t—\tnote\tSingapore\tHays\n';
+  const TWO_TAGS = '5\t2026-02-02\tGlobex\tManager\tEvaluated\tN/A\t✅\t—\tnote\tvia=Hays\tvia=Randstad\n';
   const sb = makeSandbox(HEADER_VIA, { '4-a.tsv': TWO_UNTAGGED, '5-b.tsv': TWO_TAGS });
   const res = runScript('merge-tracker.mjs', [], sb);
   const rows = dataRows(sb.tracker);
@@ -367,8 +367,8 @@ const HEADER_VIA = `# Applications Tracker
 // hazard the Via column exists to surface. Same agency + same role IS the
 // re-blast duplicate and must still merge/update.
 {
-  const OTHER_AGENCY = '6\t2026-02-02\t?\tData Engineer\tApplied\t4.5/5\t✅\t—\tsame role, other agency\tvia=Randstad\n';
-  const SAME_AGENCY = '7\t2026-02-03\t?\tData Engineer\tApplied\t4.6/5\t✅\t—\tre-blast, higher score\tvia=Hays\n';
+  const OTHER_AGENCY = '6\t2026-02-02\t?\tData Engineer\tEvaluated\t4.5/5\t✅\t—\tsame role, other agency\tvia=Randstad\n';
+  const SAME_AGENCY = '7\t2026-02-03\t?\tData Engineer\tEvaluated\t4.6/5\t✅\t—\tre-blast, higher score\tvia=Hays\n';
   const sb = makeSandbox(HEADER_VIA, { '6-other.tsv': OTHER_AGENCY });
   const res1 = runScript('merge-tracker.mjs', [], sb);
   const rowsAfter1 = dataRows(sb.tracker).filter(l => l.includes('Data Engineer'));
@@ -394,8 +394,8 @@ const HEADER_VIA = `# Applications Tracker
 // cross-channel guard would see 'Hays' ≠ '' and add a second ? row instead of
 // updating the same-agency re-blast.
 {
-  const FIRST = '2\t2026-02-02\t?\tData Engineer\tApplied\t4.1/5\t✅\t—\tblind listing\tvia=Hays\n';
-  const REBLAST = '3\t2026-02-10\t?\tData Engineer\tApplied\t4.3/5\t✅\t—\tre-blast, higher score\tvia=Hays\n';
+  const FIRST = '2\t2026-02-02\t?\tData Engineer\tEvaluated\t4.1/5\t✅\t—\tblind listing\tvia=Hays\n';
+  const REBLAST = '3\t2026-02-10\t?\tData Engineer\tEvaluated\t4.3/5\t✅\t—\tre-blast, higher score\tvia=Hays\n';
   const sb = makeSandbox(HEADER_9, { '2-first.tsv': FIRST });
   const res1 = runScript('merge-tracker.mjs', [], sb);
   writeFileSync(join(sb.additions, '3-reblast.tsv'), REBLAST);

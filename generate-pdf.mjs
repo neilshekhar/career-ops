@@ -27,6 +27,12 @@ import { readFile } from 'fs/promises';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { randomUUID } from 'node:crypto';
+import {
+  buildPdfLayoutEvidence,
+  MIN_ONE_PAGE_UTILIZATION,
+  persistPdfLayoutEvidence,
+  printablePageBox,
+} from './generation-provenance.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PDF_PAGE_MARGIN = '0.5in';
@@ -429,6 +435,69 @@ export async function inlineLocalFonts(html) {
 }
 
 /**
+ * Measure the rendered content span at the printable page width.
+ *
+ * documentElement.scrollHeight is always at least the viewport height, so it
+ * falsely reports sparse one-pagers as 100% full. Instead, measure only visible
+ * text, generated text, and replaced media elements, then use their
+ * top-to-bottom span. Empty decorative containers cannot satisfy the gate.
+ */
+export async function measurePrintableContent(page, format = 'a4') {
+  const printable = printablePageBox(format);
+  await page.emulateMedia({ media: 'print' });
+  await page.setViewportSize({
+    width: printable.width_px,
+    height: printable.height_px,
+  });
+  const measurement = await page.evaluate(() => {
+    const visualTags = new Set(['HR', 'IMG', 'SVG', 'CANVAS', 'VIDEO', 'IFRAME', 'TABLE']);
+    const visibleRects = [];
+    const transparentColor = (value) =>
+      !value || value === 'transparent' || value === 'rgba(0, 0, 0, 0)';
+    const hasVisiblePseudoContent = (element, pseudo) => {
+      const style = getComputedStyle(element, pseudo);
+      const content = style.content;
+      return content && content !== 'none' && content !== 'normal'
+        && content !== '""' && content !== "''"
+        && style.display !== 'none' && style.visibility !== 'hidden'
+        && Number(style.opacity || 1) > 0 && !transparentColor(style.color);
+    };
+
+    for (const element of document.body.querySelectorAll('*')) {
+      const style = getComputedStyle(element);
+      if (
+        style.display === 'none' || style.visibility === 'hidden'
+        || Number(style.opacity || 1) === 0
+      ) continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+
+      const directText = !transparentColor(style.color) && [...element.childNodes].some(
+        (node) => node.nodeType === Node.TEXT_NODE && /\S/u.test(node.textContent || ''),
+      );
+      const visiblePseudo = hasVisiblePseudoContent(element, '::before')
+        || hasVisiblePseudoContent(element, '::after');
+      if (!directText && !visiblePseudo && !visualTags.has(element.tagName)) continue;
+      visibleRects.push({ top: rect.top, bottom: rect.bottom });
+    }
+
+    if (!visibleRects.length) return { top_px: 0, bottom_px: 0, height_px: 0 };
+    const top = Math.max(0, Math.min(...visibleRects.map((rect) => rect.top)));
+    const bottom = Math.max(top, Math.max(...visibleRects.map((rect) => rect.bottom)));
+    return {
+      top_px: top,
+      bottom_px: bottom,
+      height_px: bottom - top,
+    };
+  });
+  return {
+    top_px: Number(measurement.top_px),
+    bottom_px: Number(measurement.bottom_px),
+    height_px: Number(measurement.height_px),
+  };
+}
+
+/**
  * Render an HTML string to a PDF file via headless Chromium.
  *
  * Writes the HTML to a temporary file in the baseDir and loads it via
@@ -442,7 +511,7 @@ export async function inlineLocalFonts(html) {
  * @param {string} html - Full HTML document to render.
  * @param {string} outputPath - Absolute path to write the PDF to.
  * @param {{format?: 'a4'|'letter', baseDir?: string, reportNum?: string, inputPath?: string}} [opts]
- * @returns {Promise<{outputPath: string, pageCount: number, size: number}>}
+ * @returns {Promise<{outputPath: string, pageCount: number, size: number, layoutEvidence: object}>}
  */
 export async function renderHtmlToPdf(html, outputPath, opts = {}) {
   const format = String(opts.format || 'a4').toLowerCase();
@@ -472,6 +541,12 @@ export async function renderHtmlToPdf(html, outputPath, opts = {}) {
 
     // Wait for fonts and images to settle
     await page.evaluate(() => document.fonts.ready);
+    const printable = printablePageBox(format);
+    await page.emulateMedia({ media: 'print' });
+    await page.setViewportSize({
+      width: printable.width_px,
+      height: printable.height_px,
+    });
 
     // Generate PDF
     const pdfBuffer = await page.pdf({
@@ -490,11 +565,25 @@ export async function renderHtmlToPdf(html, outputPath, opts = {}) {
 
     // Count pages (approximate from PDF structure)
     const pdfString = pdfBuffer.toString('latin1');
-    const pageCount = (pdfString.match(/\/Type\s*\/Page[^s]/g) || []).length;
+    const pageCount = (pdfString.match(/\/Type\s*\/Page\b/g) || []).length;
+    const layoutMeasurement = await measurePrintableContent(page, format);
+    const layoutEvidence = buildPdfLayoutEvidence({
+      pdfPath: outputPath,
+      pdfBuffer,
+      format,
+      pageCount,
+      measurement: layoutMeasurement,
+    });
+    const layoutEvidencePath = persistPdfLayoutEvidence(outputPath, layoutEvidence);
 
     console.log(`✅ PDF generated: ${outputPath}`);
     console.log(`📊 Pages: ${pageCount}`);
     console.log(`📦 Size: ${(pdfBuffer.length / 1024).toFixed(1)} KB`);
+    console.log(
+      `📐 Printable content: ${(layoutEvidence.printable_height_utilization * 100).toFixed(1)}% ` +
+      `(${layoutEvidence.content.height_px}px / ${layoutEvidence.printable.height_px}px)`,
+    );
+    console.log(`🧾 Layout evidence: ${layoutEvidencePath}`);
 
     // Warn when the last page is mostly blank (e.g. a lone Skills section
     // spilling onto page 2). Measure content height at the PRINTABLE width —
@@ -503,19 +592,26 @@ export async function renderHtmlToPdf(html, outputPath, opts = {}) {
     // A4 ≈ 698×1026, Letter = 720×960. Measured after page.pdf() so the
     // viewport change can't affect the rendered output.
     if (pageCount > 1) {
-      const printableW = format === 'letter' ? 720 : 698;
-      const printableH = format === 'letter' ? 960 : 1026;
-      await page.setViewportSize({ width: printableW, height: printableH });
-      const contentHeightPx = await page.evaluate(
-        () => document.documentElement.scrollHeight
-      );
-      const lastPageFill = (contentHeightPx - (pageCount - 1) * printableH) / printableH;
+      const lastPageFill = (
+        layoutEvidence.content.bottom_px - (pageCount - 1) * printable.height_px
+      ) / printable.height_px;
       if (lastPageFill > 0 && lastPageFill < 0.35) {
         console.warn(
           `⚠️  Last page is only ~${Math.round(lastPageFill * 100)}% full — ` +
           `trim bullets to fit ${pageCount - 1} page(s) or promote a section to fill it.`
         );
       }
+    }
+    if (
+      pageCount === 1
+      && layoutEvidence.printable_height_utilization < MIN_ONE_PAGE_UTILIZATION
+    ) {
+      throw new Error(
+        `One-page printable content utilization is ` +
+        `${(layoutEvidence.printable_height_utilization * 100).toFixed(1)}%; ` +
+        `minimum is ${(MIN_ONE_PAGE_UTILIZATION * 100).toFixed(0)}%. ` +
+        `Revise the layout/content and regenerate before release.`,
+      );
     }
 
     try {
@@ -526,7 +622,7 @@ export async function renderHtmlToPdf(html, outputPath, opts = {}) {
       console.error(`⚠️  Manifest update failed: ${err.message}`);
     }
 
-    return { outputPath, pageCount, size: pdfBuffer.length };
+    return { outputPath, pageCount, size: pdfBuffer.length, layoutEvidence };
   } finally {
     await browser.close();
     // Clean up temp file

@@ -25,9 +25,9 @@ Diga ao Claude no início da sessão:
 
 ou
 
-> "Avaliar e candidaturas em português -- use `modes/pt/_shared.md` e `modes/pt/oferta.md`."
+> "Avaliações em português: `modes/pt/oferta.md`; candidaturas: `modes/pt/aplicar.md`. O wrapper de candidatura sempre executa o workflow canônico da raiz."
 
-Claude vai ler os arquivos desta pasta em vez de `modes/`.
+O agente carrega os wrappers de idioma desta pasta junto com os workflows canônicos em `modes/`; os arquivos locais não substituem as regras da raiz.
 
 ### Caminho 2 -- Permanente, via perfil
 
@@ -50,9 +50,9 @@ Esta primeira iteração cobre os quatro modos com maior impacto:
 | Arquivo | Traduzido de | Finalidade |
 |---------|-------------|------------|
 | `_shared.md` | `modes/_shared.md` (EN) | Contexto compartilhado, arquétipos, regras globais, especificidades do mercado BR |
-| `oferta.md` | `modes/oferta.md` (ES) | Avaliação completa de uma vaga (Blocos A-F) |
-| `aplicar.md` | `modes/apply.md` (EN) | Assistente ao vivo para formulários de candidatura |
-| `pipeline.md` | `modes/pipeline.md` (ES) | Inbox de URLs / Second Brain para vagas acumuladas |
+| `oferta.md` | `modes/oferta.md` (EN) | Wrapper de idioma português; executa a avaliação canônica A-G sem redefini-la |
+| `aplicar.md` | `modes/apply.md` (EN) | Wrapper de idioma português; executa o fluxo canônico do arquivo raiz |
+| `pipeline.md` | `modes/pipeline.md` (EN) | Wrapper de idioma português; executa o pipeline canônico sem redefini-lo |
 
 Os demais modos (`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`) não estão neste PR de propósito. Eles continuam funcionando via os originais em EN/ES, pois seu conteúdo é majoritariamente tooling, caminhos e comandos de configuração — que devem ser independentes de idioma.
 
@@ -64,7 +64,7 @@ Propositalmente não traduzido, porque é vocabulário padrão de tech:
 
 - `cv.md`, `pipeline`, `tracker`, `report`, `score`, `archetype`, `proof point`
 - Nomes de tools (`Playwright`, `WebSearch`, `WebFetch`, `Read`, `Write`, `Edit`, `Bash`)
-- Valores de status no tracker (`Evaluated`, `Applied`, `Interview`, `Offer`, `Rejected`)
+- Valores de status no tracker (`Evaluated`, `Applied`, `Responded`, `Interview`, `Offer`, `Hired`, `Rejected`, `Discarded`, `SKIP`)
 - Code snippets, caminhos de arquivo, comandos
 
 Os modos usam português tech brasileiro, como se fala em times de engenharia reais em São Paulo, Florianópolis ou Belo Horizonte: texto corrido em português, termos técnicos em inglês onde são de uso comum. Nada de traduzir "pipeline" para "tubulação" ou "cv.md" para "curriculo.md".
@@ -107,5 +107,5 @@ Se quiser melhorar uma tradução ou traduzir um modo adicional:
 1. Abra uma issue com a proposta (conforme `CONTRIBUTING.md`)
 2. Siga o vocabulário acima para manter o tom consistente
 3. Traduza de forma natural e idiomática — nada de tradução literal palavra por palavra
-4. Mantenha os elementos estruturais (Bloco A-F, tabelas, blocos de código, instruções de tools) exatamente iguais
+4. Altere apenas idioma e vocabulário regional; nunca copie nem redefina os workflows canônicos nos arquivos locais
 5. Teste com uma vaga real brasileira (ex: do Gupy ou LinkedIn BR) antes de abrir o PR

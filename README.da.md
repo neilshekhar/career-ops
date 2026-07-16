@@ -63,7 +63,7 @@
 
 Career-Ops ([career-ops.org](https://career-ops.org), også kendt som **careerops**) forvandler et hvilket som helst AI-CLI til en komplet kommandocentral for jobsøgning. I stedet for manuelt at spore ansøgninger i et regneark får du en AI-drevet pipeline, der:
 
-- **Vurderer stillinger** med et struktureret A–F-system (10 vægtede dimensioner)
+- **Vurderer stillinger** med et struktureret A–G-system (10 vægtede scoredimensioner plus legitimitetsanalyse)
 - **Genererer skræddersyede PDF'er** — ATS-optimerede CV'er tilpasset hver stilling
 - **Skanner portaler** automatisk (Greenhouse, Ashby, Lever, virksomheders karrieresider)
 - **Batch-behandler** — vurderer 10+ stillinger parallelt via sub-agenter
@@ -81,14 +81,14 @@ Oprindeligt bygget af [santifer](https://santifer.io), som brugte det til at vur
 
 | Funktion                       | Beskrivelse                                                                                                                                     |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Auto-Pipeline**              | Indsæt URL → fuld vurdering + PDF + tracker-post                                                                                                |
-| **6-bloks vurdering**          | Rolleresumé, CV-match, niveaustrategi, lønundersøgelse, personalisering, interviewforberedelse (STAR+R)                                          |
+| **Auto-Pipeline**              | Indsæt URL → vurdering/score og konklusion først; skræddersyede materialer og ansøgningsarbejde kræver udtrykkelig fortsættelse/dashboardvalg   |
+| **A–G-vurdering**              | Rolleresumé, CV-match, niveaustrategi, lønundersøgelse, personalisering, interviewforberedelse (STAR+R) og legitimitetskontrol                    |
 | **Interviewhistoriebank**      | Samler STAR+Reflection-historier — 5–10 mesterhistorier, der besvarer ethvert adfærdsspørgsmål                                                  |
 | **Forhandlingsscripts**        | Frameworks til lønforhandling, imødegåelse af geografisk rabat, udnyttelse af konkurrerende tilbud                                              |
 | **ATS-optimeret PDF**          | CV med søgeordsindsprøjtning, Space Grotesk + DM Sans-design                                                                                    |
 | **Portalskanner**              | 45+ virksomheder konfigureret (Anthropic, OpenAI, ElevenLabs, Retool, n8n…) + forespørgsler via Ashby, Greenhouse, Lever, Wellfound            |
 | **Batch-behandling**           | Parallel vurdering via `claude -p`-workers                                                                                                      |
-| **Lokalt kanban-dashboard**    | Browser-dashboard til at gennemgå, triagere, forberede og udfylde ansøgninger lokalt                                                            |
+| **Lokalt kanban-dashboard**    | Browser-dashboard til at gennemgå og forberede roller, sætte ansøgningsanmodninger i kø til den aktive agent og kontrollere review-klart arbejde |
 | **Human-in-the-Loop**          | AI vurderer og anbefaler, du beslutter og handler. Systemet sender aldrig ansøgninger — det sidste ord er altid dit                            |
 | **Pipeline-integritet**        | Automatisk merge, deduplikering, statusnormalisering, datakvalitetstjek                                                                          |
 
@@ -118,7 +118,7 @@ claude   # eller gemini / codex / qwen / opencode — åbn dit AI-CLI her
 ```bash
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
-npx playwright install chromium   # kun nødvendigt til PDF-generering
+npx playwright install chromium   # nødvendigt til PDF'er og Playwright-browser/liveness-verifikation
 claude   # åbn dit AI-CLI — første kørsel guider dig gennem onboarding
 ```
 
@@ -134,7 +134,7 @@ Career-ops er én slash-kommando med flere tilstande:
 
 ```text
 /career-ops                    → Vis alle tilgængelige kommandoer
-/career-ops {indsæt stilling}  → Fuld auto-pipeline (vurdering + PDF + tracker)
+/career-ops {indsæt stilling}  → Vurdering/score og konklusion først; vent på udtrykkelig fortsættelse/dashboardvalg
 /career-ops scan               → Skan portaler for nye stillinger
 /career-ops pdf                → Generér ATS-optimeret CV
 /career-ops batch              → Batch-vurdering af flere stillinger
@@ -147,7 +147,7 @@ Career-ops er én slash-kommando med flere tilstande:
 /career-ops project            → Vurdering af porteføljeprojekt
 ```
 
-Du kan også blot indsætte en stillings-URL eller dens tekst — career-ops registrerer det automatisk og kører hele pipelinen.
+Du kan også blot indsætte en stillings-URL eller dens tekst — career-ops registrerer den, vurderer/scorer den og viser konklusionen først. Ifølge `modes/_custom.md` genereres der ingen skræddersyede materialer, ansøgningsstatus i trackeren rykkes ikke frem, ingen rolle vælges, browseren åbnes ikke, og liveformularen udfyldes ikke, før du udtrykkeligt fortsætter eller vælger rollen i dashboardet.
 
 ## Sådan virker det
 
@@ -161,14 +161,18 @@ Du indsætter en stillings-URL eller -beskrivelse
 └────────┬─────────┘
          │
 ┌────────▼─────────┐
-│  A–F-vurdering   │  Match, mangler, lønundersøgelse, STAR-historier
+│  A–G-vurdering   │  Match, mangler, lønundersøgelse, STAR-historier, legitimitet
 │  (læser cv.md)   │
 └────────┬─────────┘
          │
-    ┌────┼────┐
-    ▼    ▼    ▼
- Rapport PDF Tracker
-  .md   .pdf  .tsv
+         ▼
+Score/konklusion + rapport + trackerstatus: Evaluated
+         │
+         ▼
+Udtrykkelig fortsættelse eller dashboardvalg
+         │
+         ▼
+Skræddersyede materialer → browser/liveudfyldning → kandidatens review og indsendelse
 ```
 
 ## Forudkonfigurerede portaler
@@ -202,7 +206,7 @@ Det lokale kanban-dashboard er den primære review-UI i career-ops. Det kører k
 npm run launch   # åbner http://127.0.0.1:7777
 ```
 
-Brug det til at gennemgå fit-scores, vælge roller til forberedelse, starte form-fill, kontrollere udkast/aktiver og bevare menneskelig review før indsendelse. Dashboardet indsender aldrig ansøgninger for dig.
+Brug det til at gennemgå fit-scores, vælge roller til forberedelse, sætte holdbare ansøgningsanmodninger i kø til den aktive agent, kontrollere udkast/aktiver og bevare menneskelig review før indsendelse. Dashboardet starter aldrig browserautomation og udfylder eller indsender ikke ansøgninger selv.
 
 ### Terminal Tracker TUI
 
@@ -255,7 +259,7 @@ career-ops/
 ![Bubble Tea](https://img.shields.io/badge/Bubble_Tea-FF75B5?style=flat&logo=go&logoColor=white)
 
 - **Agent**: Claude Code med brugerdefinerede skills og tilstande
-- **PDF**: Playwright/Puppeteer + HTML-skabelon
+- **PDF**: Playwright + HTML-skabelon
 - **Skanner**: Playwright + Greenhouse API + WebSearch
 - **Dashboard**: Go + Bubble Tea + Lipgloss (Catppuccin Mocha-tema)
 - **Data**: Markdown-tabeller + YAML-konfiguration + TSV-filer til batches

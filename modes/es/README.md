@@ -21,7 +21,7 @@ Di al agente al inicio de la sesión:
 
 > "Usa los modos en español de `modes/es/`."
 
-El agente leerá entonces los archivos de esta carpeta en lugar de `modes/`.
+El agente cargará los wrappers de idioma de esta carpeta junto con los flujos canónicos de `modes/`; los archivos locales no sustituyen las reglas raíz.
 
 ### Opción 2 -- De forma permanente
 
@@ -42,9 +42,9 @@ Esta primera iteración cubre los cuatro modos de mayor impacto:
 | Archivo | Traducido desde | Rol |
 |---------|-----------------|-----|
 | `_shared.md` | `modes/_shared.md` (EN) | Contexto compartido, arquetipos, reglas globales, especificidades del mercado hispanohablante |
-| `oferta.md` | `modes/oferta.md` (ES) | Evaluación completa de una oferta (Bloques A-F) |
-| `aplicar.md` | `modes/apply.md` (EN) | Asistente en vivo para rellenar formularios de candidatura |
-| `pipeline.md` | `modes/pipeline.md` (ES) | Bandeja de URLs / Second Brain para las ofertas recopiladas |
+| `oferta.md` | `modes/oferta.md` (EN) | Wrapper de idioma español; ejecuta la evaluación canónica A-G sin redefinirla |
+| `aplicar.md` | `modes/apply.md` (EN) | Envoltorio de idioma español; ejecuta el flujo canónico sin redefinirlo |
+| `pipeline.md` | `modes/pipeline.md` (EN) | Wrapper de idioma español; ejecuta el pipeline canónico sin redefinirlo |
 
 Los demás modos (`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`) se mantienen en EN/ES. Su contenido es principalmente tooling, rutas y comandos — debe permanecer independiente del idioma.
 
@@ -54,7 +54,7 @@ No traducido intencionadamente, por ser vocabulario técnico estándar:
 
 - `cv.md`, `pipeline`, `tracker`, `report`, `score`, `archetype`, `proof point`
 - Nombres de herramientas (`Playwright`, `WebSearch`, `WebFetch`, `Read`, `Write`, `Edit`, `Bash`)
-- Valores de estado en el tracker (`Evaluated`, `Applied`, `Interview`, `Offer`, `Rejected`)
+- Valores de estado en el tracker (`Evaluated`, `Applied`, `Responded`, `Interview`, `Offer`, `Hired`, `Rejected`, `Discarded`, `SKIP`)
 - Fragmentos de código, rutas, comandos
 
 Los modos usan español técnico natural, tal como se habla en equipos de ingeniería en Madrid, Barcelona, Ciudad de México o Buenos Aires: texto corriente en español, términos técnicos en inglés donde es el uso habitual. Sin traducción forzada de "Pipeline" a "Canalización" ni de "Deploy" a "Despliegue aplicativo".
@@ -101,5 +101,5 @@ Para mejorar una traducción o añadir un modo:
 1. Abre un Issue con tu propuesta (ver `CONTRIBUTING.md`)
 2. Respeta el glosario anterior para mantener un tono coherente
 3. Traduce de forma idiomática — sin traducción palabra por palabra
-4. Conserva los elementos estructurales (Bloques A-F, tablas, bloques de código, instrucciones de herramientas) tal cual
+4. Edita solo el idioma y el vocabulario regional; nunca copies ni redefinas los flujos canónicos dentro de archivos locales
 5. Prueba con una oferta hispanohablante real (InfoJobs, LinkedIn ES, Indeed ES) antes de enviar el PR

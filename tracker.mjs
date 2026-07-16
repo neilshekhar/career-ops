@@ -7,7 +7,7 @@
  * index, built and rebuilt from the markdown — safe to delete at any time, it
  * regenerates on the next sync. Tools and agents READ through the index for
  * schema-validated, model-independent results; all writes keep going to the
- * markdown exactly as today (merge-tracker.mjs, hand edits).
+ * markdown exactly as today (canonical merge-tracker.mjs and set-status.mjs writers).
  *
  * Why: at hundreds of rows, a markdown table degrades structurally — encoding
  * corruption propagates, columns drift, a `|` inside a cell shifts every
@@ -34,12 +34,18 @@
  * so the index can never serve stale reads.
  */
 
-import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync, statSync, renameSync, rmSync } from 'fs';
+import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync, statSync } from 'fs';
 import { createHash } from 'crypto';
-import { dirname, resolve, join, basename } from 'path';
+import { dirname, resolve, join } from 'path';
 import { pathToFileURL } from 'url';
 import yaml from 'js-yaml';
 import { resolveColumns } from './tracker-parse.mjs';
+import {
+  acquireTrackerLock,
+  canonicalizeTrackerPath,
+  trackerLockDirFor,
+  writeFileAtomic,
+} from './tracker-utils.mjs';
 
 const MD_PATH = process.env.CAREER_OPS_TRACKER || 'data/applications.md';
 const DB_PATH = process.env.CAREER_OPS_TRACKER_DB
@@ -471,58 +477,63 @@ async function exportMd(args) {
 
 // ── Main ────────────────────────────────────────────────────────────
 
-// Atomic file replace via a same-directory temp file + rename, so a reader never
-// sees a partially written applications.md (mirrors merge-tracker's writer).
-function writeFileAtomic(filePath, content) {
-  const tmp = join(dirname(filePath), `.${basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
-  try {
-    writeFileSync(tmp, content);
-    renameSync(tmp, filePath);
-  } catch (err) {
-    rmSync(tmp, { force: true });
-    throw err;
-  }
-}
-
 // `delete --num N` removes one application row from applications.md and rebuilds
 // the derived index. The markdown stays the source of truth: callers (incl. the
 // web) orchestrate this script rather than editing applications.md directly, so
-// the write-gate holds. The write is atomic; callers should still avoid running
-// a delete concurrently with a scan-merge (they share the same file — serialize
-// at the orchestration layer; a shared lock is a follow-up once merge-tracker is
-// import-safe).
+// the write-gate holds. The full read/remove/write/reindex critical section uses
+// the same path-derived lock and atomic writer as merge-tracker/set-status, so a
+// concurrent canonical writer cannot be erased by a stale delete snapshot.
 async function deleteApp(args) {
   const num = flagValue(args, '--num');
   if (!num) {
     console.error('Usage: node tracker.mjs delete --num <N> [--dry-run]   (remove one application row by its number)');
-    process.exit(1);
-  }
-  if (!existsSync(MD_PATH)) {
-    console.error(`Error: ${MD_PATH} not found — nothing to delete.`);
-    process.exit(1);
-  }
-  const { removed, removedCount, report, newContent } = removeRowByNum(readFileSync(MD_PATH, 'utf-8'), num);
-  if (!removed) {
-    console.error(`No application numbered ${num} in ${MD_PATH}.`);
-    process.exit(1);
-  }
-  if (args.includes('--dry-run')) {
-    console.error(`Would remove application ${num} (${removedCount} row${removedCount > 1 ? 's' : ''}) from ${MD_PATH}.`);
-    if (report) console.error(`(report file would be orphaned: ${report})`);
+    process.exitCode = 1;
     return;
   }
-  writeFileAtomic(MD_PATH, newContent);
-  // Rebuild the derived SQLite index from the now-updated markdown.
+  const dryRun = args.includes('--dry-run');
+  const canonicalTracker = canonicalizeTrackerPath(MD_PATH);
+  let lock = null;
   try {
-    const states = loadStates();
-    const DatabaseSync = await loadSqlite();
-    const db = openDb(DatabaseSync);
-    syncIndex(db, states);
-  } catch (e) {
-    console.error(`(row removed; index resync skipped: ${e.message})`);
+    if (!dryRun) {
+      lock = await acquireTrackerLock(trackerLockDirFor(canonicalTracker), {
+        timeoutMs: Number(process.env.CAREER_OPS_TRACKER_LOCK_TIMEOUT_MS) || 60_000,
+        retryMs: Number(process.env.CAREER_OPS_TRACKER_LOCK_RETRY_MS) || 75,
+        staleMs: Number(process.env.CAREER_OPS_TRACKER_LOCK_STALE_MS) || 10 * 60_000,
+        tracker: canonicalTracker,
+      });
+    }
+    if (!existsSync(MD_PATH)) {
+      console.error(`Error: ${MD_PATH} not found — nothing to delete.`);
+      process.exitCode = 1;
+      return;
+    }
+    const { removed, removedCount, report, newContent } = removeRowByNum(readFileSync(MD_PATH, 'utf-8'), num);
+    if (!removed) {
+      console.error(`No application numbered ${num} in ${MD_PATH}.`);
+      process.exitCode = 1;
+      return;
+    }
+    if (dryRun) {
+      console.error(`Would remove application ${num} (${removedCount} row${removedCount > 1 ? 's' : ''}) from ${MD_PATH}.`);
+      if (report) console.error(`(report file would be orphaned: ${report})`);
+      return;
+    }
+    writeFileAtomic(MD_PATH, newContent);
+    // Rebuild the derived SQLite index while the tracker snapshot is still
+    // protected by the shared writer lock.
+    try {
+      const states = loadStates();
+      const DatabaseSync = await loadSqlite();
+      const db = openDb(DatabaseSync);
+      syncIndex(db, states);
+    } catch (e) {
+      console.error(`(row removed; index resync skipped: ${e.message})`);
+    }
+    console.error(`Removed application ${num} (${removedCount} row${removedCount > 1 ? 's' : ''}) from ${MD_PATH} and reindexed.`);
+    if (report) console.error(`Note: report file may now be orphaned — ${report}`);
+  } finally {
+    lock?.release();
   }
-  console.error(`Removed application ${num} (${removedCount} row${removedCount > 1 ? 's' : ''}) from ${MD_PATH} and reindexed.`);
-  if (report) console.error(`Note: report file may now be orphaned — ${report}`);
 }
 
 const COMMANDS = { sync, query, history, export: exportMd, delete: deleteApp };

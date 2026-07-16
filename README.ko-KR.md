@@ -65,7 +65,7 @@
 
 Career-Ops는 AI 코딩 CLI를 취업 활동 전체를 관리하는 커맨드 센터로 바꿔줍니다. 스프레드시트에서 수동으로 지원 현황을 관리하는 대신, AI 파이프라인이 알아서 처리합니다:
 
-- **공고 평가** -- 구조화된 A-F 스코어링 (10개 가중 평가 항목)
+- **공고 평가** -- 구조화된 A-G 평가 (10개 가중 점수 항목과 공고 진위 분석)
 - **맞춤형 PDF 생성** -- JD별로 최적화된 ATS 이력서
 - **포털 자동 스캔** -- Greenhouse, Ashby, Lever, 기업 채용 페이지
 - **일괄 처리** -- 서브 에이전트로 10개 이상의 공고를 병렬 평가
@@ -83,14 +83,14 @@ Career-ops는 에이전트 기반으로 작동합니다: Claude Code가 Playwrig
 
 | 기능                   | 설명                                                                                                                                |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| **자동 파이프라인**    | URL 입력만으로 [평가 → PDF 생성 → 트래커 등록] 전 과정 자동화                                                                       |
-| **6단계 정밀 평가**    | 직무 요약, 이력서 매치, 레벨링 전략, 연봉 리서치, 개인화, 면접 준비 (STAR+R) -- 여기에 사기성 공고와 유령 채용을 표시하는 Block G 공고 진위 검증이 더해집니다 |
+| **자동 파이프라인**    | URL을 붙여넣으면 평가/점수와 판정을 먼저 표시하며, 명시적으로 계속하거나 대시보드에서 선택한 뒤에만 맞춤 자료와 지원 작업을 진행합니다 |
+| **A-G 정밀 평가**      | 직무 요약, 이력서 매치, 레벨링 전략, 연봉 리서치, 개인화, 면접 준비 (STAR+R), Block G 공고 진위 검증                                      |
 | **면접 스토리 뱅크**   | 평가 데이터 기반 STAR+Reflection 스토리 축적 -- 어떤 행동 면접 질문도 커버하는 5~10개의 마스터 답변 생성                            |
 | **협상 전략 스크립트** | 연봉 협상 프레임워크, 거주지 기반 연봉 차등(Geographic Discount) 대응 논리, 경쟁 오퍼 활용 전략                                     |
 | **ATS PDF 생성**       | Space Grotesk + DM Sans 디자인, 키워드가 주입된 이력서                                                                              |
 | **포털 스캐너**        | 45개 이상의 기업 사전 설정 (Anthropic, OpenAI, ElevenLabs, Retool, n8n 등) + Ashby, Greenhouse, Lever, Wellfound 전반의 커스텀 검색 |
 | **일괄 처리**          | `claude -p` 워커로 병렬 평가                                                                                                        |
-| **로컬 Kanban 대시보드** | 브라우저에서 지원서를 검토, 분류, 준비, 작성하는 로컬 대시보드                                                                    |
+| **로컬 Kanban 대시보드** | 역할을 검토하고 준비하며 활성 agent용 application request를 대기열에 넣고 review-ready 작업을 확인하는 로컬 대시보드             |
 | **Human-in-the-Loop**  | AI가 평가하고 추천하면, 당신이 판단하고 행동합니다. 시스템은 절대 지원서를 자동 제출하지 않습니다 -- 최종 결정은 항상 당신의 몫     |
 | **파이프라인 무결성**  | 자동 병합, 중복 제거, 상태 정규화, 헬스 체크                                                                                        |
 
@@ -121,7 +121,7 @@ claude   # or gemini / codex / qwen / opencode — open your AI CLI here
 ```bash
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
-npx playwright install chromium   # only needed for PDF generation
+npx playwright install chromium   # PDF 생성 및 Playwright 브라우저/공고 유효성 확인에 필요
 claude   # open your AI CLI — it onboards you on first launch
 ```
 
@@ -137,7 +137,7 @@ Career-ops는 다양한 모드를 가진 하나의 슬래시 커맨드입니다:
 
 ```
 /career-ops                → 사용 가능한 모든 명령어 표시
-/career-ops {JD 붙여넣기}  → 전체 자동 파이프라인 (평가 + PDF + 트래커)
+/career-ops {JD 붙여넣기}  → 평가/점수와 판정을 먼저 표시하고 명시적 계속/대시보드 선택을 기다림
 /career-ops scan           → 포털에서 새 공고 스캔
 /career-ops pdf            → ATS 최적화 이력서 생성
 /career-ops batch          → 여러 공고 일괄 평가
@@ -150,7 +150,7 @@ Career-ops는 다양한 모드를 가진 하나의 슬래시 커맨드입니다:
 /career-ops project        → 포트폴리오 프로젝트 평가
 ```
 
-채용 공고 URL이나 설명을 바로 붙여넣어도 됩니다 -- career-ops가 자동으로 감지하여 전체 파이프라인을 실행합니다.
+채용 공고 URL이나 설명을 바로 붙여넣으면 career-ops가 자동 감지해 평가/점수를 산출하고 판정을 먼저 표시합니다. `modes/_custom.md`에 따라 명시적으로 계속하거나 대시보드에서 역할을 선택하기 전에는 맞춤 자료를 생성하지 않고, 트래커의 지원 상태를 진행하지 않으며, 역할을 선택하거나 브라우저를 열거나 실시간 양식을 채우지 않습니다.
 
 ## 작동 원리
 
@@ -163,14 +163,18 @@ Career-ops는 다양한 모드를 가진 하나의 슬래시 커맨드입니다:
 └──────────┬─────────────┘
            │
 ┌──────────▼─────────────┐
-│  A-F 평가               │  이력서 기반 매칭도 및 갭 분석, 연봉 리서치, STAR 스토리
+│  A-G 평가               │  매칭도, 갭, 연봉 리서치, STAR 스토리, 공고 진위
 │  (cv.md 참조)           │
 └──────────┬─────────────┘
            │
-      ┌────┼────┐
-      ▼    ▼    ▼
-   Report  PDF  Tracker
-    .md   .pdf   .tsv
+           ▼
+점수/판정 + 보고서 + 트래커 상태: Evaluated
+           │
+           ▼
+명시적 계속 또는 대시보드 선택
+           │
+           ▼
+맞춤 자료 → 브라우저/실시간 입력 → 후보자 검토 및 제출
 ```
 
 ## 사전 설정된 포털
@@ -196,7 +200,7 @@ Career-ops는 다양한 모드를 가진 하나의 슬래시 커맨드입니다:
 npm run launch   # http://127.0.0.1:7777 열기
 ```
 
-적합도 점수 확인, 준비할 역할 선택, form-fill 실행, 초안/파일 확인, 제출 전 사람 검토에 사용하세요. 대시보드는 지원서를 대신 제출하지 않습니다.
+적합도 점수 확인, 준비할 역할 선택, 활성 agent용 durable application request 대기열 등록, 초안/파일 확인, 제출 전 사람 검토에 사용하세요. 대시보드는 자체적으로 browser automation을 실행하거나 지원서를 작성·제출하지 않습니다.
 
 ### Terminal Tracker TUI
 
@@ -248,7 +252,7 @@ career-ops/
 ![Bubble Tea](https://img.shields.io/badge/Bubble_Tea-FF75B5?style=flat&logo=go&logoColor=white)
 
 - **에이전트**: Claude Code + 커스텀 스킬 및 모드
-- **PDF**: Playwright/Puppeteer + HTML 템플릿
+- **PDF**: Playwright + HTML 템플릿
 - **스캐너**: Playwright + Greenhouse API + WebSearch
 - **대시보드**: Go + Bubble Tea + Lipgloss (Catppuccin Mocha 테마)
 - **데이터**: Markdown 테이블 + YAML 설정 + TSV 배치 파일

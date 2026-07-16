@@ -3,14 +3,12 @@ package data
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
 
-// Regression for #1180: a status word appearing as a substring of an earlier
-// cell (Company "Applied Materials" contains "Applied") must not be rewritten;
-// only the Status column changes.
-func TestUpdateApplicationStatusOnlyRewritesStatusColumn(t *testing.T) {
+func TestUpdateApplicationStatusDelegatesToCanonicalWriter(t *testing.T) {
 	tempDir := t.TempDir()
 	dataDir := filepath.Join(tempDir, "data")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
@@ -23,8 +21,7 @@ func TestUpdateApplicationStatusOnlyRewritesStatusColumn(t *testing.T) {
 |---|------|---------|------|-------|--------|-----|--------|-------|
 | 7 | 2026-06-23 | Applied Materials | Staff Android Engineer | 4.2/5 | Applied | ✅ | [7](reports/007.md) | substring trap |
 `
-	path := filepath.Join(dataDir, "applications.md")
-	if err := os.WriteFile(path, []byte(applications), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dataDir, "applications.md"), []byte(applications), 0o644); err != nil {
 		t.Fatalf("failed to write tracker: %v", err)
 	}
 
@@ -33,32 +30,25 @@ func TestUpdateApplicationStatusOnlyRewritesStatusColumn(t *testing.T) {
 		t.Fatalf("expected 1 parsed application, got %d", len(apps))
 	}
 
+	originalWriter := canonicalStatusWriter
+	defer func() { canonicalStatusWriter = originalWriter }()
+	var gotRoot string
+	var gotArgs []string
+	canonicalStatusWriter = func(root string, args ...string) ([]byte, error) {
+		gotRoot = root
+		gotArgs = append([]string(nil), args...)
+		return []byte(`{"changed":true}`), nil
+	}
+
 	if err := UpdateApplicationStatus(tempDir, apps[0], "Interview"); err != nil {
 		t.Fatalf("UpdateApplicationStatus: %v", err)
 	}
-
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
+	if gotRoot != tempDir {
+		t.Fatalf("writer root = %q, want %q", gotRoot, tempDir)
 	}
-	out := string(got)
-
-	if !strings.Contains(out, "| Applied Materials |") {
-		t.Errorf("Company cell was corrupted, file now:\n%s", out)
-	}
-	if !strings.Contains(out, "| Interview |") {
-		t.Errorf("Status cell was not updated to Interview, file now:\n%s", out)
-	}
-	if strings.Contains(out, "Interview Materials") {
-		t.Errorf("status word was replaced inside the Company cell, file now:\n%s", out)
-	}
-
-	reparsed := ParseApplications(tempDir)
-	if reparsed[0].Company != "Applied Materials" {
-		t.Errorf("company = %q, want \"Applied Materials\"", reparsed[0].Company)
-	}
-	if reparsed[0].Status != "Interview" {
-		t.Errorf("status = %q, want \"Interview\"", reparsed[0].Status)
+	wantArgs := []string{"7", "Interview", "--external", "--json"}
+	if !reflect.DeepEqual(gotArgs, wantArgs) {
+		t.Fatalf("writer args = %#v, want %#v", gotArgs, wantArgs)
 	}
 }
 
@@ -207,42 +197,30 @@ func TestParseApplicationsMapsColumnsByHeader(t *testing.T) {
 	}
 }
 
-// End-to-end status update on the inserted-column layout: parse, update, and
-// re-parse. Only the Status cell may change; every other cell stays intact.
-func TestUpdateApplicationStatusInsertedColumn(t *testing.T) {
-	tempDir, path := writeTracker(t, insertedColumnTracker)
-
-	apps := ParseApplications(tempDir)
-	if len(apps) != 1 {
-		t.Fatalf("expected 1 application, got %d", len(apps))
-	}
-	if err := UpdateApplicationStatus(tempDir, apps[0], "Interview"); err != nil {
-		t.Fatalf("UpdateApplicationStatus: %v", err)
-	}
-
-	out, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	got := string(out)
-	if !strings.Contains(got, "| Interview |") {
-		t.Errorf("Status cell not updated to Interview, file now:\n%s", got)
-	}
-	if strings.Count(got, "Interview") != 1 {
-		t.Errorf("write touched an unintended cell; %d occurrences of Interview:\n%s", strings.Count(got, "Interview"), got)
-	}
-	for _, cell := range []string{"| Acme |", "| VP Marketing |", "| Remote |", "| 4.5/5 |", "| ✅ |"} {
-		if !strings.Contains(got, cell) {
-			t.Errorf("expected intact cell %q missing after write:\n%s", cell, got)
+func TestGenericTrackerTransitionsCannotCreateApplicationEvidence(t *testing.T) {
+	for _, target := range []string{"Applied", "Responded", "Interview", "Offer", "Hired", "Rejected"} {
+		if err := validateTrackerStatusTransition("Evaluated", target); err == nil {
+			t.Errorf("Evaluated -> %s unexpectedly allowed", target)
 		}
 	}
-
-	reparsed := ParseApplications(tempDir)
-	if reparsed[0].Status != "Interview" {
-		t.Errorf("reparsed Status = %q, want \"Interview\"", reparsed[0].Status)
+	if err := validateTrackerStatusTransition("Applied", "Applied"); err == nil {
+		t.Error("generic tracker control unexpectedly allowed Applied")
 	}
-	if reparsed[0].ScoreRaw != "4.5/5" {
-		t.Errorf("reparsed ScoreRaw = %q, want \"4.5/5\"", reparsed[0].ScoreRaw)
+	if err := validateTrackerStatusTransition("Applied", "Interview"); err != nil {
+		t.Fatalf("receipt-proven prior application should allow an external Interview outcome: %v", err)
+	}
+	for _, option := range AllowedTrackerStatusTransitions("Evaluated") {
+		if NormalizeStatus(option) == "applied" {
+			t.Fatalf("pre-application picker exposed Applied: %#v", AllowedTrackerStatusTransitions("Evaluated"))
+		}
+	}
+	queueOnly := map[string]bool{"saved": true, "scored": true, "prepared": true, "prefilled": true, "filled": true}
+	for _, current := range []string{"Evaluated", "Applied", "Responded", "Interview", "Offer", "Hired", "Rejected", "Discarded", "SKIP"} {
+		for _, option := range AllowedTrackerStatusTransitions(current) {
+			if queueOnly[NormalizeStatus(option)] {
+				t.Fatalf("tracker picker leaked queue-only state %q from %s", option, current)
+			}
+		}
 	}
 }
 

@@ -2,8 +2,8 @@
 /**
  * field-rules.mjs — Layer 1: deterministic profile-rule matchers (zero cost).
  *
- * Single source of the exact/keyword field matchers, shared by queue-resolve.mjs
- * (pre-resolve) and form-fill.mjs (live fill fast-path). Each rule maps a
+ * Single source of the exact/keyword field matchers used by queue-resolve.mjs
+ * before the active agent fills the live page. Each rule maps a
  * question label to a value drawn from config/profile.yml — never a guess. A
  * rule that matches but has no value in the profile returns nothing, so the
  * field falls through to Layer 2 (cache) / Layer 3 (agent).
@@ -13,18 +13,18 @@
  * are answerable straight from the profile (country, residence, relocation,
  * office-days, work-rights free-text, website, verification consent).
  *
- * Visa DROPDOWNS, resume file uploads, and sponsorship checkboxes are widget-
- * special and stay in form-fill.mjs (they need option/file/checkbox handling),
- * driven by role.visa_answer and profile.location — not by this text matcher.
+ * Visa dropdowns, resume uploads, and sponsorship checkboxes are widget-special;
+ * the active-agent browser controller handles them on-page using role.visa_answer
+ * and profile.location rather than this text matcher.
  *
  * Motivational / "why this company/role" questions are deliberately NOT matched
  * here: their answers are employer-specific, so they belong to Layer 3.
  */
 
-// Field-class regexes shared with form-fill.mjs and queue-resolve.mjs. Cover-letter
-// and key-selection-criteria fields are long-form and always role-specific — they are
-// never deterministic-filled or cache-reused. (Canonical home; form-fill.mjs imports
-// these and re-exports them so existing importers keep resolving.)
+// Field-class regexes shared with the offline application plan and queue-resolve.mjs. Cover-letter
+// and key-selection-criteria fields are role-specific: a current-role draft may be
+// resumed verbatim, but they are never deterministic-filled or reused cross-role.
+// (Canonical home; form-fill.mjs only re-exports them for compatibility.)
 export const COVER_RE = /cover.?letter/i;
 export const KSC_RE   = /key.+selection|selection.+criteria|address.+criteria|ksc/i;
 
@@ -67,13 +67,19 @@ export function matchProfileRule(label, type, profile, role = {}) {
     { id: 'country',
       test: /^country\b|what country|country you|your country/,
       value: () => nonEmpty(loc.country) },
+    // A criminal-history declaration is NOT the same thing as consenting to a
+    // background check. Keep the factual answer ahead of the consent rule.
+    { id: 'criminal_history',
+      test: /criminal (history|record)|have you (ever )?been convicted|conviction|found guilty|pending criminal|criminal offen[cs]e|police record/,
+      value: () => nonEmpty(a.criminal_history) },
     { id: 'consent_verification',
-      test: /consent.*(verif|background|police|criminal|check)|criminal (history|record|check)|background check|police check|right to work check/,
+      test: /(consent|agree|authori[sz]e|permission|willing).{0,50}(verif|background|police|criminal|right to work|check)|(background|police|criminal|right to work).{0,40}(consent|agree|check)/,
       value: () => nonEmpty(a.work_rights_consent) },
     { id: 'work_rights_freetext',
       test: /work(ing)? rights|right to work|visa status|what visa|which visa|are you (an? )?(australian )?(citizen|permanent resident|pr\b)|immigration status/,
       value: () => nonEmpty(a.work_rights_freetext),
-      // only for free-text — a visa DROPDOWN is handled by form-fill via role.visa_answer
+      // Free text only; the active-agent page loop resolves visa dropdown options
+      // against role.visa_answer and the visible option set.
       guard: () => type !== 'select' },
 
     // ── Binary screener radios/selects (employer-independent, stable facts) ────
@@ -97,6 +103,18 @@ export function matchProfileRule(label, type, profile, role = {}) {
     { id: 'non_compete',
       test: /non.?compete|noncompete|restraint of trade|restrictive covenant/,
       value: () => nonEmpty(a.has_noncompete) },
+    { id: 'current_student',
+      test: /currently (a )?student|current student|currently enrolled|still studying|undertaking (a )?(degree|course|study)|studying (full|part)[- ]?time/,
+      value: () => nonEmpty(a.currently_student) },
+    { id: 'masters_degree',
+      test: /master'?s?.*(degree|qualification)|do you have.*master|hold.*master|completed.*master/,
+      value: () => nonEmpty(a.has_masters) },
+    { id: 'highest_qualification',
+      test: /highest (education|educational|academic|tertiary)?\s*qualification|highest degree|highest level of education/,
+      value: () => nonEmpty(a.highest_qualification) },
+    { id: 'education_status',
+      test: /(degree|education|study|course).{0,20}(status|completion)|graduation status/,
+      value: () => nonEmpty(a.education_status) },
     { id: 'bachelors_degree',
       // Narrow match — does not fire for "master's", "PhD", "doctorate"
       test: /\bbachelor'?s?\b.*degree|do you have.*\bbachelor\b|hold.*\bbachelor\b|undergraduate degree|university degree/,
@@ -205,8 +223,8 @@ export function pickVisaOption(options, visaAnswer) {
 // Deterministically map an intended answer to one of the options — exact, then
 // the answer starting with the option as a whole word ("Yes — ..." → "Yes"),
 // then whole-word containment. Returns the option string or null. No embeddings
-// (form-fill's live path stays token-free); the resolver adds an embedding
-// fallback on top of this.
+// are spent here; queue-resolve adds the embedding fallback before the active
+// browser agent applies the chosen option.
 export function chooseOptionDeterministic(answer, options = []) {
   if (answer == null || !Array.isArray(options) || options.length === 0) return null;
   const a = String(answer).toLowerCase().trim();
@@ -239,11 +257,9 @@ const DECLINE_TOKENS    = ['prefer not', 'not to say', 'decline', 'not disclose'
  * Pick the best EEO select option.
  *
  * Logic:
- *  1. Try to match the profile's specific value (e.g. ethnicity: "Indian").
- *     Only used when the field is MANDATORY (caller passes mandatory=true) AND
- *     the profile has a non-empty specific value. Otherwise always prefer "prefer not to say".
- *  2. Prefer the "prefer not to say" / decline option from the dropdown.
- *  3. If no decline option exists → return null (field falls to Layer 2/3 / manual).
+ *  1. Prefer the "prefer not to say" / decline option from the dropdown.
+ *  2. If no decline option exists, match the profile's specific value.
+ *  3. If neither exists, return null so L3 chooses a review-required answer.
  *
  * @param {string}   label     — field label
  * @param {string[]} options   — visible dropdown options
@@ -254,24 +270,23 @@ const DECLINE_TOKENS    = ['prefer not', 'not to say', 'decline', 'not disclose'
 export function matchEeoOption(label, options, profile, mandatory = false) {
   if (!Array.isArray(options) || options.length === 0) return null;
   const l = String(label).toLowerCase();
+  const isEeoField = EEO_GENDER_RE.test(l) || EEO_ETHNICITY_RE.test(l) ||
+    /disabilit|disabled|veteran|military|armed.?service/.test(l);
+  if (!isEeoField) return null;
 
-  let specificValue = null;
-  if (EEO_GENDER_RE.test(l))    specificValue = profile?.eeo?.gender    || null;
-  if (EEO_ETHNICITY_RE.test(l)) specificValue = profile?.eeo?.ethnicity || null;
-
-  // Try specific value only when mandatory AND non-empty in profile
-  if (mandatory && specificValue) {
-    const matched = chooseOptionDeterministic(specificValue, options);
-    if (matched) return matched;
-  }
-
-  // Always prefer "prefer not to say"
+  // Always prefer "prefer not to say", for optional and mandatory fields.
   const declineOpt = options.find((opt) =>
     DECLINE_TOKENS.some((tok) => opt.toLowerCase().includes(tok))
   );
   if (declineOpt) return declineOpt;
 
-  // No decline option → can't fill safely without guessing
+  let specificValue = null;
+  if (EEO_GENDER_RE.test(l))    specificValue = profile?.eeo?.gender    || null;
+  if (EEO_ETHNICITY_RE.test(l)) specificValue = profile?.eeo?.ethnicity || null;
+  const matched = specificValue ? chooseOptionDeterministic(specificValue, options) : null;
+  if (matched) return matched;
+
+  // No decline or profile-backed option → L3 marks it review-required.
   return null;
 }
 

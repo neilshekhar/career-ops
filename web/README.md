@@ -28,8 +28,9 @@ Open http://localhost:3000. The app reads the career-ops checkout it lives in
   write back through the core's own scripts.
 - **Explore** — the free reverse-ATS scan with an honest partial-dataset
   indicator, plus AI-assisted discovery (bring your own CLI/keys).
-- **Apply** — assisted form prefill with a hard rule inherited from the core:
-  **it never submits for you** — you always press the button.
+- **Apply handoff** — the web UI routes live application work to the canonical
+  localhost queue + active-agent workflow. The retired web form proxy cannot
+  open, drive, or fill job-application forms.
 - **Today / Analytics / CV / Config** — action queue, funnel, CV editing with
   preview, settings.
 
@@ -37,8 +38,9 @@ Open http://localhost:3000. The app reads the career-ops checkout it lives in
 
 - **Local-first:** the local web app runs entirely on your machine — no cloud,
   no account needed. Your CV and data stay in your own files.
-- **Never auto-submits:** the apply flow drafts and prefills; submitting is
-  always a human action.
+- **One canonical apply path:** live forms use the root career-ops apply workflow,
+  including per-page lookup, L3 generation, teach, attachment, and verification
+  checks. The active agent fills; final submission is always a human action.
 - **Additive:** the web is isolated from the core's packaging, CI and release
   automation. The CLI works exactly the same without it.
 

@@ -19,7 +19,7 @@
  *   If a posting/field specifies a format, that always wins.
  *
  * `chooseCoverFormat` is a pure function (no I/O) so it can be unit-tested and
- * reused at both authoring time (modes/cover.md) and apply time (form-fill.mjs).
+ * reused at authoring time and by the active-agent apply workflow.
  *
  * Defaults can be overridden per-user via config/profile.yml:
  *   cover_letter:

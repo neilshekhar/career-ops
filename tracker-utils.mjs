@@ -360,9 +360,10 @@ export function writeFileAtomic(path, content) {
 /**
  * Load the canonical tracker states from `templates/states.yml`.
  *
- * states.yml is the single source of truth for the 8 canonical states and
- * their aliases. Parsing it here (instead of hardcoding the list) means a new
- * state or alias lands in one file and every consumer follows.
+ * states.yml is the single source of truth for canonical queue and tracker
+ * states. This tracker helper deliberately returns only `scope: tracker`
+ * entries, so queue-only Saved/Prepared/Prefilled/Filled values can never be
+ * written into applications.md.
  *
  * @param {string} statesPath - Path to templates/states.yml.
  * @returns {{id:string,label:string,aliases:string[]}[]} Parsed state entries.
@@ -372,7 +373,7 @@ export function loadCanonicalStates(statesPath) {
   if (!doc || !Array.isArray(doc.states)) {
     throw new Error(`Malformed states file at ${statesPath}: expected a top-level "states" list`);
   }
-  return doc.states.map(s => ({
+  return doc.states.filter((s) => s?.scope === 'tracker').map(s => ({
     id: String(s.id ?? ''),
     label: String(s.label ?? ''),
     aliases: Array.isArray(s.aliases) ? s.aliases.map(String) : [],

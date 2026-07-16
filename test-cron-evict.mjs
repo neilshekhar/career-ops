@@ -5,30 +5,33 @@
  *   independent of RLS — including the SPA-safety rule that 'insufficient_content'
  *   never triggers eviction.
  *
- * Proofs 0/1/2 (only when Supabase creds are in .env):
+ * Proofs 0/1/2 (only with an explicit live-test opt-in and process env creds):
  *   0: --dry-run writes/deletes nothing.
  *   1: a dead status='new' stub is evicted and lands in seen_urls(final_status='expired').
  *   2: a non-'new' row (status='scored') is NEVER deleted, even when its URL is "dead".
  *
  * Style mirrors test-cron-rls-negative.mjs:
- * - Hand-load .env before any module-level env reads.
+ * - Never load .env; live credentials must already be in process.env.
  * - TAG-keyed stubs so cleanup never touches real production rows.
  * - Self-cleaning finally block using the dashboard credential.
  * - process.exit(0) on all-pass, process.exit(1) on any failure.
  */
 
-import { readFileSync, existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-// Load .env before dynamic imports so supabase-client.mjs sees the env vars.
-if (existsSync(".env")) {
-  for (const line of readFileSync(".env", "utf8").split("\n")) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (m) process.env[m[1]] ??= m[2].replace(/^["']|["']$/g, "");
-  }
-}
+const LIVE_TEST_FLAG = 'CAREER_OPS_RUN_LIVE_SUPABASE_TESTS';
+const RUN_LIVE_SUPABASE_TESTS = process.env[LIVE_TEST_FLAG] === '1';
 
-// Dynamic import so supabase-client.mjs picks up the env vars we just loaded.
+// queue-store imports supabase-client, whose application runtime supports dotenv.
+// This test never inherits that behavior: use an absent test-only dotenv path and
+// rely exclusively on the caller's process environment for an explicit live run.
+process.env.DOTENV_CONFIG_PATH = join(tmpdir(), `career-ops-no-dotenv-${process.pid}.env`);
+process.env.DOTENV_CONFIG_QUIET = 'true';
+process.env.CAREER_OPS_QUEUE_BACKEND = RUN_LIVE_SUPABASE_TESTS ? 'supabase' : 'local';
+
+// Import only after the no-dotenv/local-default boundary is in place.
 const { shouldEvict, evictExpiredNewStubsCron } = await import('./queue-store.mjs');
 
 let pass = 0, fail = 0;
@@ -64,7 +67,13 @@ for (const [row, verdict, expected, label] of pureGuardCases) {
   else bad(`shouldEvict: ${label} — expected ${expected}, got ${got}`);
 }
 
-// ── Network proofs (skip cleanly if Supabase env absent) ──────────────────────
+// ── Network proofs (explicit opt-in only) ───────────────────────────────────────
+
+if (!RUN_LIVE_SUPABASE_TESTS) {
+  console.log(`\nSKIP: live Supabase eviction mutation proofs disabled (set ${LIVE_TEST_FLAG}=1 and provide credentials in the process environment to opt in)`);
+  console.log(`\n${fail === 0 ? 'EVICT GUARD PROVEN' : 'EVICT GUARD BROKEN'} — ${pass} passed, ${fail} failed`);
+  process.exit(fail === 0 ? 0 : 1);
+}
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const DASH         = process.env.SUPABASE_DASHBOARD_KEY;
@@ -72,9 +81,8 @@ const CRON_APIKEY  = process.env.SUPABASE_CRON_PUBLISHABLE_KEY;
 const CRON_JWT     = process.env.SUPABASE_CRON_JWT;
 
 if (!SUPABASE_URL || !DASH || !CRON_APIKEY || !CRON_JWT) {
-  console.log('\nNetwork proofs skipped — Supabase env vars not in .env (expected on fresh clone)');
-  console.log(`\n${fail === 0 ? 'EVICT GUARD PROVEN' : 'EVICT GUARD BROKEN'} — ${pass} passed, ${fail} failed`);
-  process.exit(fail === 0 ? 0 : 1);
+  console.error(`LIVE TEST CONFIG ERROR: ${LIVE_TEST_FLAG}=1 requires SUPABASE_URL, SUPABASE_DASHBOARD_KEY, SUPABASE_CRON_PUBLISHABLE_KEY, and SUPABASE_CRON_JWT in process.env`);
+  process.exit(1);
 }
 
 const REST = `${SUPABASE_URL}/rest/v1`;

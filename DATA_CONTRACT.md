@@ -62,11 +62,23 @@ These files contain system logic, scripts, templates, and instructions that impr
 | `modes/titles.md` | Adjacent job-title suggestion instructions |
 | `modes/followup.md` | Follow-up cadence instructions |
 | `modes/queue.md` | Queue score + prepare mode instructions |
-| `queue-store.mjs` | Queue read/write/lane-logic utility |
+| `queue-store.mjs` | Locked queue read/write, lane logic, and role-local application progress utility |
 | `queue-ingest.mjs` | Zero-token incremental queue ingest |
+| `queue-resolve.mjs` | Three-layer field lookup and per-page teach contract |
+| `queue-sweep.mjs` | Queue lifecycle recovery and closed-role sweep |
+| `answer-cache.mjs` / `screener-store.mjs` | Locked reusable-answer and screener stores |
+| `application-answers.mjs` | Receipt-derived `## Application Answers` formatter and report updater |
+| `application-safety.mjs` | Context-aware application navigation, registration, and final-submit classifier |
+| `application-receipt.mjs` | Consumes executable resolver evidence into a durable per-page ledger, solely finalizes report/queue review-ready `filled` state, and owns the idempotent receipt-bound report promotion/rollback used after candidate-confirmed submission |
+| `verify-application-contract.mjs` | Read-only cross-agent and runtime application-contract consistency guard |
+| `credentials-store.mjs` / `login-core.mjs` | Exact-host portal credential helper and login/registration state classifier |
+| `field-rules.mjs` | Deterministic application-field rules |
+| `run-partition.mjs` | Pure routing partition for durable active-agent application requests versus not-ready roles |
+| `dashboard-launch.mjs` | Local apply-dashboard launcher |
 | `dashboard-server.mjs` | Localhost apply-queue dashboard server |
 | `dashboard/web/*` | Dashboard SPA (HTML/CSS/JS) |
-| `form-fill.mjs` | Deterministic Playwright form fill |
+| `form-fill.mjs` | Offline deterministic fill-plan generator; no browser, queue, or status mutation |
+| `tests/*` | Auto-discovered system tests, including application-contract and receipt gates |
 | `modes/offer-prep.md` | Offer-stage contract reading companion instructions |
 | `modes/interview/*` | Interview prep planning, practice, and debrief skills |
 | `modes/de/*` | German language modes |
@@ -102,6 +114,7 @@ These files contain system logic, scripts, templates, and instructions that impr
 | `docs/*` | Documentation |
 | `VERSION` | Current version number |
 | `DATA_CONTRACT.md` | This file |
+| `UPSTREAM_MERGE_CHECKLIST.md` | Binding fork-protection gate for manual upstream merges |
 | `writing-samples/README.md` | System-owned onboarding documentation for the writing-samples directory |
 
 ## The Rule

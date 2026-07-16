@@ -1,29 +1,21 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { Send, Lock } from "lucide-react";
-import { useJobs } from "@/components/jobs/job-store";
-import { useApply } from "@/components/apply/apply-provider";
+import { ExternalLink, Lock } from "lucide-react";
 
-// The "Apply" CTA — brand orange, paper-plane. Enabled ONLY when the tailored CV
-// for THIS offer is ready (the tracker's PDF column is ✅, or a pdf worker for
-// this #n just finished). On click it opens the apply form-proxy for the offer
-// (where the user reviews and submits it themselves — never auto-submit).
-export function ApplyButton({ n, url, company, pdfReady }: { n: string; url?: string; company: string; pdfReady: boolean }) {
-  const router = useRouter();
-  const { jobs } = useJobs();
-  const apply = useApply();
-
-  const pdfJobDone = jobs.some((j) => j.kind === "pdf" && j.input === n && j.status === "done");
+// The web UI is a read/review surface. Live application execution belongs to the
+// canonical localhost queue + active-agent workflow, which enforces the complete
+// dashboard-first selection → PREPARE → per-page resolver/teach/verify loop. This
+// CTA opens the dashboard before assets exist; PREPARE, not this report page,
+// enforces the CV + cover + provenance gate.
+export function ApplyButton({ url, company }: { url?: string; company: string }) {
   const hasUrl = !!url && /^https?:\/\//i.test(url);
-  const ready = (pdfReady || pdfJobDone) && hasUrl;
 
-  if (!ready) {
+  if (!hasUrl) {
     return (
       <button
         type="button"
         disabled
-        title={!hasUrl ? "No application URL on this report" : "Generate the tailored CV (PDF) first to apply"}
+        title="No application URL on this report"
         className="inline-flex cursor-not-allowed items-center justify-center gap-1.5 rounded-full border border-border bg-surface/40 px-3.5 py-1 text-xs font-medium text-faint max-sm:min-h-[44px]"
       >
         <Lock className="size-3.5" /> Apply
@@ -31,16 +23,14 @@ export function ApplyButton({ n, url, company, pdfReady }: { n: string; url?: st
     );
   }
   return (
-    <button
-      type="button"
-      onClick={() => {
-        apply.open(url!, { prefill: true, company });
-        router.push("/apply");
-      }}
+    <a
+      href="http://127.0.0.1:7777"
+      target="_blank"
+      rel="noreferrer"
       className="inline-flex items-center justify-center gap-1.5 rounded-full bg-brand px-3.5 py-1 text-xs font-medium text-brand-foreground shadow-sm transition-colors hover:bg-brand-200 max-sm:min-h-[44px]"
-      title="Apply — opens the form pre-filled, you review and submit yourself"
+      title={`Open the canonical apply queue for ${company} in a new tab`}
     >
-      <Send className="size-3.5" /> Apply
-    </button>
+      <ExternalLink className="size-3.5" /> Apply queue
+    </a>
   );
 }

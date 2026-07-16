@@ -17,15 +17,21 @@
  * those fall through to a profile rule or to Layer 3 (the agent).
  */
 
-import { readFileSync, writeFileSync, existsSync, renameSync } from 'fs';
-import { join, dirname } from 'path';
+import {
+  readFileSync, writeFileSync, existsSync, renameSync, mkdirSync, rmSync, statSync,
+} from 'fs';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 
 import { EMBED_MODEL, cosine } from './embed.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
-export const CACHE_PATH = join(ROOT, 'data', 'answer-cache.json');
+const DATA_DIR = process.env.CAREER_OPS_DATA_DIR
+  ? resolve(process.env.CAREER_OPS_DATA_DIR)
+  : join(ROOT, 'data');
+export const CACHE_PATH = join(DATA_DIR, 'answer-cache.json');
+export const CACHE_LOCK_PATH = join(DATA_DIR, '.answer-cache.lock');
 
 // Tunable: paraphrases score ~0.95, unrelated questions ~0.34 with
 // embeddinggemma, so 0.85 cleanly admits paraphrases and rejects the rest.
@@ -46,17 +52,57 @@ export function loadCache() {
   if (!existsSync(CACHE_PATH)) return EMPTY_CACHE();
   try {
     const c = JSON.parse(readFileSync(CACHE_PATH, 'utf-8'));
-    if (!c || !Array.isArray(c.entries)) return EMPTY_CACHE();
+    if (!c || typeof c !== 'object' || Array.isArray(c) || !Array.isArray(c.entries)) {
+      throw new Error('expected an object with an entries array');
+    }
     return c;
-  } catch {
-    return EMPTY_CACHE();
+  } catch (err) {
+    throw new Error(`Answer cache is unreadable or invalid; refusing silent reset: ${err.message}`);
   }
 }
 
 export function saveCache(cache) {
-  const tmp = join(ROOT, 'data', `.answer-cache-${randomUUID()}.tmp`);
+  mkdirSync(DATA_DIR, { recursive: true });
+  const tmp = join(DATA_DIR, `.answer-cache-${randomUUID()}.tmp`);
   writeFileSync(tmp, JSON.stringify(cache, null, 2) + '\n', 'utf-8');
   renameSync(tmp, CACHE_PATH);
+}
+
+function withCacheLock(fn, timeoutMs = 15_000) {
+  mkdirSync(DATA_DIR, { recursive: true });
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      mkdirSync(CACHE_LOCK_PATH, { mode: 0o700 });
+      break;
+    } catch (err) {
+      if (err?.code !== 'EEXIST') throw err;
+      try {
+        if (Date.now() - statSync(CACHE_LOCK_PATH).mtimeMs > 120_000) {
+          rmSync(CACHE_LOCK_PATH, { recursive: true, force: true });
+          continue;
+        }
+      } catch { /* another process may have released the lock */ }
+      if (Date.now() >= deadline) throw new Error('Timed out waiting for answer-cache lock');
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    rmSync(CACHE_LOCK_PATH, { recursive: true, force: true });
+  }
+}
+
+export function mutateCache(mutator, { timeoutMs = 15_000 } = {}) {
+  if (typeof mutator !== 'function') throw new Error('mutateCache requires a callback');
+  return withCacheLock(() => {
+    const cache = loadCache();
+    const result = mutator(cache);
+    if (result && typeof result.then === 'function') throw new Error('mutateCache callback must be synchronous');
+    saveCache(cache);
+    return result;
+  }, timeoutMs);
 }
 
 // ── Entity extraction (volatile tokens that make an answer context-specific) ───

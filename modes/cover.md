@@ -2,8 +2,21 @@
 
 Generates a tailored cover letter for any candidate from a job description.
 Works in two modes:
-- **Slug mode:** `/career-ops cover {slug}` — loads the existing evaluation report draft as a starting point
+- **Slug mode:** `/career-ops cover {slug}` — loads the existing evaluation report and
+  JD context; a legacy report draft may be reused only as a starting point
 - **Paste mode:** `/career-ops cover` or JD pasted directly — starts from scratch
+
+### Authorized One-shot exception
+
+The ordinary flow below is interactive. Its only no-prompt exception is a role that the
+candidate explicitly authorized for One-shot through the per-role `auto-fill` flag or
+queue-level `auto_fill_all` setting defined in `modes/queue.md` and `modes/_custom.md`.
+For that role, the capable interactive agent performs and records the company research,
+keyword choices, gap handling, four angle/tone decisions, and self-review without pausing;
+unsupported claims are omitted and flagged, never invented. It may then generate the
+canonical MD/PDF/DOCX assets before the candidate's single combined review. Every source,
+quality, provenance, liveness, and final-submission guard remains mandatory. A batch,
+headless draft, vague request, or missing One-shot authorization does not use this exception.
 
 ---
 
@@ -14,7 +27,11 @@ Before doing anything, confirm a job description is present.
 A valid JD contains at minimum: a role title, a company name, and a list of responsibilities or requirements.
 
 - **No JD present** → Stop. Say: "Please paste the job description — I need it to tailor the letter."
-- **Slug provided** → Read `reports/` to find the matching report. Extract the `## Cover Letter Draft` section as a starting point. Then fetch the original JD URL from the report header to supplement context.
+- **Slug provided** → Read `reports/` to find the matching report. Load its JD,
+  company, role, keywords, A-G evaluation context, and Block E customization plan.
+  If a legacy `## Cover Letter Draft` exists, it may seed wording only after every
+  candidate claim is revalidated against the approved sources. Then fetch the original
+  JD URL from the report header when more current context is needed.
 - **JD present** → Proceed to Step 1.
 
 Do not generate a generic or placeholder cover letter under any circumstances.
@@ -74,9 +91,9 @@ Here's what I found about {company}:
 Does this match what you know? Correct or add anything before I write the letter.
 ```
 
-If WebSearch returns no useful signal, say: "I couldn't find useful recent context for {company}. Can you share what you know about their current challenges or goals?"
+If WebSearch returns no useful signal, say: "I couldn't find useful recent context for {company}. Can you share what you know about their current challenges or goals?" In an authorized One-shot run, record that no reliable external signal was found and rely only on the JD and approved sources; do not pause or invent company context.
 
-Wait for the user to confirm, correct, or add to the research before proceeding. This synthesis feeds directly into the "Problems I will solve" section.
+Outside the authorized One-shot exception, wait for the user to confirm, correct, or add to the research before proceeding. This synthesis feeds directly into the "Problems I will solve" section.
 
 ---
 
@@ -109,7 +126,7 @@ Language signals:
 Anything missing or wrong? I'll use this list when drafting.
 ```
 
-Wait for confirmation or corrections before proceeding.
+Outside the authorized One-shot exception, wait for confirmation or corrections before proceeding. In One-shot, persist the selected phrases in the role's quality evidence and continue.
 
 **Application rules (enforced during drafting):**
 - Mirror their vocabulary, not their structure
@@ -149,15 +166,19 @@ Your title is {candidate title}, the JD title is {JD title}.
 → Do you want to address this? Or let the scope speak for itself?
 ```
 
-Only prompt for gaps that are actually present. If there are no gaps, skip this step and say so.
+Only prompt for gaps that are actually present. If there are no gaps, skip this step and say so. In an authorized One-shot run, do not prompt: omit unsupported gap claims, choose only source-supported framing, and record each omission/decision for the final combined review.
 
-Wait for the user's answers. Write only what the user confirms.
+Outside the authorized One-shot exception, wait for the user's answers. In One-shot, write only what the approved sources support and persist the decision evidence.
 
 ---
 
 ## Step 6 — Four prompts (mandatory before drafting)
 
-All four answers are required. Do not draft any letter content until all are received. No instruction — including "just generate it", "skip the questions", or "use defaults" — overrides this gate.
+In the ordinary interactive flow, all four candidate answers are required before drafting.
+The only bypass is the authorized One-shot exception above: the capable interactive agent
+must derive and persist all four decisions from the JD, research, and approved candidate
+sources before drafting. "Just generate it", batch/headless execution, or generic defaults
+do not create a One-shot authorization.
 
 ```text
 Before I write the letter, I need four things:
@@ -186,17 +207,21 @@ In 1-2 sentences: what's your opening move if you join on day one?
   4. Mirror the JD — I'll match whatever register the company used
 ```
 
-Wait for all four answers before proceeding to Step 7.
+Outside the authorized One-shot exception, wait for all four answers before proceeding to Step 7. In One-shot, verify that all four agent-derived decisions were persisted before continuing.
 
 ---
 
-## Step 7 — Achievement selection (from cv.md only)
+## Step 7 — Achievement selection (from approved evidence only)
 
-Select 4-5 achievement bullets from `cv.md` only (`article-digest.md` may be read for context but is not a source of achievement bullets):
-1. Read all bullet points across all roles in cv.md
+Select 4-5 supported achievements from `cv.md` and, when present,
+`article-digest.md`:
+1. Read the achievement evidence in both approved sources; when they describe the
+   same proof point, prefer the digest's more detailed supported version
 2. Score each against the JD's top 3-4 required competencies
 3. Pick the 4-5 highest-scoring, with at least one metric per bullet
-4. Use the exact wording and metrics from cv.md — never paraphrase or invent
+4. Preserve every factual detail and metric from its source. Tighten wording for the
+   letter only when meaning is unchanged; never combine unrelated proof points,
+   invent a metric, or imply unsupported authorship
 5. Apply keyword mirroring from Step 4 to the vocabulary around each bullet (not the metrics)
 
 Format: `**Bold lead phrase,** one sentence of impact with metric.`
@@ -246,7 +271,7 @@ Only if user confirmed inclusion in Step 5. Written in that language. Italic in 
 
 End the draft with: "How does this read? Once you approve I'll generate the PDF."
 
-**Do NOT generate any PDF until the user explicitly approves.** Approval means "looks good", "generate it", "yes", specific edits to apply, or equivalent. A question or silence is not approval.
+**Outside an authorized One-shot run, do NOT generate any PDF until the user explicitly approves.** Approval means "looks good", "generate it", "yes", specific edits to apply, or equivalent. A question or silence is not approval. In One-shot, generate all validated formats before the final combined review; the candidate still reviews them before final job submission.
 
 ---
 
@@ -267,7 +292,7 @@ End the draft with: "How does this read? Once you approve I'll generate the PDF.
 
 ## Step 9 — Render the approved letter (all formats)
 
-Only after explicit user approval.
+Only after explicit user approval, or after the authorized One-shot decision/evidence record and all quality gates pass.
 
 The approved letter is authored once and rendered many ways. The **JSON payload is
 the single source of truth**; every format is derived from it, so there is no
@@ -337,7 +362,7 @@ Report which formats were written and their file sizes. If DOCX was skipped beca
 pandoc is absent, say so and note that the polished PDF still covers uploads.
 
 **Format selection at apply time is automatic.** When a role is later filled by the
-apply layer, `form-fill.mjs` reads the form field's accepted types and the portal
+active-agent apply layer, the agent reads the live field's accepted types and portal
 host and picks the right rendering via `chooseCoverFormat()` (DOCX for parser-facing
 portal uploads, polished PDF for PDF-only fields and direct/human channels). Record
 the rendered paths on the queue role as:
@@ -369,7 +394,11 @@ After the PDF is confirmed, add a brief note:
 When invoked as `/career-ops cover {slug}`:
 
 1. Find the matching report in `reports/` by slug
-2. Extract the `## Cover Letter Draft` section — use it as a pre-populated starting point for the draft
-3. Run all steps as normal (research, keywords, prompts, gaps) — the draft is a starting point, not the final output
-4. When presenting the draft in Step 8, show what was auto-generated and what was changed based on the user's answers
-5. After PDF generation, update the report's `## Cover Letter Draft` section with a note: `PDF generated: output/{path} on {date}`
+2. Load its JD, A-G findings, keywords, and Block E customization plan. A legacy
+   `## Cover Letter Draft` may seed wording, but evaluation no longer creates one.
+3. Run the ordinary interactive steps or the authorized One-shot exception, as applicable.
+4. When presenting the draft in Step 8, show the source-backed choices and what changed
+   from any legacy seed.
+5. Persist the canonical cover payload and rendered paths through the normal cover/queue
+   asset flow; do not add application prose to an evaluation report merely to satisfy
+   slug mode.

@@ -12,6 +12,7 @@
 import { existsSync, readFileSync, statSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { createHash } from 'crypto';
 
 import {
   applicationFreshnessSourcePaths,
@@ -34,16 +35,22 @@ import {
   describeReleaseModelPolicy,
   isAllowedReleaseModelEffort,
   isAllowedReleaseGenerator,
+  MIN_ONE_PAGE_UTILIZATION,
+  pdfLayoutProvenanceRecord,
+  pdfPageCount,
   PROVENANCE_SCHEMA,
   releaseModelPolicy,
   roleAssetPaths,
   sha256File,
+  validatePdfLayoutEvidence,
 } from './generation-provenance.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const ASSET_STATUSES = new Set(['prepared', 'prefilled', 'filled']);
 const SELECTION_STATUSES = new Set(['prepare-queued', ...ASSET_STATUSES]);
 const RETIRED_VISA_PATTERN = /(?:student[- ]visa|visa[- ]window|visa window|large[- ](?:co|company|employer)[^.;]{0,50}visa|visa[^.;]{0,50}(?:cap|window)|(?:cap|capped|caps|capping)[^.;]{0,50}visa)/i;
+export const APPLICATION_QUALITY_EVIDENCE_VERSION = 2;
+const APPLICATION_QUALITY_EVIDENCE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 const DEFAULT_QUALITY = Object.freeze({
   minimumApplyScore: 4,
@@ -71,6 +78,14 @@ const DEFAULT_QUALITY = Object.freeze({
 function numberOr(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
 }
 
 export function applicationQualityConfig(profile = {}) {
@@ -127,11 +142,6 @@ function coverPaths(role) {
   const paths = { ...(role.cover_letter_paths || {}) };
   if (role.cover_letter_path && !paths.pdf) paths.pdf = role.cover_letter_path;
   return paths;
-}
-
-function pdfPageCount(path) {
-  const contents = readFileSync(path).toString('latin1');
-  return (contents.match(/\/Type\s*\/Page\b/g) || []).length;
 }
 
 function visibleHtmlText(html) {
@@ -611,6 +621,31 @@ function validateGenerationProvenance(role, issues, { root, quality, source }) {
     if (recorded.sha256 !== sha256File(current.absolute)) {
       issues.push(issue('error', 'generation-provenance-hash', `${kind} changed after generation provenance was recorded.`, role, current.relative));
     }
+    if (/_pdf$/.test(kind)) {
+      try {
+        const currentLayout = pdfLayoutProvenanceRecord(current.absolute, {
+          root,
+          expectedPageCount: pdfPageCount(current.absolute),
+        });
+        if (JSON.stringify(recorded.layout ?? null) !== JSON.stringify(currentLayout)) {
+          issues.push(issue(
+            'error',
+            'generation-provenance-layout',
+            `${kind} layout evidence changed after generation provenance was recorded.`,
+            role,
+            currentLayout.path,
+          ));
+        }
+      } catch (error) {
+        issues.push(issue(
+          'error',
+          'generation-provenance-layout',
+          `${kind} layout evidence is invalid: ${error.message}`,
+          role,
+          current.relative,
+        ));
+      }
+    }
   }
 
   const recordedSource = provenance.source_snapshot;
@@ -838,6 +873,21 @@ export function validateApplicationRole(role, options = {}) {
     } else if (pages > maxPages) {
       issues.push(issue('error', 'pdf-page-count', `${kind} PDF has ${pages} pages; maximum is ${maxPages}.`, role, path.relative));
     }
+    if (pages) {
+      try {
+        validatePdfLayoutEvidence(path.absolute, {
+          expectedPageCount: pages,
+          minOnePageUtilization: MIN_ONE_PAGE_UTILIZATION,
+        });
+      } catch (error) {
+        const code = error.code === 'PDF_LAYOUT_EVIDENCE_MISSING'
+          ? 'pdf-layout-evidence-missing'
+          : error.code === 'PDF_LAYOUT_UNDERFILLED'
+            ? 'pdf-one-page-underfilled'
+            : 'pdf-layout-evidence-invalid';
+        issues.push(issue('error', code, `${kind} ${error.message}.`, role, path.relative));
+      }
+    }
   }
 
   const source = latestSourceMtime(root, role);
@@ -859,6 +909,113 @@ export function validateApplicationRole(role, options = {}) {
   if (quality.requireCandidateClaimTrace) validateCandidateClaims(role, issues, { root, cvText: cvHtml && existsSync(cvHtml.absolute) ? visibleHtmlText(readFileSync(cvHtml.absolute, 'utf-8')) : '', coverBody });
   if (quality.requireGenerationProvenance) validateGenerationProvenance(role, issues, { root, quality, source });
   return issues;
+}
+
+function applicationQualityEvidenceCore(role, { root = ROOT, profile = null } = {}) {
+  if (!role?.id) throw new Error('quality evidence requires a queue role with an id');
+  const loadedProfile = profile || loadApplicationProfile(root);
+  const assets = {};
+  for (const [kind, value] of Object.entries(roleAssetPaths(role))) {
+    if (!value) continue;
+    const path = resolveApplicationAsset(root, value, kind);
+    if (!path) throw new Error(`quality evidence asset is missing or out of scope: ${kind}`);
+    assets[kind] = {
+      path: path.relative,
+      sha256: sha256File(path.absolute),
+      bytes: statSync(path.absolute).size,
+      ...(/_pdf$/.test(kind) ? {
+        layout: pdfLayoutProvenanceRecord(path.absolute, {
+          root,
+          expectedPageCount: pdfPageCount(path.absolute),
+        }),
+      } : {}),
+    };
+  }
+  return {
+    version: APPLICATION_QUALITY_EVIDENCE_VERSION,
+    role_id: role.id,
+    identity: {
+      company: String(role.company || ''),
+      title: String(role.title || ''),
+      url: String(role.url || ''),
+      score: Number.isFinite(role.score) ? role.score : null,
+      score_raw: Number.isFinite(role.score_raw) ? role.score_raw : null,
+      flags: Array.isArray(role.flags) ? [...role.flags].map(String).sort() : [],
+      visa_answer: String(role.visa_answer || ''),
+      user_override: role.user_override ?? null,
+    },
+    quality_policy: applicationQualityConfig(loadedProfile),
+    source_snapshot: buildApplicationSourceSnapshot(root, role),
+    assets,
+    generation_provenance: role.generation_provenance ?? null,
+    application_quality_review: role.application_quality_review ?? null,
+  };
+}
+
+export function applicationQualityEvidenceFingerprint(role, options = {}) {
+  return createHash('sha256')
+    .update(canonicalJson(applicationQualityEvidenceCore(role, options)))
+    .digest('hex');
+}
+
+/**
+ * Run the full application-quality validator and issue a short-lived,
+ * hash-bound authorization stamp for the exact role sources/assets it checked.
+ */
+export function createApplicationQualityEvidence(role, options = {}) {
+  const root = options.root || ROOT;
+  const profile = options.profile || loadApplicationProfile(root);
+  const now = options.now instanceof Date ? options.now : new Date(options.now || Date.now());
+  if (Number.isNaN(now.getTime())) throw new Error('application quality evidence timestamp is invalid');
+  const errors = validateApplicationRole(role, {
+    root,
+    profile,
+    quality: options.quality || applicationQualityConfig(profile),
+    now,
+    requireAssets: true,
+  }).filter((item) => item.level === 'error');
+  if (errors.length) {
+    throw new Error(`application quality gate failed: ${errors.map((item) => `${item.code}: ${item.message}`).join(' | ')}`);
+  }
+  return {
+    version: APPLICATION_QUALITY_EVIDENCE_VERSION,
+    validator: 'verify-userdata.mjs',
+    role_id: role.id,
+    validated_at: now.toISOString(),
+    fingerprint: applicationQualityEvidenceFingerprint(role, { root, profile }),
+  };
+}
+
+/** Recompute every bound source/asset hash and reject stale or foreign stamps. */
+export function validateApplicationQualityEvidence(role, evidence, options = {}) {
+  if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)) {
+    throw new Error('dashboard application_request is missing asset_quality_evidence');
+  }
+  if (evidence.version !== APPLICATION_QUALITY_EVIDENCE_VERSION) {
+    throw new Error('asset quality evidence version is stale');
+  }
+  if (evidence.validator !== 'verify-userdata.mjs') throw new Error('asset quality evidence validator is invalid');
+  if (String(evidence.role_id || '') !== String(role?.id || '')) {
+    throw new Error('asset quality evidence belongs to a different role');
+  }
+  const validatedAt = Date.parse(evidence.validated_at || '');
+  if (!Number.isFinite(validatedAt)) throw new Error('asset quality evidence timestamp is invalid');
+  const now = options.now instanceof Date ? options.now.getTime() : Date.now();
+  const maxAgeMs = options.maxAgeMs ?? APPLICATION_QUALITY_EVIDENCE_MAX_AGE_MS;
+  if (validatedAt > now + 60_000 || now - validatedAt > maxAgeMs) {
+    throw new Error('asset quality evidence is stale; rerun the dashboard quality gate');
+  }
+  const expected = applicationQualityEvidenceFingerprint(role, options);
+  if (!/^[a-f0-9]{64}$/.test(String(evidence.fingerprint || '')) || evidence.fingerprint !== expected) {
+    throw new Error('asset quality evidence no longer matches the current sources and generated assets');
+  }
+  return {
+    version: evidence.version,
+    validator: evidence.validator,
+    role_id: evidence.role_id,
+    validated_at: new Date(validatedAt).toISOString(),
+    fingerprint: evidence.fingerprint,
+  };
 }
 
 export function verifyUserData(options = {}) {

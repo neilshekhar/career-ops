@@ -87,6 +87,47 @@ func TestWithReloadedDataPreservesStateAndSelection(t *testing.T) {
 	}
 }
 
+func TestGenericStatusPickerNeverOffersApplied(t *testing.T) {
+	for _, current := range []string{"Evaluated", "Applied", "Responded", "Interview", "Offer", "Discarded", "SKIP"} {
+		app := model.CareerApplication{Company: "Acme", Role: "Engineer", Status: current}
+		pm := NewPipelineModel(
+			theme.NewTheme("catppuccin-mocha"),
+			[]model.CareerApplication{app},
+			model.PipelineMetrics{Total: 1},
+			"..",
+			100,
+			30,
+		)
+		for _, option := range pm.statusOptions() {
+			if option == "Applied" {
+				t.Fatalf("%s row exposed Applied in generic picker: %#v", current, pm.statusOptions())
+			}
+		}
+	}
+}
+
+func TestPreApplicationStatusPickerCannotSkipToLifecycleOutcome(t *testing.T) {
+	app := model.CareerApplication{Company: "Acme", Role: "Engineer", Status: "Evaluated"}
+	pm := NewPipelineModel(
+		theme.NewTheme("catppuccin-mocha"),
+		[]model.CareerApplication{app},
+		model.PipelineMetrics{Total: 1},
+		"..",
+		100,
+		30,
+	)
+	pm, _ = pm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	if !pm.statusPicker {
+		t.Fatal("expected safe closure choices to open for an Evaluated row")
+	}
+	overlay := pm.overlayStatusPicker("")
+	for _, forbidden := range []string{"Applied", "Responded", "Interview", "Offer", "Hired", "Rejected"} {
+		if strings.Contains(overlay, forbidden) {
+			t.Fatalf("pre-application picker exposed %s:\n%s", forbidden, overlay)
+		}
+	}
+}
+
 func TestRenderAppLineIncludesDateColumn(t *testing.T) {
 	pm := NewPipelineModel(
 		theme.NewTheme("catppuccin-mocha"),
@@ -580,4 +621,3 @@ func TestWithReloadedDataPreservesCursorWhenAppRemoved(t *testing.T) {
 		t.Fatalf("expected cursor to be within [0, %d], got %d", len(reloaded.filtered)-1, reloaded.cursor)
 	}
 }
-

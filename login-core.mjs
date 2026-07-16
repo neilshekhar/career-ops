@@ -12,6 +12,8 @@
  *   'registration-form' — Account-creation form visible; can auto-fill + register.
  *   'confirmation'      — Submission confirmation page detected.
  *   'already-applied'   — Portal indicates the candidate has already applied.
+ *   'login-rejected'    — Credentials were rejected / account not found.
+ *   'human-challenge'   — CAPTCHA, OTP/MFA, email verification, or recovery gate.
  *   'uncertain'         — Cannot classify; caller should proceed with caution.
  *
  * classifyLoginState({ bodyText, formLabels, buttons, inputCount, textareaCount })
@@ -39,6 +41,23 @@ const LOGIN_BUTTON_PATTERNS = [
   /^login$/i,
 ];
 
+const LOGIN_REJECTED_PATTERNS = [
+  /(incorrect|invalid|wrong).{0,20}(email|password|credentials)/i,
+  /(email|password|credentials).{0,30}(incorrect|invalid|wrong)/i,
+  /email\s+or\s+password.*(incorrect|invalid)/i,
+  /unable\s+to\s+(sign|log)\s*in/i,
+  /account\s+(not\s+found|does\s+not\s+exist)/i,
+];
+
+const HUMAN_CHALLENGE_PATTERNS = [
+  /captcha|verify\s+you(?:'re|\s+are)\s+human/i,
+  /verification\s+(code|email|link)/i,
+  /check\s+your\s+(email|inbox).{0,40}(verify|activation|code|link)/i,
+  /one[- ]time\s+(password|code)|\botp\b/i,
+  /multi[- ]factor|two[- ]factor|\bmfa\b/i,
+  /security\s+question|enter.{0,20}new\s+password|password\s+reset.{0,30}(sent|code|link)|recover\s+your\s+account/i,
+];
+
 // ── Registration form signals ─────────────────────────────────────────────────
 
 const REGISTRATION_PAGE_PATTERNS = [
@@ -51,10 +70,20 @@ const REGISTRATION_PAGE_PATTERNS = [
 ];
 
 // Labels typical on a registration form (not an application form)
-const REGISTRATION_LABEL_PATTERNS = [
+const REGISTRATION_STRONG_LABEL_PATTERNS = [
   /confirm\s+password|password\s+confirm/i,
   /create\s+password|new\s+password/i,
+];
+
+const PASSWORD_LABEL_PATTERNS = [
   /\bpassword\b/i,
+];
+
+const REGISTRATION_BUTTON_PATTERNS = [
+  /^register$/i,
+  /^sign\s*up$/i,
+  /^create\s+(an?\s+)?account$/i,
+  /^join$/i,
 ];
 
 // ── Application form signals ──────────────────────────────────────────────────
@@ -132,6 +161,28 @@ export function classifyLoginState({
     return { result: 'already-applied', reason: 'portal indicates prior application' };
   }
 
+  if (anyMatch(LOGIN_REJECTED_PATTERNS, bodyText)) {
+    return { result: 'login-rejected', reason: 'portal rejected the login attempt' };
+  }
+
+  if (anyMatch(HUMAN_CHALLENGE_PATTERNS, bodyText)) {
+    return { result: 'human-challenge', reason: 'human-only authentication challenge detected' };
+  }
+
+  // ── Registration form ────────────────────────────────────────────────────
+  // Run this before the weak "many inputs" application fallback: registration
+  // forms commonly have 4–6 editable inputs (name, email, password, confirm).
+  const isRegPage    = anyMatch(REGISTRATION_PAGE_PATTERNS, bodyText);
+  const hasStrongReg = anyMatch(REGISTRATION_STRONG_LABEL_PATTERNS, labelsJoined);
+  const hasPassword  = anyMatch(PASSWORD_LABEL_PATTERNS, labelsJoined);
+  const hasRegButton = buttons.some((b) => anyMatch(REGISTRATION_BUTTON_PATTERNS, b));
+  const hasLoginBtn  = buttons.some((b) => anyMatch(LOGIN_BUTTON_PATTERNS, b));
+  if (inputCount >= 2 && hasPassword && (
+    hasStrongReg || (hasRegButton && !hasLoginBtn) || (isRegPage && inputCount >= 3 && !hasLoginBtn)
+  )) {
+    return { result: 'registration-form', reason: 'account creation form detected' };
+  }
+
   // ── Application form visible ───────────────────────────────────────────────
   // Strong signal: has editable inputs AND at least one application-specific label
   const hasAppLabel = anyMatch(APP_FORM_LABEL_PATTERNS, labelsJoined);
@@ -139,25 +190,20 @@ export function classifyLoginState({
   if (hasInputs && hasAppLabel) {
     return { result: 'form-visible', reason: 'application form fields detected' };
   }
-  // Weaker signal: many editable inputs without known labels — still probably a form
-  if (inputCount + textareaCount >= 4) {
-    return { result: 'form-visible', reason: `${inputCount + textareaCount} editable inputs — treating as form` };
-  }
-
-  // ── Registration form ──────────────────────────────────────────────────────
-  const isRegPage  = anyMatch(REGISTRATION_PAGE_PATTERNS, bodyText);
-  const hasPassLbl = anyMatch(REGISTRATION_LABEL_PATTERNS, labelsJoined);
-  if ((isRegPage || hasPassLbl) && inputCount >= 2) {
-    return { result: 'registration-form', reason: 'account creation form detected' };
-  }
 
   // ── Login wall ─────────────────────────────────────────────────────────────
   if (anyMatch(LOGIN_WALL_PATTERNS, bodyText)) {
     return { result: 'login-wall', reason: 'login-required text detected' };
   }
-  const hasLoginBtn = buttons.some((b) => anyMatch(LOGIN_BUTTON_PATTERNS, b));
-  if (hasLoginBtn && inputCount <= 3) {
-    return { result: 'login-wall', reason: 'login button detected with few/no form fields' };
+  if (hasLoginBtn && (inputCount <= 3 || hasPassword)) {
+    return { result: 'login-wall', reason: 'login button/password fields detected without application-specific labels' };
+  }
+
+  // Weaker signal: many editable inputs without known application or login
+  // labels. This must run after registration and login classification because
+  // authentication forms can also contain 4+ inputs.
+  if (inputCount + textareaCount >= 4) {
+    return { result: 'form-visible', reason: `${inputCount + textareaCount} editable inputs — treating as form` };
   }
 
   // ── Application form (fallback: some inputs, no login signals) ─────────────

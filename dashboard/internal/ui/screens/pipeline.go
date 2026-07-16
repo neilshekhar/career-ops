@@ -149,10 +149,10 @@ const (
 
 // colDef describes one optional column for the picker UI.
 type colDef struct {
-	id     ColumnID
-	header string
-	hint   string
-	width  int
+	id          ColumnID
+	header      string
+	hint        string
+	width       int
 	onByDefault bool
 }
 
@@ -164,8 +164,6 @@ var optionalCols = []colDef{
 	{ColHasPDF, "PDF", "✓/—", 4, false},
 	{ColLastContact, "LAST", "", 10, false},
 }
-
-var statusOptions = []string{"Evaluated", "Applied", "Responded", "Interview", "Offer", "Hired", "Rejected", "Discarded", "SKIP"}
 
 // statusGroupOrder defines display order for grouped view.
 var statusGroupOrder = []string{"hired", "interview", "offer", "responded", "applied", "evaluated", "skip", "rejected", "discarded"}
@@ -332,6 +330,14 @@ func (m PipelineModel) CurrentApp() (model.CareerApplication, bool) {
 		return model.CareerApplication{}, false
 	}
 	return m.filtered[m.cursor], true
+}
+
+func (m PipelineModel) statusOptions() []string {
+	app, ok := m.CurrentApp()
+	if !ok {
+		return nil
+	}
+	return data.AllowedTrackerStatusTransitions(app.Status)
 }
 
 // Update handles input for the pipeline screen.
@@ -532,9 +538,11 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 		return m, nil
 
 	case "c":
-		if len(m.filtered) > 0 {
+		if len(m.statusOptions()) > 0 {
 			m.statusPicker = true
 			m.statusCursor = 0
+		} else if len(m.filtered) > 0 {
+			m.flash = "No generic tracker transition is available; Applied is set only by the receipt-gated localhost review dashboard"
 		}
 
 	case "g":
@@ -640,6 +648,11 @@ func (m PipelineModel) handleSearchInput(msg tea.KeyMsg) (PipelineModel, tea.Cmd
 }
 
 func (m PipelineModel) handleStatusPicker(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
+	options := m.statusOptions()
+	if len(options) == 0 {
+		m.statusPicker = false
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc", "q":
 		m.statusPicker = false
@@ -647,8 +660,8 @@ func (m PipelineModel) handleStatusPicker(msg tea.KeyMsg) (PipelineModel, tea.Cm
 
 	case "down", "j":
 		m.statusCursor++
-		if m.statusCursor >= len(statusOptions) {
-			m.statusCursor = len(statusOptions) - 1
+		if m.statusCursor >= len(options) {
+			m.statusCursor = len(options) - 1
 		}
 
 	case "up", "k":
@@ -660,7 +673,7 @@ func (m PipelineModel) handleStatusPicker(msg tea.KeyMsg) (PipelineModel, tea.Cm
 	case "enter":
 		m.statusPicker = false
 		if app, ok := m.CurrentApp(); ok {
-			newStatus := statusOptions[m.statusCursor]
+			newStatus := options[m.statusCursor]
 			norm := data.NormalizeStatus(newStatus)
 			if norm == "hired" {
 				m.hiredApp = app
@@ -890,7 +903,6 @@ func (m PipelineModel) openPDFCmd(relPath string) tea.Cmd {
 		return PipelineOpenPDFMsg{Path: fullPath}
 	}
 }
-
 
 func (m PipelineModel) loadCurrentReport() tea.Cmd {
 	app, ok := m.CurrentApp()
@@ -1731,7 +1743,7 @@ func (m PipelineModel) overlayStatusPicker(body string) string {
 	var picker []string
 	picker = append(picker, padStyle.Render(borderStyle.Render("Change status:")))
 
-	for i, opt := range statusOptions {
+	for i, opt := range m.statusOptions() {
 		style := lipgloss.NewStyle().Foreground(m.theme.Text).Width(pickerWidth)
 		if i == m.statusCursor {
 			style = style.Background(m.theme.Overlay).Bold(true)

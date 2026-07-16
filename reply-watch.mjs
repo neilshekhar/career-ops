@@ -5,24 +5,27 @@
  *
  * Reads candidate replies from a JSON file, matches them against the application tracker,
  * classifies the reply types (e.g. Interview, Rejected, Noise), and prints a concise
- * review digest. Prompts the user to approve recommended tracker status updates.
+ * review digest. Prompts the user to approve recommended tracker status updates,
+ * then delegates each confirmed transition to the canonical set-status.mjs writer.
  *
  * Usage:
- *   node reply-watch.mjs [path/to/candidates.json]
+ *   node reply-watch.mjs [path/to/candidates.json] [--dry-run]
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
-import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { matchCandidates, classifyReply } from './reply-matcher.mjs';
 import { resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
-import { rebuildRow } from './tracker-utils.mjs';
+import { resolveTrackerPath } from './tracker-utils.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CANDIDATES_PATH = path.join(__dirname, 'data', 'reply-candidates.json');
-const APPS_FILE = path.join(__dirname, 'data', 'applications.md');
+const APPS_FILE = resolveTrackerPath(__dirname);
 const FOLLOWUPS_FILE = path.join(__dirname, 'data', 'follow-ups.md');
+const SET_STATUS_FILE = path.join(__dirname, 'set-status.mjs');
 
 // Helper to ask a question in the CLI
 function askQuestion(query) {
@@ -138,33 +141,79 @@ function loadFollowups() {
   return followups;
 }
 
-// Update the status of a specific row in the tracker markdown file
-function updateTrackerStatus(appNum, newStatus) {
-  const content = fs.readFileSync(APPS_FILE, 'utf-8');
-  const lines = content.split('\n');
-  const colmap = resolveColumns(lines);
-
-  let updated = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const row = parseTrackerRow(line, colmap);
-    if (row && row.num === appNum) {
-      const parts = line.split('|').map(s => s.trim());
-      parts[colmap.status] = newStatus;
-      lines[i] = rebuildRow(parts);
-      updated = true;
-      break;
-    }
-  }
-
-  if (updated) {
-    fs.writeFileSync(APPS_FILE, lines.join('\n'), 'utf-8');
-  }
-  return updated;
+function safeEvidence(value, fallback = 'none') {
+  const cleaned = String(value ?? '')
+    .replace(/[\r\n|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || fallback;
 }
 
-async function main() {
-  const candidatesPath = process.argv[2] || DEFAULT_CANDIDATES_PATH;
+/**
+ * Build a concise, idempotent audit note for a confirmed external reply.
+ * set-status.mjs adds the separate [external-status] provenance marker.
+ */
+export function replyEvidenceNote(candidate, classification) {
+  const messageId = safeEvidence(candidate?.message_id, 'unknown-message')
+    .replace(/[\[\];]/g, '_')
+    .slice(0, 120);
+  const type = safeEvidence(classification?.type, 'Unknown');
+  const evidence = Array.isArray(classification?.evidence) && classification.evidence.length > 0
+    ? classification.evidence.map((item) => safeEvidence(item)).join(', ')
+    : safeEvidence(candidate?.signal, 'classification-only');
+  return `[reply-watch:${messageId}] type=${type}; evidence=${evidence}`;
+}
+
+/**
+ * Apply one user-confirmed lifecycle transition through the only canonical
+ * tracker writer. Numeric row selection is an exact # match; argv is passed
+ * without a shell, so reply text cannot become executable input.
+ */
+export function applyConfirmedTrackerStatus({ appNum, newStatus, note }, options = {}) {
+  if (!Number.isInteger(appNum) || appNum <= 0) {
+    throw new Error(`Invalid exact tracker row number: ${appNum}`);
+  }
+  if (!String(newStatus ?? '').trim()) {
+    throw new Error('Confirmed reply transition is missing a canonical status');
+  }
+  if (!String(note ?? '').trim()) {
+    throw new Error('Confirmed reply transition is missing reply evidence');
+  }
+  const runner = options.runner ?? spawnSync;
+  const result = runner(process.execPath, [
+    SET_STATUS_FILE,
+    String(appNum),
+    newStatus,
+    '--external',
+    '--note',
+    note,
+    '--json',
+  ], {
+    cwd: __dirname,
+    env: process.env,
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || '').trim();
+    throw new Error(`set-status.mjs rejected #${appNum} → ${newStatus}${detail ? `: ${detail}` : ''}`);
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    throw new Error(`set-status.mjs returned invalid JSON for #${appNum}`);
+  }
+}
+
+export async function main(argv = process.argv.slice(2)) {
+  const dryRun = argv.includes('--dry-run');
+  const unknownFlags = argv.filter((arg) => arg.startsWith('--') && arg !== '--dry-run');
+  const positional = argv.filter((arg) => !arg.startsWith('--'));
+  if (unknownFlags.length > 0 || positional.length > 1) {
+    throw new Error('Usage: node reply-watch.mjs [path/to/candidates.json] [--dry-run]');
+  }
+  const candidatesPath = positional[0] || DEFAULT_CANDIDATES_PATH;
   ensureCandidatesFile(candidatesPath);
 
   if (!fs.existsSync(candidatesPath)) {
@@ -225,7 +274,8 @@ async function main() {
           company: app.company,
           role: app.role,
           oldStatus: app.status,
-          newStatus: classification.suggestedTrackerUpdate
+          newStatus: classification.suggestedTrackerUpdate,
+          note: replyEvidenceNote(cand, classification),
         });
       }
     }
@@ -238,18 +288,31 @@ async function main() {
     });
     console.log('');
 
-    const answer = await askQuestion('Apply recommended status updates to data/applications.md? (y/N): ');
+    if (dryRun) {
+      console.log('Dry run — recommendations only; tracker unchanged.');
+      return;
+    }
+
+    const answer = await askQuestion('Apply recommended status updates through set-status.mjs? (y/N): ');
     if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
       for (const r of recommendations) {
-        updateTrackerStatus(r.num, r.newStatus);
-        console.log(`Updated #${r.num} to ${r.newStatus}`);
+        const result = applyConfirmedTrackerStatus({
+          appNum: r.num,
+          newStatus: r.newStatus,
+          note: r.note,
+        });
+        console.log(`${result.changed ? 'Updated' : 'Already current'} #${r.num} to ${r.newStatus}`);
       }
-      console.log('\n✅ All updates written to data/applications.md');
+      console.log('\n✅ All confirmed updates applied by the canonical locked tracker writer');
 
       // Sync tracker DB if tracker.mjs exists
       try {
-        const { execSync } = await import('child_process');
-        execSync('node tracker.mjs sync', { stdio: 'ignore' });
+        const sync = spawnSync(process.execPath, [path.join(__dirname, 'tracker.mjs'), 'sync'], {
+          cwd: __dirname,
+          env: process.env,
+          stdio: 'ignore',
+        });
+        if (sync.error || sync.status !== 0) throw sync.error ?? new Error(`exit ${sync.status}`);
         console.log('Synced database index (applications.db).');
       } catch (e) {
         // ignore
@@ -260,7 +323,9 @@ async function main() {
   }
 }
 
-main().catch(err => {
-  console.error('Fatal:', err);
-  process.exit(1);
-});
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  main().catch(err => {
+    console.error('Fatal:', err.message || err);
+    process.exitCode = 1;
+  });
+}

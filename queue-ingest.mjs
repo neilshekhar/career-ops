@@ -21,7 +21,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { createHash } from 'crypto';
 
 import {
-  loadQueue, saveQueue, appendRole, loadQueueSeenSets, insertNewStubsCron,
+  loadQueue, mutateQueue, appendRole, loadQueueSeenSets, insertNewStubsCron,
   evictExpiredNewStubsCron,
 } from './queue-store.mjs';
 import { recordJdFetchFailure, isGoneFailure, hasSubstantiveJd } from './queue-sweep.mjs';
@@ -270,7 +270,8 @@ function classifyGreenhouseField(label, type) {
   if (/notice.?period|available|availability|start.?date/.test(l)) return 'standard';
   if (/why.+(company|role|us)|cover|motivation|tell.+us.+about/.test(l)) return 'standard';
   if (/hours.?(per|a|\/)\s*week|weekly.?hours/.test(l)) return 'standard';
-  // Anything unrecognised is custom — will be surfaced as needs-input or manual-field
+  // Anything unrecognised is custom — the interactive apply path resolves its live
+  // fields through the per-page L1/L1.5/L2/L3 lookup/teach loop.
   return 'custom';
 }
 
@@ -476,6 +477,7 @@ async function main() {
   let goneStubs = 0; // confirmed-gone URLs recorded as expired-closed (local mode)
   const errors = [];
   const cronStubs = []; // collected in cron mode, flushed at end
+  const localStubs = []; // committed under one fresh queue mutation at end
 
   for (const item of pending) {
     const { url, company, title } = item;
@@ -550,6 +552,7 @@ async function main() {
           console.log(`    ↳ ingested as no-jd stub (${stub.jd_fetch.class}; capped retry lifecycle)`);
         }
         appendRole(queue, stub);
+        localStubs.push(stub);
         queueSeen.ids.add(roleId);
         queueSeen.urls.add(url);
         queueSeen.companyRoles.add(crKey);
@@ -644,6 +647,7 @@ async function main() {
         cronStubs.push(stub);
       } else {
         appendRole(queue, stub);
+        localStubs.push(stub);
       }
       // Mark as seen within this run to avoid intra-run dupes
       queueSeen.ids.add(roleId);
@@ -667,12 +671,16 @@ async function main() {
       const { attempted, inserted, skipped: cronSkipped } = await insertNewStubsCron(cronStubs);
       console.log(`\nCron insert: ${inserted} new / ${attempted} attempted (${cronSkipped} skipped by status guard, ${attempted - inserted} already in Supabase)`);
     } else {
-      saveQueue(queue);
+      const inserted = mutateQueue((freshQueue) => {
+        let count = 0;
+        for (const stub of localStubs) if (appendRole(freshQueue, stub)) count++;
+        return count;
+      });
       const notes = [
         noJdStubs > 0 ? `${noJdStubs} no-jd, capped lifecycle` : '',
         goneStubs > 0 ? `${goneStubs} gone, closed as expired` : '',
       ].filter(Boolean).join('; ');
-      console.log(`\nSaved ${ingested + noJdStubs + goneStubs} stub(s) to the queue store${notes ? ` (${notes})` : ''}`);
+      console.log(`\nSaved ${inserted} stub(s) to the queue store${notes ? ` (${notes})` : ''}`);
     }
   }
 

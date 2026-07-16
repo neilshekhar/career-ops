@@ -2,7 +2,7 @@
 
 Classify employer replies and generate an action digest to reconcile the application tracker. This workflow separates real application progress (e.g. interviews, offers, rejections) from recruiting noise and marketing alerts, and recommends tracker status updates.
 
-Local-first, human-in-the-loop: **nothing here auto-updates without user confirmation.** Recommended status updates are displayed as recommendations and require explicit user approval before modifying the tracker.
+Local-first, human-in-the-loop: **nothing here auto-updates without user confirmation.** Recommended status updates are displayed as recommendations and require explicit user approval before modifying the tracker. After approval, `reply-watch.mjs` must delegate each exact row-number transition to `set-status.mjs --external --note ...`; it never rewrites `data/applications.md` itself.
 
 ## Purpose
 
@@ -29,6 +29,12 @@ Or pass a custom candidates file path:
 
 ```bash
 node reply-watch.mjs path/to/candidates.json
+```
+
+Suggestion-only / non-interactive preview:
+
+```bash
+node reply-watch.mjs path/to/candidates.json --dry-run
 ```
 
 ## Step 1 — Review the Digest
@@ -63,7 +69,7 @@ If the script identifies recommended updates (e.g. `Applied` → `Interview`), i
 Suggested status updates to apply:
   #2 Example Labs (Full-stack Engineer): Applied → Rejected
 
-Apply recommended status updates to data/applications.md? (y/N): 
+Apply recommended status updates through set-status.mjs? (y/N):
 ```
 
-Type `y` or `yes` to apply the changes. The script will rewrite the matched rows in `data/applications.md` and rebuild the derived SQLite index.
+Type `y` or `yes` to apply the changes. For each confirmed recommendation, the script invokes the canonical locked tracker writer with the exact numeric row selector, `--external`, and a reply-evidence `--note`. It never hand-edits the Markdown tracker. After all transitions succeed, it rebuilds the derived SQLite index.

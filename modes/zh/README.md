@@ -25,7 +25,7 @@
 
 或者：
 
-> "请使用 `modes/zh/_shared.md` 和 `modes/zh/oferta.md` 进行中文岗位的评估和申请。"
+> "中文评估使用 `modes/zh/oferta.md`；中文申请使用 `modes/zh/apply.md`。两个文件都只是根目录规范工作流的语言包装。"
 
 ### 方式 2：在个人配置中永久设置
 
@@ -46,9 +46,9 @@ language:
 | 文件名 | 基础模板 | 用途 |
 |---|---|---|
 | `_shared.md` | `modes/_shared.md` | 共享上下文、画像检测、全局规则及中国大陆市场特性 |
-| `oferta.md` | `modes/oferta.md` | 完整的职位评估（Block A-F + G 真实性评估） |
-| `apply.md` | `modes/apply.md` | 网页表单填写实时助手 |
-| `pipeline.md` | `modes/pipeline.md` | URL 收件箱 / 收集职位的第二大脑 |
+| `oferta.md` | `modes/oferta.md` (EN) | 中文语言包装；执行根目录的 A-G 评估而不重新定义流程 |
+| `apply.md` | `modes/apply.md` (EN) | 中文语言包装；规范工作流始终由根目录文件执行 |
+| `pipeline.md` | `modes/pipeline.md` (EN) | 中文语言包装；执行根目录的 URL pipeline 而不重新定义流程 |
 
 其他工具相关的模式（如 `scan`、`batch`、`pdf`、`tracker` 等）仍将使用默认的英文版本，因为它们主要包含命令行参数、系统路径和配置指令，保持语言一致性有助于工具稳定运行。
 

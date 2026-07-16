@@ -1,28 +1,25 @@
 /**
  * run-partition.mjs — pure partition logic for the dashboard's batch "Run" dispatch.
  *
- * Splits a set of queue roles into the execution lanes the dashboard fills by:
- *   - deterministic: headless parallel form-fill.mjs — FIRST fills only
- *                    (status 'prepared', no login wall). Headless output is
- *                    'prefilled', which is correct for a first pass.
- *   - loginGated:    serial headed fill behind a login wall
- *   - headedReopen:  serial headed re-open of an existing fill
- *                    ('prefilled'/'filled', no login wall). Re-opens must be
- *                    HEADED: a headless pass would rewrite an already
- *                    headed-reviewed 'filled' role back to 'prefilled',
- *                    silently discarding its reviewed state.
- *   - agentPath:     notice only — the candidate must run `/career-ops apply`
+ * Splits a set of queue roles into three mutually exclusive classifications:
+ *   - agentPath:     a durable work request for the one active-agent browser
+ *                    controller running `/career-ops apply`
+ *   - filledCheck:   receipt validation only — a `filled` row is either already
+ *                    review-ready or needs explicit receipt repair; it is never
+ *                    queued into a begin gate that only accepts prepared/prefilled
  *   - notPrepared:   notice only — asset gate: the role has no fresh PREPARE
- *                    assets, so launching form-fill.mjs would attach a stale
- *                    or missing CV
+ *                    assets, so live application work must not start yet
  *
- * deep-eval-marked roles ALWAYS go to agentPath so a full `oferta` runs before any
- * fill (the headless server has no LLM) — see modes/apply.md → "Deep-eval marker".
+ * The dashboard never launches Chromium, Playwright, or form-fill.mjs. ATS type
+ * and deep-eval flags never bypass PREPARE: every role needs a fresh prepared
+ * state before the dashboard can create consumable live-application work.
  *
- * The asset gate (FILLABLE_STATUSES) applies to every fill lane: only a role that
- * PREPARE has produced assets for ('prepared'), or an existing fill being re-opened
- * ('prefilled'/'filled'), may launch form-fill.mjs. agentPath is guidance-only, so
- * it stays reachable from any status — the apply flow runs PREPARE itself.
+ * The asset gate (FILLABLE_STATUSES) applies to ordinary ATS roles: only a role
+ * PREPARE has produced assets for ('prepared'), or a legacy checkpoint being
+ * resumed ('prefilled'), may be queued. `filled` is receipt-owned terminal review
+ * state for live filling and is partitioned separately. A scored selection is
+ * promoted durably to `prepare-queued` by dashboard-server.mjs; it is not an
+ * application request until PREPARE succeeds and the role reaches `prepared`.
  * dashboard-server.mjs imports FILLABLE_STATUSES for the single-card Fill endpoint
  * too, so single and bulk fills can never drift.
  *
@@ -31,28 +28,18 @@
  */
 
 export const isDeepEval = (role) => (role.flags || []).includes('deep-eval');
-const isLoginRequired = (role) => (role.flags || []).includes('login-required');
 
-// Statuses a deterministic fill may run from: first fill after PREPARE
-// ('prepared') or a headed re-open of an existing fill ('prefilled'/'filled').
-export const FILLABLE_STATUSES = new Set(['prepared', 'prefilled', 'filled']);
-
-// Statuses that mean "a fill already exists" — bulk runs must re-open these
-// headed, never headless (see headedReopen above).
-export const REOPEN_STATUSES = new Set(['prefilled', 'filled']);
+// Statuses accepted by the dashboard's ordinary application-request gate.
+// `prefilled` is a legacy non-review-ready checkpoint; no dashboard path creates it.
+export const FILLABLE_STATUSES = new Set(['prepared', 'prefilled']);
 
 export function partitionRunRoles(roles) {
-  const agentPath = roles.filter((r) => r.ats === 'custom' || isDeepEval(r));
-  const fillCandidates = roles.filter((r) => r.ats !== 'custom' && !isDeepEval(r));
-  const notPrepared = fillCandidates.filter((r) => !FILLABLE_STATUSES.has(r.status));
-  const deterministic = fillCandidates.filter(
-    (r) => r.status === 'prepared' && !isLoginRequired(r)
+  const filledCheck = roles.filter((role) => role.status === 'filled');
+  const agentPath = roles.filter(
+    (role) => role.status !== 'filled' && FILLABLE_STATUSES.has(role.status),
   );
-  const loginGated = fillCandidates.filter(
-    (r) => FILLABLE_STATUSES.has(r.status) && isLoginRequired(r)
+  const notPrepared = roles.filter(
+    (role) => role.status !== 'filled' && !FILLABLE_STATUSES.has(role.status),
   );
-  const headedReopen = fillCandidates.filter(
-    (r) => REOPEN_STATUSES.has(r.status) && !isLoginRequired(r)
-  );
-  return { deterministic, loginGated, headedReopen, agentPath, notPrepared };
+  return { agentPath, filledCheck, notPrepared };
 }

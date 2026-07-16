@@ -65,7 +65,7 @@
 
 Career-Ops 能將任何 AI 程式碼 CLI 轉化為完整的求職指揮中心。不再需要手動用試算表追蹤應徵紀錄，而是獲得一個 AI 驅動的管道，能夠：
 
-- **評估職缺** — 結構化的 A-F 評分系統（10 個加權評估維度）
+- **評估職缺** — 結構化的 A-G 評估系統（10 個加權評分維度，另含職缺正當性分析）
 - **生成客製化 PDF** — 針對每份職缺描述進行 ATS 最佳化的履歷
 - **自動掃描求職平台**（Greenhouse、Ashby、Lever、企業頁面）
 - **批次處理** — 透過子代理並行評估 10 份以上的職缺
@@ -83,14 +83,14 @@ career-ops 最初由 [santifer](https://santifer.io) 打造，他親身用它評
 
 | 功能             | 說明                                                                                                                   |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **自動管道**     | 貼上 URL，自動完成評估 + PDF + 追蹤紀錄                                                                                |
-| **6 區塊評估**   | 職位摘要、履歷匹配、職級策略、薪酬調查、個人化、面試準備（STAR+R）— 另有 Block G 職缺正當性檢查，標記詐騙與幽靈職缺          |
+| **自動管道**     | 貼上 URL 後先評估/評分並顯示結論；客製化材料與應徵工作需明確繼續或在儀表板中選擇                                   |
+| **A-G 評估**     | 職位摘要、履歷匹配、職級策略、薪酬調查、個人化、面試準備（STAR+R），以及 Block G 職缺正當性檢查                    |
 | **面試故事庫**   | 跨評估累積 STAR+Reflection 故事 — 能回答任何行為面試問題的 5-10 個核心故事                                             |
 | **薪資談判腳本** | 薪資談判框架、地區薪資折扣反駁話術、競爭 Offer 運用策略                                                                |
 | **ATS PDF 生成** | 注入關鍵字的履歷，採用 Space Grotesk + DM Sans 設計                                                                    |
 | **平台掃描器**   | 預設超過 45 家企業（Anthropic、OpenAI、ElevenLabs、Retool、n8n...）+ 跨 Ashby、Greenhouse、Lever、Wellfound 的自訂查詢 |
 | **批次處理**     | 使用 `claude -p` 工作器並行評估                                                                                        |
-| **本地 Kanban 儀表板** | 在瀏覽器中用本地看板審閱、篩選、準備和填寫申請                                                                |
+| **本地 Kanban 儀表板** | 在瀏覽器中審閱、篩選和準備職缺，為目前代理排入申請處理請求，並檢查可供審閱的工作                                   |
 | **人機協作**     | AI 負責評估與建議，你負責決策與行動。系統絕不自動送出應徵 — 最終決定永遠在你手上                                       |
 | **管道完整性**   | 自動合併、去重、狀態正規化、健康檢查                                                                                   |
 
@@ -121,7 +121,7 @@ claude   # 或 gemini / codex / qwen / opencode — 在此開啟你的 AI CLI
 ```bash
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
-npx playwright install chromium   # 僅 PDF 生成所需
+npx playwright install chromium   # 用於 PDF 生成及 Playwright 瀏覽器／職缺有效性驗證
 claude   # 開啟你的 AI CLI — 首次啟動時會帶你完成設定
 ```
 
@@ -137,7 +137,7 @@ career-ops 是一個具有多種模式的單一斜線指令：
 
 ```
 /career-ops                → 顯示所有可用指令
-/career-ops {貼上職缺描述}  → 完整自動管道（評估 + PDF + 追蹤）
+/career-ops {貼上職缺描述}  → 先評估/評分並顯示結論；等待明確繼續或儀表板選擇
 /career-ops scan           → 掃描平台尋找新職缺
 /career-ops pdf            → 生成 ATS 最佳化履歷
 /career-ops batch          → 批次評估多份職缺
@@ -150,7 +150,7 @@ career-ops 是一個具有多種模式的單一斜線指令：
 /career-ops project        → 評估作品集專案
 ```
 
-或者直接貼上職缺 URL 或描述 — career-ops 會自動偵測並執行完整管道。
+或者直接貼上職缺 URL 或描述 — career-ops 會自動偵測、評估/評分並先顯示結論。依照 `modes/_custom.md`，在你明確繼續或於儀表板中選擇職缺前，它不會生成客製化材料、推進追蹤器中的應徵狀態、代你選擇職缺、開啟瀏覽器或填寫線上表單。
 
 ## 運作原理
 
@@ -164,14 +164,18 @@ career-ops 是一個具有多種模式的單一斜線指令：
 └────────┬─────────┘
          │
 ┌────────▼─────────┐
-│  A-F 評估        │  匹配度、缺口、薪酬調查、STAR 故事
+│  A-G 評估        │  匹配度、缺口、薪酬調查、STAR 故事、職缺正當性
 │  （讀取 cv.md）  │
 └────────┬─────────┘
          │
-    ┌────┼────┐
-    ▼    ▼    ▼
-  報告  PDF  追蹤
-  .md  .pdf  .tsv
+         ▼
+評分/結論 + 報告 + 追蹤狀態：Evaluated
+         │
+         ▼
+明確繼續或在儀表板中選擇
+         │
+         ▼
+客製化材料 → 瀏覽器/線上填寫 → 候選人審閱並送出
 ```
 
 ## 預設掃描平台
@@ -197,7 +201,7 @@ career-ops 是一個具有多種模式的單一斜線指令：
 npm run launch   # 開啟 http://127.0.0.1:7777
 ```
 
-用它審閱匹配分數、選擇要準備的職缺、啟動表單填寫、檢查草稿和檔案，並在提交前保留人工確認。儀表板不會替你送出申請。
+用它審閱匹配分數、選擇要準備的職缺、為目前代理排入持久申請請求、檢查草稿和檔案，並在提交前保留人工確認。儀表板本身不會啟動瀏覽器自動化，也不會填寫或提交申請。
 
 ### Terminal Tracker TUI
 
@@ -249,7 +253,7 @@ career-ops/
 ![Bubble Tea](https://img.shields.io/badge/Bubble_Tea-FF75B5?style=flat&logo=go&logoColor=white)
 
 - **代理**：Claude Code，附自訂技能與模式
-- **PDF**：Playwright/Puppeteer + HTML 範本
+- **PDF**：Playwright + HTML 範本
 - **掃描器**：Playwright + Greenhouse API + WebSearch
 - **儀表板**：Go + Bubble Tea + Lipgloss（Catppuccin Mocha 主題）
 - **資料**：Markdown 表格 + YAML 設定 + TSV 批次檔案

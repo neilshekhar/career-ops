@@ -65,7 +65,7 @@
 
 Career-Ops convierte cualquier CLI de IA en un centro de mando de busqueda de empleo. En vez de trackear aplicaciones en un spreadsheet, tienes un pipeline AI que:
 
-- **Evalua ofertas** con scoring estructurado A-F (10 dimensiones ponderadas)
+- **Evalua ofertas** con un sistema A-G estructurado (10 dimensiones de puntuacion mas analisis de legitimidad)
 - **Genera PDFs personalizados** -- CVs ATS-optimizados por oferta
 - **Escanea portales** automaticamente (Greenhouse, Ashby, Lever, webs de empresas)
 - **Procesa en batch** -- evalua 10+ ofertas en paralelo con sub-agentes
@@ -81,14 +81,14 @@ Originalmente construido por [santifer](https://santifer.io), quien lo uso para 
 
 | Feature                    | Descripcion                                                                                                                    |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| **Auto-Pipeline**          | Pega una URL, obtiene evaluacion + PDF + entrada en tracker                                                                    |
-| **Evaluacion A-F**         | Resumen del rol, match con CV, estrategia de nivel, research de comp, personalizacion, prep de entrevista (STAR+R) -- mas una verificacion de legitimidad de la oferta (Bloque G) que detecta estafas y ofertas fantasma |
+| **Auto-Pipeline**          | Pega una URL: primero evalua/puntua y muestra el veredicto; los materiales personalizados y la candidatura requieren continuar explicitamente o seleccionar en el dashboard |
+| **Evaluacion A-G**         | Resumen del rol, match con CV, estrategia de nivel, research de comp, personalizacion, prep de entrevista (STAR+R) y verificacion de legitimidad (Bloque G) |
 | **Banco de historias**     | Acumula historias STAR+Reflexion entre evaluaciones -- 5-10 historias maestras que responden cualquier pregunta behavioral     |
 | **Scripts de negociacion** | Frameworks de negociacion salarial, pushback de descuentos geograficos, leverage de ofertas competidoras                       |
 | **PDFs ATS**               | CVs con keywords inyectados, diseño Space Grotesk + DM Sans                                                                    |
 | **Scanner de portales**    | 45+ empresas pre-configuradas (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + queries en Ashby, Greenhouse, Lever, Wellfound |
 | **Batch**                  | Evaluacion en paralelo con workers `claude -p`                                                                                 |
-| **Dashboard kanban local** | Dashboard en navegador para revisar, priorizar, preparar y rellenar aplicaciones de forma local                                |
+| **Dashboard kanban local** | Dashboard para revisar y preparar roles, encolar solicitudes de candidatura para el agente activo e inspeccionar trabajo listo para revisión |
 | **Human-in-the-Loop**      | La IA evalua y recomienda, tu decides y actuas. El sistema nunca envia una aplicacion -- tu siempre tienes la ultima palabra   |
 | **Integridad de pipeline** | Merge automatico, dedup, normalizacion de estados, health checks                                                               |
 
@@ -117,7 +117,7 @@ claude   # o gemini / codex / qwen / opencode — abre tu CLI de IA aqui
 ```bash
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
-npx playwright install chromium   # solo para generar PDFs
+npx playwright install chromium   # necesario para PDFs y verificación de navegador/vigencia con Playwright
 claude   # abre tu CLI de IA — te guiara en el primer arranque
 ```
 
@@ -133,7 +133,7 @@ Career-ops es un unico slash command con multiples modos:
 
 ```
 /career-ops                → Mostrar todos los comandos
-/career-ops {pega un JD}   → Pipeline completo (evaluar + PDF + tracker)
+/career-ops {pega un JD}   → Evaluacion/puntuacion y veredicto primero; espera confirmacion o seleccion en el dashboard
 /career-ops scan           → Escanear portales
 /career-ops pdf            → Generar CV ATS-optimizado
 /career-ops batch          → Evaluar ofertas en batch
@@ -144,7 +144,7 @@ Career-ops es un unico slash command con multiples modos:
 /career-ops deep           → Research profundo de empresa
 ```
 
-O simplemente pega una URL o descripcion de oferta -- career-ops la detecta y ejecuta el pipeline completo.
+O simplemente pega una URL o descripcion de oferta -- career-ops la detecta, evalua/puntua y muestra primero el veredicto. Segun `modes/_custom.md`, no genera materiales personalizados, no avanza el estado de candidatura en el tracker, no selecciona una oferta, no abre el navegador ni rellena el formulario en vivo hasta que continues explicitamente o selecciones la oferta en el dashboard.
 
 ## Como funciona
 
@@ -158,14 +158,18 @@ Pegas una URL o descripcion de oferta
 └────────┬─────────┘
          │
 ┌────────▼─────────┐
-│  Evaluacion A-F  │  Match, gaps, comp research, historias STAR
+│  Evaluacion A-G  │  Match, gaps, comp research, historias STAR, legitimidad
 │  (lee cv.md)     │
 └────────┬─────────┘
          │
-    ┌────┼────┐
-    ▼    ▼    ▼
- Report  PDF  Tracker
-  .md   .pdf   .tsv
+         ▼
+Puntuacion/veredicto + informe + estado del tracker: Evaluated
+         │
+         ▼
+Continuar explicitamente o seleccionar en el dashboard
+         │
+         ▼
+Materiales personalizados → navegador/relleno en vivo → revision y envio del candidato
 ```
 
 ## Portales incluidos
@@ -191,7 +195,7 @@ El dashboard kanban local es la interfaz principal de revision en career-ops. Co
 npm run launch   # abre http://127.0.0.1:7777
 ```
 
-Usalo para revisar scores, elegir que roles preparar, lanzar form-fill, inspeccionar borradores/archivos y mantener revision humana antes de enviar. El dashboard nunca envia aplicaciones por ti.
+Usalo para revisar scores, elegir que roles preparar, poner solicitudes duraderas de candidatura en cola para el agente activo, inspeccionar borradores/archivos y mantener revision humana antes de enviar. El dashboard nunca lanza automatizacion del navegador ni rellena o envia candidaturas por si mismo.
 
 ### Terminal Tracker TUI
 
@@ -244,7 +248,7 @@ career-ops/
 ![Bubble Tea](https://img.shields.io/badge/Bubble_Tea-FF75B5?style=flat&logo=go&logoColor=white)
 
 - **Agente**: Claude Code con skills y modos personalizados
-- **PDF**: Playwright/Puppeteer + template HTML
+- **PDF**: Playwright + template HTML
 - **Scanner**: Playwright + Greenhouse API + WebSearch
 - **Dashboard**: Go + Bubble Tea + Lipgloss (tema Catppuccin Mocha)
 - **Datos**: Tablas Markdown + config YAML + ficheros TSV batch

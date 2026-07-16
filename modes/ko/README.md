@@ -21,7 +21,7 @@
 
 > "`modes/ko/` 아래의 한국어 모드를 사용해."
 
-그러면 Claude는 기본 `modes/` 대신 이 디렉터리의 파일을 읽습니다.
+Agent는 이 디렉터리의 언어 wrapper와 `modes/`의 canonical workflow를 함께 읽습니다. Locale file은 root 실행 규칙을 대체하지 않습니다.
 
 ### 옵션 2 -- 영구 설정
 
@@ -42,9 +42,9 @@ language:
 | 파일 | 번역 기준 | 역할 |
 |---------|----------------|------|
 | `_shared.md` | `modes/_shared.md` (EN) | 공통 컨텍스트, archetype, 전역 규칙, 한국 채용 시장 특화 맥락 |
-| `gonggo.md` | `modes/oferta.md` (ES) | 채용 공고 전체 평가 (블록 A-F) |
-| `jiwon.md` | `modes/apply.md` (EN) | 지원서 입력 폼을 채우는 live assistant |
-| `pipeline.md` | `modes/pipeline.md` (ES) | 수집한 채용 공고 URL inbox / Second Brain |
+| `gonggo.md` | `modes/oferta.md` (EN) | 한국어 wrapper이며 canonical A-G evaluation을 재정의하지 않고 실행합니다 |
+| `jiwon.md` | `modes/apply.md` (EN) | 한국어 래퍼이며 canonical workflow는 root 파일을 그대로 실행합니다 |
+| `pipeline.md` | `modes/pipeline.md` (EN) | 한국어 wrapper이며 canonical URL pipeline을 재정의하지 않고 실행합니다 |
 
 다른 모드(`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`)는 기존 EN/ES 모드를 그대로 사용합니다. 해당 파일들은 주로 tooling, 경로, 명령어 중심이라 언어와 독립적으로 동작합니다.
 
@@ -54,7 +54,7 @@ language:
 
 - `cv.md`, `pipeline`, `tracker`, `report`, `score`, `archetype`, `proof point`
 - 도구 이름(`Playwright`, `WebSearch`, `WebFetch`, `Read`, `Write`, `Edit`, `Bash`)
-- tracker 상태값(`Evaluated`, `Applied`, `Interview`, `Offer`, `Rejected`)
+- tracker 상태값(`Evaluated`, `Applied`, `Responded`, `Interview`, `Offer`, `Hired`, `Rejected`, `Discarded`, `SKIP`)
 - 코드 조각, 경로, 명령어
 
 이 모드는 한국 테크 업계에서 실제로 쓰는 자연스러운 문체를 지향합니다. 본문은 한국어로 쓰되, `pipeline`, `deployment`, `embedding`, `stack`처럼 현장에서 영어로 쓰는 용어는 억지로 번역하지 않습니다.
@@ -103,5 +103,5 @@ language:
 1. 제안을 담은 Issue를 엽니다 (`CONTRIBUTING.md` 참고)
 2. 위 용어집을 따라 문체를 일관되게 유지합니다
 3. 직역이 아니라 자연스러운 한국어로 번역합니다
-4. 구조 요소(블록 A-F, 표, 코드블록, 도구 지시문)는 그대로 유지합니다
+4. 언어와 지역 용어만 수정하고 locale file에 canonical workflow를 복사하거나 재정의하지 않습니다
 5. 실제 한국어 채용 공고(원티드, 리멤버, 잡코리아, 사람인, LinkedIn KR 등)로 테스트한 뒤 PR을 보냅니다

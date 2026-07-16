@@ -1,217 +1,53 @@
-# Общий контекст — career-ops (Русский)
+# Shared localization overlay — Русский
 
-<!-- ============================================================
-     ЭТОТ ФАЙЛ — СИСТЕМНЫЙ.
-     НЕ добавляйте сюда персональные данные.
-     ============================================================
-     Персонализация → modes/_profile.md и config/profile.yml.
-     Этот файл содержит общий контекст, архетипы и правила
-     для русскоязычных режимов.
-     Примечание: modes/ru/ пока не включён в auto-update
-     (update-system.mjs). Обновления применяются вручную.
-     
-     Перед использованием career-ops убедитесь:
-     1. config/profile.yml заполнен вашими данными
-     2. cv.md создан в корне проекта (резюме в Markdown)
-     3. (Опционально) article-digest.md с proof points
-     ============================================================ -->
+> This file is a language and market-vocabulary overlay only. It does not define
+> candidate facts, scoring, evaluation, pipeline, live-application, credential,
+> browser, persistence, review, or submission workflow.
 
-## Источники правды (ВСЕГДА читать перед каждой оценкой)
+## Canonical contracts
 
-| Файл | Путь | Когда |
-|------|------|-------|
-| cv.md | `cv.md` (корень проекта) | ВСЕГДА |
-| article-digest.md | `article-digest.md` (если есть) | ВСЕГДА (детальные proof points) |
-| profile.yml | `config/profile.yml` | ВСЕГДА (идентичность кандидата и целевые роли) |
-| _profile.md | `modes/_profile.md` | ВСЕГДА (пользовательские архетипы, нарратив, переговоры) |
+Before any task, read root `modes/_shared.md`, `modes/_profile.md`,
+`config/profile.yml`, and `modes/_custom.md` when present. Then execute the selected
+root mode in its current version:
 
-**ПРАВИЛО: НИКОГДА не хардкодить метрики из proof points.** Читать их из cv.md + article-digest.md во время оценки.
-**ПРАВИЛО: Для метрик статей/проектов `article-digest.md` имеет приоритет над `cv.md`.**
-**ПРАВИЛО: Читать `_profile.md` ПОСЛЕ этого файла. Пользовательские настройки в `_profile.md` перезаписывают значения по умолчанию.**
+- evaluation: `modes/oferta.md`
+- pipeline processing: `modes/pipeline.md`
+- live application: `modes/apply.md` plus `queue-resolve.mjs` and
+  `application-receipt.mjs`
 
----
+Localization may change language and regional terminology only. It may never omit,
+reorder, weaken, or add an exception to a root gate. In particular, API-first
+liveness, source boundaries, atomic numbering, queue persistence, exact-host auth,
+one-browser-controller ownership, per-page lookup/L3/teach/receipt barriers, combined
+review, and the ban on final job submission remain unchanged.
 
-## North Star — Целевые роли
+## Source boundary
 
-<!-- [НАСТРОИТЬ] Замени архетипы ниже на СВОИ целевые роли. -->
+Candidate-facing factual content may use only the approved sources listed in
+`AGENTS.md` plus statements the candidate makes in the current conversation. This
+locale file is never a source of candidate history, achievements, metrics, authorship,
+work rights, identity, compensation, availability, or credentials. `voice-dna.md`
+controls style only. Never reuse a sample narrative, number, demo credential, or
+portfolio claim from a system/localization file as candidate evidence.
 
-### Универсальные архетипы
+Unsupported prose claims are omitted. A mandatory live form control is handled only
+through root `modes/apply.md` and `modes/_custom.md`: choose the most conservative
+source-supported or non-claiming response, fill it, store it role-locally, and flag it
+for final review without inventing a factual status.
 
-| Архетип | Тематические оси | Что покупают |
-|---------|-------------------|--------------|
-| **AI Platform / LLMOps Engineer** | Evaluation, observability, надёжность, pipelines | Того, кто выводит ИИ в продакшн с метриками |
-| **Agentic Workflows / Automation** | HITL, тулинг, оркестрация, мульти-агенты | Того, кто строит надёжные агентные системы |
-| **Technical AI Product Manager** | GenAI/Agents, PRD, discovery, delivery | Того, кто переводит бизнес в ИИ-продукты |
-| **AI Solutions Architect** | Гиперавтоматизация, enterprise, интеграции | Того, кто проектирует end-to-end ИИ-архитектуры |
-| **AI Forward Deployed Engineer** | Клиентский фокус, быстрая поставка, прототипирование | Того, кто быстро внедряет ИИ-решения у клиента |
-| **AI Transformation Lead** | Change management, adoption, enablement | Того, кто ведёт ИИ-трансформацию в организации |
+## Locale output
 
-### Архетипы для российского рынка
+- Write candidate-facing responses in Russian when this locale is selected.
+- Use natural professional terminology for the jurisdiction named by the posting; preserve exact JD/ATS
+  keywords and established English technical terms where translation would reduce
+  accuracy.
+- Infer the governing country/jurisdiction from the posting and candidate profile;
+  never assume it from language alone.
+- Compensation, tax, employment-law, visa, and benefits claims are high-stakes and
+  time-sensitive. Verify them from current official sources when needed, distinguish
+  observation from advice, and mark unavailable facts rather than relying on copied
+  localization examples.
 
-| Архетип | Тематические оси | Что покупают |
-|---------|-------------------|--------------|
-| **Backend-разработчик** | PHP/Go/Java/Python, микросервисы, highload, PostgreSQL, Kafka | Инженера, строящего масштабируемые серверные системы |
-| **Frontend-разработчик** | React/Vue/Angular, TypeScript, performance, accessibility | Инженера, создающего быстрые и удобные интерфейсы |
-| **DevOps/SRE-инженер** | Kubernetes, CI/CD, мониторинг, автоматизация инфраструктуры | Инженера, обеспечивающего надёжность и автоматизацию поставки |
-| **Системный аналитик** | Бизнес-анализ, проектирование API, интеграции, документация | Того, кто переводит бизнес-задачи в технические требования |
-| **Продуктовый менеджер** | Discovery, delivery, метрики, roadmap, стейкхолдеры | Того, кто определяет что строить и почему |
-| **Тимлид / Engineering Manager** | People management, tech strategy, delivery, найм | Того, кто строит и ведёт инженерные команды |
-| **Data Engineer / ML Engineer** | ETL, Spark, Airflow, ML pipelines, feature stores | Инженера данных, строящего data/ML платформы |
-| **QA-инженер / SDET** | Автоматизация тестирования, CI/CD, нагрузочное тестирование | Инженера качества, обеспечивающего надёжность продукта |
-| **Архитектор (Solution / Enterprise)** | Системный дизайн, интеграции, масштабирование, стандарты | Того, кто проектирует архитектуру на уровне системы/компании |
-
-<!-- [НАСТРОИТЬ] Адаптируй архетипы под свой профиль.
-     Пример для backend-инженера:
-     - Senior Backend Engineer (Go/PHP)
-     - Staff Platform Engineer
-     - Engineering Manager
-     и т.д. -->
-
-### Адаптивный фрейминг по архетипу
-
-> **Конкретные метрики: читать во время оценки из `cv.md` и `article-digest.md`. НИКОГДА не хардкодить.**
-
-| Если роль... | Подчеркнуть о кандидате... | Источники proof points |
-|--------------|---------------------------|------------------------|
-| Platform / LLMOps | Продакшн-системы, observability, evals | article-digest.md + cv.md |
-| Agentic / Automation | Мульти-агентная оркестрация, HITL, надёжность | article-digest.md + cv.md |
-| Technical AI PM | Product discovery, PRD, метрики | cv.md + article-digest.md |
-| Solutions Architect | Системный дизайн, интеграции, enterprise-ready | article-digest.md + cv.md |
-| Forward Deployed Engineer | Быстрая поставка, клиентский фокус, прототип → прод | cv.md + article-digest.md |
-| Backend-разработчик | Highload, микросервисы, масштабирование | cv.md |
-| DevOps/SRE | Инфраструктура, автоматизация, мониторинг | cv.md |
-| Тимлид / EM | Лидерство, найм, техническая стратегия | cv.md |
-
----
-
-## Система оценивания
-
-Оценка использует 6 блоков (A-F) с глобальным баллом 1-5:
-
-| Измерение | Что оценивает |
-|-----------|---------------|
-| Совпадение с CV | Навыки, опыт, proof points alignment |
-| Соответствие North Star | Насколько роль совпадает с целевыми архетипами кандидата |
-| Компенсация | Зарплата vs рынок (5 = верхний квартиль, 1 = значительно ниже) |
-| Культурные сигналы | Культура компании, рост, стабильность, удалёнка |
-| Red flags | Блокеры, предупреждения (негативные корректировки) |
-| **Глобальный** | Взвешенное среднее |
-
-**Интерпретация баллов:**
-- 4.5+ → Сильное совпадение, рекомендуется откликнуться сразу
-- 4.0-4.4 → Хорошее совпадение, стоит откликнуться
-- 3.5-3.9 → Нормально, но не идеально; откликаться только при наличии конкретной причины
-- Ниже 3.5 → Настоятельно рекомендуется не откликаться
-
-> **Канонический порог (Ethical Use):** AGENTS.md устанавливает порог **4.0/5** — при баллах ниже 4.0 агент настоятельно рекомендует не откликаться. Диапазон 3.5–3.9 допускается только при наличии весомой причины и требует явного решения пользователя.
-
----
-
-## Специфика российского рынка 🇷🇺
-
-### Компенсация
-
-- **Gross vs Net**: В России зарплата часто указывается gross (до вычета НДФЛ 13%). ВСЕГДА уточнять: `gross` или `на руки (net)`. Приблизительная формула: `net ≈ gross × 0.87` (стандартная ставка НДФЛ 13%; реальная ставка может отличаться в зависимости от дохода и статуса).
-- **Валюта**: Рубли (₽ / RUB). Для международных сравнений использовать USD/EUR по текущему курсу.
-- **Источники данных**: habr.com/salary, hh.ru/salary, levels.fyi (для международных), Glassdoor, Blind.
-- **Бонусы**: Годовой бонус (обычно 1-3 оклада), квартальные KPI-бонусы, 13-я зарплата.
-
-### Оформление трудовых отношений
-
-| Тип | Описание | Влияние на оценку |
-|-----|----------|-------------------|
-| **ТК РФ** | Оформление по Трудовому кодексу. Максимальная защита | +0.3 к стабильности |
-| **ГПХ** | Договор гражданско-правового характера. Меньше защиты | -0.1 к стабильности |
-| **Самозанятость** | НПД 6%. Минимальная защита | -0.2 к стабильности |
-| **ИП** | Индивидуальный предприниматель | Нейтрально (зависит от контекста) |
-
-### Бенефиты (типичные для РФ)
-
-- **ДМС** (добровольное медицинское страхование) — стандарт в крупных компаниях
-- **ДМС стоматология** — расширенный пакет, хороший сигнал
-- **Компенсация питания** — 5-15 тыс. ₽/мес
-- **Компенсация спорта** — 3-10 тыс. ₽/мес
-- **Бюджет на обучение** — конференции, курсы, книги (30-150 тыс. ₽/год)
-- **Компенсация удалённой работы** — оборудование, интернет (3-10 тыс. ₽/мес)
-
-### Трудовое право (ТК РФ)
-
-- **Испытательный срок**: до 3 месяцев (до 6 месяцев для руководителей)
-- **Отпуск**: минимум 28 календарных дней по ТК + дополнительные дни (ненормированный рабочий день, вредные условия)
-- **Больничный**: оплачивается из ФСС + доплата от работодателя
-- **Увольнение**: отработка 2 недели (по соглашению сторон можно без)
-
----
-
-## Глобальные правила
-
-### НИКОГДА
-
-1. Выдумывать опыт или метрики
-2. Модифицировать cv.md или файлы портфолио
-3. Отправлять отклики от имени кандидата
-4. Делиться телефоном в генерируемых сообщениях
-5. Рекомендовать компенсацию ниже рынка
-6. Генерировать PDF без предварительного чтения JD
-7. Использовать канцелярит и корпоративный язык
-8. Игнорировать трекер (каждая оценённая вакансия регистрируется)
-
-### ВСЕГДА
-
-0. **Сопроводительное письмо:** Если форма позволяет, ВСЕГДА включать. Тот же дизайн, что и CV. Цитаты из JD, привязанные к proof points. Максимум 1 страница.
-1. Читать cv.md, _profile.md и article-digest.md (если есть) перед оценкой
-1b. **Первая оценка в сессии:** Запустить `node cv-sync-check.mjs`. Если предупреждения — уведомить пользователя.
-2. Определить архетип роли и адаптировать фрейминг по _profile.md
-3. Цитировать точные строки из CV при совпадении
-4. Использовать WebSearch для исследования компенсации и данных о компании
-5. Регистрировать в трекере после оценки
-6. Генерировать контент на языке JD (RU по умолчанию для русскоязычных вакансий)
-7. Быть прямым и конкретным — без воды
-8. Для русскоязычных вакансий: технический русский, короткие предложения, глаголы действия.
-8b. URL-ы кейсов в Professional Summary PDF (рекрутер может прочитать только это).
-9. **Добавления в трекер как TSV** — не добавлять НОВЫЕ записи в `data/applications.md` напрямую; для новых записей писать TSV в `batch/tracker-additions/` и делать merge. Прямое редактирование существующих строк допустимо для обновления `status`/`notes`.
-10. **Включать `**URL:**` в заголовок каждого отчёта.**
-
-### Инструменты
-
-| Инструмент | Применение |
-|------------|------------|
-| WebSearch | Исследование компенсации, тренды, культура компании, контакты в LinkedIn, fallback для JD |
-| WebFetch | Fallback для извлечения JD со статических страниц |
-| Playwright | Верификация вакансий (browser_navigate + browser_snapshot). **НИКОГДА 2+ агентов с Playwright параллельно.** |
-| Read | cv.md, _profile.md, article-digest.md, cv-template.html |
-| Write | Временный HTML для PDF, data/applications.md, отчёты .md |
-| Edit | Обновление трекера |
-| Bash | `node generate-pdf.mjs` |
-
-### Приоритет скорости
-- Рабочее демо + метрики > перфекционизм
-- Откликнуться раньше > изучить больше
-- Подход 80/20, таймбоксить всё
-
----
-
-## Профессиональное письмо и ATS-совместимость
-
-Эти правила применяются ко ВСЕМУ генерируемому тексту для кандидата: PDF-резюме, буллеты, сопроводительные письма, ответы в формах, сообщения в LinkedIn. НЕ применяются к внутренним отчётам оценки.
-
-### Избегать клише
-- "Я увлечён..." / "результат-ориентированный" / "обширный опыт"
-- "Задействовал" (использовать "применил" или назвать инструмент)
-- "Возглавил" (использовать "руководил" или "запустил")
-- "Обеспечил взаимодействие" (использовать "организовал" или "настроил")
-- "Синергия" / "комплексный" / "инновационный"
-- "В современном быстро меняющемся мире"
-
-### Юникод-нормализация для ATS
-`generate-pdf.mjs` автоматически нормализует em-dash, умные кавычки и zero-width символы в ASCII для максимальной ATS-совместимости. Но лучше не генерировать их изначально.
-
-### Разнообразие структуры предложений
-- Не начинать каждый буллет одним и тем же глаголом
-- Чередовать длину предложений
-- Не всегда использовать "X, Y и Z" — иногда два пункта, иногда четыре
-
-### Конкретика вместо абстракций
-- "Снизил p95 latency с 2.1с до 380мс" лучше, чем "улучшил производительность"
-- "Postgres + pgvector для поиска по 12к документов" лучше, чем "спроектировал масштабируемую RAG-архитектуру"
-- Называть инструменты, проекты и клиентов, когда разрешено
+If any README, copied instruction, historical handover note, or prior agent summary
+conflicts with the canonical files above, ignore the stale copy and follow the root
+contract.

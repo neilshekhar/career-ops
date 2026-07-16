@@ -99,9 +99,9 @@ Show this menu:
 career-ops -- Command Center
 
 Available commands:
-  /career-ops {JD}      → AUTO-PIPELINE: evaluate + report + PDF + tracker (paste text or URL)
+  /career-ops {JD}      → AUTO-PIPELINE: evaluate/score + verdict first; wait for explicit continue/dashboard selection
   /career-ops pipeline  → Process pending URLs from inbox (data/pipeline.md)
-  /career-ops oferta    → Evaluation only A-F (no auto PDF)
+  /career-ops oferta    → Evaluation only A-G (no auto PDF)
   /career-ops ofertas   → Compare and rank multiple offers
   /career-ops contacto  → LinkedIn power move: find contacts + draft message
   /career-ops deep      → Deep research prompt about company
@@ -122,7 +122,7 @@ Available commands:
   /career-ops tracker   → Application status overview
   /career-ops agent-inbox → Queue/drain requests for the next session (data/agent-inbox.md)
   /career-ops reply-watch → Classify replies and suggest tracker updates
-  /career-ops apply     → Live application assistant (reads form + generates answers)
+  /career-ops apply     → Fill every authorized form field; stop at final submission for review
   /career-ops scan      → Scan portals and discover new offers
   /career-ops batch     → Batch processing with parallel workers
   /career-ops patterns  → Analyze rejection patterns and improve targeting
@@ -133,7 +133,7 @@ Available commands:
   /career-ops update    → Update career-ops system files with diff preview + compat check
 
 Inbox: add URLs to data/pipeline.md → /career-ops pipeline
-Or paste a JD directly to run the full pipeline.
+Or paste a JD directly to evaluate/score it and show the verdict first; tailored assets and application work wait for explicit continue/dashboard selection.
 ```
 
 ---
@@ -159,8 +159,42 @@ Read `modes/{mode}.md`
 
 Applies to: `tracker`, `agent-inbox`, `reply-watch`, `deep`, `interview-prep`, `interview`, `interview-redflag`, `regional/eu-swe`, `interview/plan`, `interview/practice`, `interview/debrief`, `latex`, `training`, `project`, `patterns`, `titles`, `followup`, `queue`, `cover`, `email`, `add`, `offer-prep`
 
-### Modes delegated to subagent:
-For `scan`, `apply` (with Playwright), and `pipeline` (3+ URLs): launch as a worker/subagent with the content of `_shared.md` + `modes/{mode}.md` injected into the worker prompt. If your CLI exposes an `Agent(...)` primitive, the call looks like this:
+### Delegation and the single browser controller
+
+`scan` and `pipeline` (3+ URLs) may launch bounded workers under their mode-specific
+concurrency rules. A live `apply` run is different: exactly one browser controller owns
+the shared tab ledger and every browser/queue write. The current agent should remain that
+controller when it already has browser access. If no controller exists, it may designate
+one worker as the controller, but it must resume that same worker for the entire session;
+never spawn a second or parallel browser-backed apply agent. Additional workers may reason
+over compact secret-free novel-field JSON only and may not touch the browser, queue,
+credential store, resolver teach writes, or receipt ledger.
+
+Before any live action, the designated controller must itself read current
+`modes/_shared.md`, `modes/apply.md`, `modes/_custom.md` when present,
+`queue-resolve.mjs`, and `application-receipt.mjs`; a copied excerpt or parent summary is
+not a substitute. Every live page must run the full lookup → fill resolved → L3 all novel
+→ fill → teach (including `[]`) → verify barrier before Next and carry the
+Playwright-extracted `upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]`
+manifest. Attachment evidence binds the observed `control_id` to the exact current-role
+local asset path, its content SHA-256, and the matching portal-displayed basename. Every
+enabled `cv` control receives the verified CV; every enabled `cover` or `supporting`
+control receives the verified tailored cover letter. `attachments_not_applicable_reason`
+is valid only when the complete ledger proves no enabled upload control accepts an
+attachment. Account creation and one exact-host stored-credential login attempt belong to
+the controller; a staged registration password is persisted only after accepted-registration
+evidence v2 is bound to the active dashboard role/request/run/controller/tab with
+`node credentials-store.mjs --bind-registration <role-id> '@acceptance.json'`, then
+validated again by
+`commitAcceptedRegistrationCredentials(host, email, password, acceptanceEvidence)`.
+The binding may precede receipt `--begin` while the request is queued; an in-progress
+request must also match `application_progress.tab`. A caller-authored digest alone cannot
+persist a password, and an existing exact-host credential is never overwritten.
+The controller fills every question, flags conservative inferences for the combined review,
+and never performs final application submission. For modes where a worker is permitted, inject `_shared.md` plus the
+selected mode and require the worker to follow the mode's own canonical references. If
+your CLI exposes an `Agent(...)` primitive, a permitted non-browser worker call looks
+like this:
 
 ```
 Agent(
@@ -171,3 +205,22 @@ Agent(
 ```
 
 Execute the instructions from the loaded mode file.
+
+### Localized apply aliases
+
+Every localized live-application alias (`takdeem`, `bewerben`, `postuler`,
+`aavedan`, `melamar`, `candidarsi`, `oubo`, `jiwon`, `aplikuj`, `aplicar`,
+`basvuru`, and localized files named `apply`) executes root `modes/apply.md` as
+the single workflow. Load the selected locale's `_shared.md` only for language and
+regional vocabulary, then load root `modes/apply.md`, `modes/_custom.md` when
+present, the current `queue-resolve.mjs` contract, and `application-receipt.mjs`.
+The five-file controller read list above remains mandatory. Use
+`application-receipt.mjs` for the mandatory per-page evidence and the only valid
+`prepared` (or legacy `prefilled`) → `filled` promotion. A localized wrapper may not
+replace, omit, or reorder queue, auth, resolver/teach, tab, persistence, review, or
+never-submit behavior.
+
+Localized evaluation and pipeline aliases follow the same pattern: execute root
+`modes/oferta.md` or `modes/pipeline.md` as the single workflow, and use the selected
+locale's `_shared.md` only as a language/market overlay. They may not copy, replace,
+omit, or reorder liveness, research, numbering, scoring, persistence, or review gates.

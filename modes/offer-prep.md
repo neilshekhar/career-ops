@@ -248,10 +248,23 @@ taking the list to a lawyer before signing.
 
 ## Step 7 — Tracker
 
-Update the existing row (never add a new one): status → `Offer` if not
-already; Notes column links the prep file relative to the tracker
-(`offers/{company-slug}/prep-{date}.md`). Canonical states per
-`templates/states.yml`.
+Update the exact existing row through the canonical locked writer; never add or
+hand-edit a row. If its status is not already `Offer`, run:
+
+```bash
+node set-status.mjs <tracker#> Offer --external --note "offer prep: offers/{company-slug}/prep-{date}.md"
+```
+
+`--external` records that the candidate-provided offer/contract is an event
+outside the receipt-gated live-application flow. If the row is already `Offer`,
+preserve its existing lifecycle provenance and add only the idempotent prep link:
+
+```bash
+node set-status.mjs <tracker#> --note "offer prep: offers/{company-slug}/prep-{date}.md"
+```
+
+Use the tracker `#` from the first column, not the report filename's NNN.
+Canonical states remain defined by `templates/states.yml`.
 
 ## Step 8 — Reply draft (optional, on request)
 

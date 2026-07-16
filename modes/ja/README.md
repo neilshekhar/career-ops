@@ -25,9 +25,9 @@ career-ops にはコード上の「言語スイッチ」フラグはありませ
 
 または
 
-> 「評価と応募を日本語で。`modes/ja/_shared.md` と `modes/ja/kyujin.md` を読んで。」
+> 「日本語の評価は `modes/ja/kyujin.md`、応募は `modes/ja/oubo.md` を使って。応募 wrapper は常に root の canonical workflow を実行する。」
 
-Claude は `modes/` の代わりにこのフォルダのファイルを読み込みます。
+Agent はこのフォルダの language wrapper と `modes/` の canonical workflow を一緒に読み込みます。Locale files が root の execution rules を置き換えることはありません。
 
 ### 方法 2 -- プロファイルで恒久設定
 
@@ -50,9 +50,9 @@ language:
 | ファイル | 翻訳元 | 用途 |
 |---------|-------|------|
 | `_shared.md` | `modes/_shared.md` (EN) | 共通コンテキスト、アーキタイプ、グローバルルール、日本市場の特記事項 |
-| `kyujin.md` | `modes/oferta.md` (EN) | 求人の完全評価（A-F + G legitimacy ブロック） |
-| `oubo.md` | `modes/apply.md` (EN) | 応募フォーム記入のライブアシスタント |
-| `pipeline.md` | `modes/pipeline.md` (EN) | URL のインボックス / 求人の Second Brain |
+| `kyujin.md` | `modes/oferta.md` (EN) | 日本語 wrapper。canonical A-G evaluation を再定義せず実行します |
+| `oubo.md` | `modes/apply.md` (EN) | 日本語ラッパー。正規ワークフローはルートのファイルを実行します |
+| `pipeline.md` | `modes/pipeline.md` (EN) | 日本語 wrapper。canonical URL pipeline を再定義せず実行します |
 
 残りのモード（`scan`、`batch`、`pdf`、`tracker`、`auto-pipeline`、`deep`、`contacto`、`ofertas`、`project`、`training`）は意図的にこの PR に含めていません。これらは主にツール配管、パス、設定コマンドで構成されており、言語非依存であるべきだからです。
 
@@ -64,7 +64,7 @@ language:
 
 - `cv.md`、`pipeline`、`tracker`、`report`、`score`、`archetype`、`proof point`
 - ツール名（`Playwright`、`WebSearch`、`WebFetch`、`Read`、`Write`、`Edit`、`Bash`）
-- tracker のステータス値（`Evaluated`、`Applied`、`Interview`、`Offer`、`Rejected`）
+- tracker のステータス値（`Evaluated`、`Applied`、`Responded`、`Interview`、`Offer`、`Hired`、`Rejected`、`Discarded`、`SKIP`）
 - コードスニペット、ファイルパス、コマンド
 
 モードは、東京・大阪・福岡の実際のエンジニアリングチームで使われているような自然な日本語テック表現を使います：地の文は日本語、定着しているテック用語は英語のままです。「pipeline」を「配管」と訳したり、「cv.md」を「履歴書.md」にしたりはしません。
@@ -110,5 +110,5 @@ language:
 1. `CONTRIBUTING.md` に沿って issue を立てて提案する
 2. トーンの一貫性のため上記の用語集に従う
 3. 自然で慣用的な翻訳を行う — 一語一語の直訳はしない
-4. 構造要素（A-F + G ブロック、テーブル、コードブロック、ツール指示）は原文と完全に一致させる
+4. Language と regional vocabulary だけを変更し、locale files に canonical workflow をコピーまたは再定義しない
 5. PR を出す前に実際の日本の求人（Wantedly や LinkedIn JP など）でテストする

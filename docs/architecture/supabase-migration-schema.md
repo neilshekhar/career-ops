@@ -30,7 +30,7 @@ inserted into `seen_urls`) the moment it reaches a terminal state.
 | `location` | `text` | | Location string from ATS API or pipeline. |
 | `jd_text` | `text` | | Plain-text JD body (stripped HTML). Cloud-safe discovery data. |
 | `jd_path` | `text` | | Relative path to local JD file (`jds/slug.md`). Informational only; the cron writes `jd_text`, local writes `jd_path`. |
-| `status` | `text` | NOT NULL, DEFAULT `'new'` | One of the open statuses: `new`, `scored`, `prepare-queued`, `prepared`, `prefilled`, `filled`. CHECK constraint enforces this enum. |
+| `status` | `text` | NOT NULL, DEFAULT `'new'` | One of the open statuses: `new`, `scored`, `prepare-queued`, `prepared`, legacy `prefilled`, or `filled`. New dashboard/planner runs do not enter `prefilled`; the CHECK retains it for resumability. |
 | `score` | `numeric(2,1)` | | Final score after caps (0.0-5.0). |
 | `score_raw` | `numeric(2,1)` | | Raw weighted score before caps. |
 | `size_bucket` | `text` | | `startup`, `mid`, `large`, `unknown`. |
@@ -46,8 +46,8 @@ inserted into `seen_urls`) the moment it reaches a terminal state.
 | `created_at` | `timestamptz` | NOT NULL, DEFAULT `now()` | When the stub was first inserted. |
 | `scored_at` | `timestamptz` | | When the agent scored this role. |
 | `prepared_at` | `timestamptz` | | When prepare phase completed. |
-| `prefilled_at` | `timestamptz` | | When headless fill completed. |
-| `filled_at` | `timestamptz` | | When headed fill completed. |
+| `prefilled_at` | `timestamptz` | | Legacy timestamp retained for existing non-review-ready prefill checkpoints. New dashboard/planner paths never set it. |
+| `filled_at` | `timestamptz` | | When the canonical receipt finalizer verified every page, attachment, validation, and persisted answer and promoted the role to review-ready `filled`. |
 | `updated_at` | `timestamptz` | NOT NULL, DEFAULT `now()` | Last modification timestamp (auto-updated by trigger). |
 
 **Indexes:**
@@ -253,7 +253,7 @@ has expired. The local session decides what to do with them.
 ### 3.5 Local decision write-back
 
 When the dashboard records a decision (`submitted`, `skipped`, `reviewed`), or
-when form-fill detects a closed posting:
+when the active application agent verifies a closed posting:
 
 ```sql
 BEGIN;
@@ -265,9 +265,18 @@ BEGIN;
 COMMIT;
 ```
 
-This is atomic. The role disappears from the dashboard and becomes dedup memory
-in a single transaction. The local `writeTrackerTsv()` flow continues unchanged
-(TSV + merge-tracker for `applications.md`).
+The Supabase role move itself is atomic. For a candidate-confirmed submission,
+the localhost decision handler first persists a local pending transaction, verifies the
+finalized receipt, promotes the receipt-bound report to the truthful
+`State: submitted`, synchronizes that receipt state into the local sidecar, ensures the
+tracker row exists, and delegates its status/provenance update to the locked
+`set-status.mjs` writer. The final queue transition then completes the pending
+transaction. Tracker or queue failures leave the same decision safely retryable; once the
+candidate has confirmed submission, infrastructure failure never rolls the report back to
+an unsubmitted state. For Supabase saves, required local-only evidence is written before
+the cloud status RPC, with sidecar compensation if the RPC fails; only the fallback shadow
+may lag after a successful commit. This is a durable cross-store saga, not a claim of one
+database transaction across the local report, tracker, and Supabase.
 
 ### 3.6 Dashboard read filter
 
@@ -318,7 +327,7 @@ Produce this document. No code changes, no Supabase project created.
 
 | Contract | Preserved how |
 |----------|---------------|
-| Single I/O source | `queue-store.mjs` remains the only module that reads/writes the queue. All callers (`queue-ingest`, `dashboard-server`, `form-fill`) go through it. |
+| Single I/O source | `queue-store.mjs` remains the only module that reads/writes the queue. Queue-mutating callers such as `queue-ingest`, `dashboard-server`, and the application receipt flow go through it; offline `form-fill.mjs` does not write queue state. |
 | Atomic writes | Postgres transactions replace filesystem tmp+rename. |
 | `computeLane(role)` is pure | Unchanged. Operates on a role object, no I/O. The Supabase row is mapped to the same shape before passing to `computeLane`. |
 | `computeStats(queue)` is pure | Unchanged. Operates on an array of role objects. |

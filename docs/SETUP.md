@@ -98,8 +98,9 @@ and opens in your browser:
 npm run launch              # Opens http://127.0.0.1:7777
 ```
 
-Use it to review scored roles, choose what to prepare, inspect generated assets,
-launch form-fill, and keep final submission under human control.
+Use it to review scored roles, choose what to prepare, inspect generated assets, and
+queue application requests for the active agent. The dashboard never launches browser
+automation or fills a form itself; final submission remains under human control.
 
 ## Terminal Tracker TUI (Optional)
 

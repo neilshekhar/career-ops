@@ -22,8 +22,10 @@
  * the agent finishes filling an application. No user confirmation required.
  */
 
-import { readFileSync, writeFileSync, existsSync, renameSync } from 'fs';
-import { join, dirname } from 'path';
+import {
+  readFileSync, writeFileSync, existsSync, renameSync, mkdirSync, rmSync, statSync,
+} from 'fs';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 
@@ -31,7 +33,11 @@ import { extractEntities } from './answer-cache.mjs';
 import { normLabel } from './field-rules.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
-export const STORE_PATH = join(ROOT, 'data', 'screener-answers.json');
+const DATA_DIR = process.env.CAREER_OPS_DATA_DIR
+  ? resolve(process.env.CAREER_OPS_DATA_DIR)
+  : join(ROOT, 'data');
+export const STORE_PATH = join(DATA_DIR, 'screener-answers.json');
+export const STORE_LOCK_PATH = join(DATA_DIR, '.screener-answers.lock');
 
 const EMPTY_STORE = () => ({ version: 1, entries: {} });
 
@@ -41,17 +47,60 @@ export function loadStore() {
   if (!existsSync(STORE_PATH)) return EMPTY_STORE();
   try {
     const s = JSON.parse(readFileSync(STORE_PATH, 'utf-8'));
-    if (!s || typeof s.entries !== 'object' || Array.isArray(s.entries)) return EMPTY_STORE();
+    if (!s || typeof s !== 'object' || Array.isArray(s) ||
+        typeof s.entries !== 'object' || s.entries == null || Array.isArray(s.entries)) {
+      throw new Error('expected an object with an entries map');
+    }
     return s;
-  } catch {
-    return EMPTY_STORE();
+  } catch (err) {
+    throw new Error(`Screener store is unreadable or invalid; refusing silent reset: ${err.message}`);
   }
 }
 
 export function saveStore(store) {
-  const tmp = join(ROOT, 'data', `.screener-answers-${randomUUID()}.tmp`);
+  mkdirSync(DATA_DIR, { recursive: true });
+  const tmp = join(DATA_DIR, `.screener-answers-${randomUUID()}.tmp`);
   writeFileSync(tmp, JSON.stringify(store, null, 2) + '\n', 'utf-8');
   renameSync(tmp, STORE_PATH);
+}
+
+function withStoreLock(fn, timeoutMs = 15_000) {
+  mkdirSync(DATA_DIR, { recursive: true });
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      mkdirSync(STORE_LOCK_PATH, { mode: 0o700 });
+      break;
+    } catch (err) {
+      if (err?.code !== 'EEXIST') throw err;
+      try {
+        if (Date.now() - statSync(STORE_LOCK_PATH).mtimeMs > 120_000) {
+          rmSync(STORE_LOCK_PATH, { recursive: true, force: true });
+          continue;
+        }
+      } catch { /* another process may have released the lock */ }
+      if (Date.now() >= deadline) throw new Error('Timed out waiting for screener-store lock');
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    rmSync(STORE_LOCK_PATH, { recursive: true, force: true });
+  }
+}
+
+export function mutateScreenerStore(mutator, { timeoutMs = 15_000 } = {}) {
+  if (typeof mutator !== 'function') throw new Error('mutateScreenerStore requires a callback');
+  return withStoreLock(() => {
+    const store = loadStore();
+    const result = mutator(store);
+    if (result && typeof result.then === 'function') {
+      throw new Error('mutateScreenerStore callback must be synchronous');
+    }
+    saveStore(store);
+    return result;
+  }, timeoutMs);
 }
 
 // ── Volatile guard ─────────────────────────────────────────────────────────────

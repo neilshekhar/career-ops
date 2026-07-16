@@ -14,20 +14,36 @@
  */
 
 import http from 'http';
+import { randomUUID } from 'crypto';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, dirname, extname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { spawn, execFileSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import yaml from 'js-yaml';
 
 import {
-  loadQueue, saveQueue, computeLane, computeStage, computeStats,
-  setStatus, updateById, ACTIVE_STATUSES, DONE_STATUSES, stageDragTarget,
+  loadQueue, mutateQueue, computeLane, computeStage, computeStats,
+  setStatus, updateById, ACTIVE_STATUSES, stageDragTarget,
   DRAG_TARGET_STAGES, recordCandidateSelectionOverride,
 } from './queue-store.mjs';
 import { queueDoneStatusFromTracker, parseTrackerDoneRows } from './tracker-status-map.mjs';
-import { partitionRunRoles, isDeepEval, FILLABLE_STATUSES } from './run-partition.mjs';
+import { parseTrackerRow, resolveColumns } from './tracker-parse.mjs';
+import {
+  partitionRunRoles, isDeepEval, FILLABLE_STATUSES,
+} from './run-partition.mjs';
 import { applicationQualityConfig, validateApplicationRole } from './verify-userdata.mjs';
+import {
+  markApplicationReportSubmitted,
+  reviewReadinessErrors,
+  submissionReadinessErrors,
+} from './application-receipt.mjs';
+import { APPLICATION_RECEIPT_REQUEST_CONTRACT } from './application-receipt-integrity.mjs';
+import {
+  DASHBOARD_JSON_BODY_LIMIT,
+  SelectionConfirmationStore,
+  SubmissionConfirmationStore,
+  validateDashboardMutationRequest,
+} from './dashboard-auth.mjs';
 
 const ROOT     = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR  = join(ROOT, 'dashboard', 'web');
@@ -39,6 +55,10 @@ const ADDITIONS_DIR = join(ROOT, 'batch', 'tracker-additions');
 const portArg = process.argv.indexOf('--port');
 const PORT    = portArg !== -1 ? parseInt(process.argv[portArg + 1], 10) : 7777;
 const HOST    = '127.0.0.1'; // localhost only — never expose externally
+const DASHBOARD_ORIGIN = `http://${HOST}:${PORT}`;
+const DASHBOARD_CSRF_TOKEN = randomUUID();
+const selectionConfirmations = new SelectionConfirmationStore();
+const submissionConfirmations = new SubmissionConfirmationStore();
 
 // ── MIME types ───────────────────────────────────────────────────────────────
 
@@ -78,25 +98,40 @@ function tsvCell(value) {
   return String(value ?? '').replace(/[\t\r\n]+/g, ' ').trim();
 }
 
-function writeTrackerTsv(role, decision) {
+function writeTrackerTsv(role, decision, { receiptId = null } = {}) {
   mkdirSync(ADDITIONS_DIR, { recursive: true });
+
+  if (decision === 'submitted' && !receiptId) {
+    throw new Error('candidate-confirmed submission is missing its finalized application receipt id');
+  }
 
   const num    = nextTrackerNum();
   const date   = new Date().toISOString().slice(0, 10);
   const status = DECISION_STATUS[decision] ?? 'Discarded';
-  const score  = role.score != null ? `${role.score.toFixed(1)}/5` : 'N/A';
+  // A TSV addition only establishes the evaluation row. Never write Applied
+  // even transiently: candidate-confirmed submission is promoted below by the
+  // canonical status writer with the finalized receipt ID.
+  const stagedStatus = decision === 'submitted' ? 'Evaluated' : status;
+  const numericScore = Number(role.score);
+  const score  = Number.isFinite(numericScore) ? `${numericScore.toFixed(1)}/5` : 'N/A';
   const pdf    = role.cv_pdf ? '✅' : '❌';
-  const report = `[job](${role.url})`;
+  const reportTarget = role.application_progress?.application_answers_report || role.url;
+  if (!reportTarget) throw new Error('tracker decision requires an application report path or job URL');
+  const report = `[${role.application_progress?.application_answers_report ? 'application' : 'job'}](${reportTarget})`;
   const notes  = role.reason ? role.reason.slice(0, 120) : '';
 
-  const tsv = [num, date, role.company, role.title, status, score, pdf, report, notes]
+  const tsv = [num, date, role.company, role.title, stagedStatus, score, pdf, report, notes]
     .map(tsvCell)
     .join('\t');
 
-  const filename = `${num}-${role.id.replace(/:/g, '-').slice(0, 40)}.tsv`;
+  const safeId = String(role.id ?? 'role').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 80);
+  const filename = `${num}-${safeId}.tsv`;
   writeFileSync(join(ADDITIONS_DIR, filename), tsv + '\n', 'utf-8');
 
-  // Run merge-tracker to keep applications.md in sync
+  // First ensure the row exists, then use the one canonical locked status
+  // writer to update an existing row as well. merge-tracker intentionally
+  // preserves an existing row's status during dedup, so treating the TSV write
+  // alone as success would silently leave Evaluated rows unchanged.
   try {
     execFileSync(process.execPath, ['merge-tracker.mjs'], {
       cwd: ROOT,
@@ -104,8 +139,138 @@ function writeTrackerTsv(role, decision) {
       timeout: 15_000,
     });
   } catch (err) {
-    // Non-fatal: the TSV file is written; user can run merge-tracker manually
-    console.warn('WARN: merge-tracker.mjs exited with error:', err.message?.slice(0, 200));
+    throw new Error(`tracker row merge failed: ${String(err.stderr || err.message).trim().slice(0, 300)}`);
+  }
+
+  const args = [
+    'set-status.mjs', role.company, status,
+    '--role', role.title,
+    '--report', reportTarget,
+    '--json',
+  ];
+  if (notes) args.push('--note', notes);
+  if (receiptId) args.push('--receipt', receiptId);
+  try {
+    const output = execFileSync(process.execPath, args, {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 30_000,
+    });
+    return JSON.parse(output);
+  } catch (err) {
+    let detail = String(err.stderr || err.message).trim();
+    try {
+      const parsed = JSON.parse(String(err.stdout || ''));
+      detail = parsed.error || detail;
+    } catch { /* keep stderr detail */ }
+    throw new Error(`canonical tracker status update failed: ${detail.slice(0, 300)}`);
+  }
+}
+
+// ── Candidate-decision transaction ──────────────────────────────────────────
+
+const DECISION_TRANSACTION_VERSION = 1;
+
+function decisionTransactionFor(role, decision) {
+  const transaction = role?.application_decision_transaction;
+  if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) return null;
+  if (transaction.version !== DECISION_TRANSACTION_VERSION || transaction.role_id !== role.id) {
+    throw new Error('candidate decision transaction is malformed or belongs to another role');
+  }
+  if (transaction.decision !== decision) {
+    const err = new Error(
+      `candidate decision '${transaction.decision}' is already pending; finish it before recording '${decision}'`,
+    );
+    err.httpCode = 409;
+    throw err;
+  }
+  return transaction;
+}
+
+function beginCandidateDecision(queue, id, decision) {
+  const role = queue.roles.find((item) => item.id === id);
+  if (!role) {
+    const err = new Error('role not found');
+    err.httpCode = 404;
+    throw err;
+  }
+
+  const existing = decisionTransactionFor(role, decision);
+  if (existing?.state === 'committed' && role.status === decision) {
+    return { role: structuredClone(role), transaction: structuredClone(existing), alreadyCommitted: true };
+  }
+  if (existing && ['pending', 'report-promoted', 'tracker-written'].includes(existing.state)) {
+    if (decision === 'submitted' && role.status !== 'filled' && role.status !== 'submitted') {
+      const err = new Error(`pending submitted transaction cannot resume from role status '${role.status}'`);
+      err.httpCode = 409;
+      throw err;
+    }
+    return { role: structuredClone(role), transaction: structuredClone(existing), alreadyCommitted: false };
+  }
+
+  if (decision === 'submitted') {
+    const receiptErrors = submissionReadinessErrors(role);
+    if (role.status !== 'filled') {
+      receiptErrors.unshift(`role status is '${role.status}', not receipt-gated 'filled'`);
+    }
+    if (receiptErrors.length) {
+      const err = new Error('application cannot be marked submitted until its durable per-page receipt is review-ready');
+      err.httpCode = 409;
+      err.receiptErrors = receiptErrors;
+      throw err;
+    }
+  }
+
+  const startedAt = new Date().toISOString();
+  const receiptId = decision === 'submitted' ? role.application_progress?.receipt_id : null;
+  const transaction = {
+    version: DECISION_TRANSACTION_VERSION,
+    transaction_id: `candidate-decision:${role.id}:${decision}:${receiptId ?? randomUUID()}`,
+    role_id: role.id,
+    decision,
+    receipt_id: receiptId,
+    state: 'pending',
+    candidate_confirmed_at: startedAt,
+    started_at: startedAt,
+    updated_at: startedAt,
+  };
+  role.application_decision_transaction = transaction;
+  return { role: structuredClone(role), transaction: structuredClone(transaction), alreadyCommitted: false };
+}
+
+function assertDecisionTransaction(role, transactionId, decision) {
+  const transaction = decisionTransactionFor(role, decision);
+  if (!transaction || transaction.transaction_id !== transactionId) {
+    throw new Error('candidate decision transaction changed before it could be completed');
+  }
+  return transaction;
+}
+
+/**
+ * A retry can observe the report already promoted while the queue still carries
+ * the pre-promotion progress fields. Reconcile that narrow, receipt-bound state
+ * before asking the idempotent report helper to validate it again.
+ */
+function promoteOrReconcileSubmittedReport(role, transaction) {
+  try {
+    return markApplicationReportSubmitted(role);
+  } catch (firstError) {
+    if (transaction?.decision !== 'submitted') throw firstError;
+    const progress = role?.application_progress;
+    if (!progress) throw firstError;
+    const previousState = progress.report_state;
+    const previousConfirmedAt = progress.submission_confirmed_at;
+    progress.report_state = 'submitted';
+    progress.submission_confirmed_at = previousConfirmedAt ?? transaction.candidate_confirmed_at;
+    try {
+      return markApplicationReportSubmitted(role);
+    } catch (retryError) {
+      progress.report_state = previousState;
+      if (previousConfirmedAt == null) delete progress.submission_confirmed_at;
+      else progress.submission_confirmed_at = previousConfirmedAt;
+      throw retryError;
+    }
   }
 }
 
@@ -137,12 +302,6 @@ function normalizeJobUrl(value) {
   } catch {
     return null;
   }
-}
-
-function splitTrackerRow(line) {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) return null;
-  return trimmed.slice(1, -1).split('|').map((cell) => cell.trim());
 }
 
 function extractUrlFromLinkedReport(target) {
@@ -178,14 +337,16 @@ function loadTrackerTerminalStatusesByUrl() {
   if (!existsSync(APPS_FILE)) return statusesByUrl;
 
   const text = readFileSync(APPS_FILE, 'utf-8');
-  for (const line of text.split(/\r?\n/)) {
-    const cells = splitTrackerRow(line);
-    if (!cells || cells.length < 8 || !/^\d+$/.test(cells[0])) continue;
+  const lines = text.split(/\r?\n/);
+  const colmap = resolveColumns(lines);
+  for (const line of lines) {
+    const row = parseTrackerRow(line, colmap);
+    if (!row) continue;
 
-    const queueStatus = queueDoneStatusFromTracker(cells[5], { includeEvaluated: false });
+    const queueStatus = queueDoneStatusFromTracker(row.status, { includeEvaluated: false });
     if (!queueStatus) continue;
 
-    const url = normalizeJobUrl(extractTrackerUrl(cells[7]));
+    const url = normalizeJobUrl(extractTrackerUrl(row.report));
     if (url && !statusesByUrl.has(url)) statusesByUrl.set(url, queueStatus);
   }
 
@@ -273,48 +434,187 @@ function apiActivity(req, res) {
   req.on('close', () => activityClients.delete(res));
 }
 
-// ── Parallel run ──────────────────────────────────────────────────────────────
+// ── Canonical active-agent dispatch ──────────────────────────────────────────
 
-function spawnFillDetached(roleId, headless) {
-  const args = ['form-fill.mjs', roleId, ...(headless ? ['--headless'] : [])];
-  const child = spawn(process.execPath, args, {
-    cwd:      ROOT,
-    detached: true,
-    stdio:    ['ignore', 'ignore', 'ignore'],
-  });
-  child.unref();
-  return child.pid;
+const ACTIVE_AGENT_APPLY_CONTRACT = APPLICATION_RECEIPT_REQUEST_CONTRACT;
+const MAX_ACTIVE_APPLICATION_REQUESTS = 4;
+const ACTIVE_APPLICATION_REQUEST_STATES = new Set(['queued', 'in-progress']);
+
+function applicationControllerLease(queue) {
+  queue.settings = queue.settings ?? {};
+  const current = queue.settings.application_controller;
+  const existingControllerIds = [...new Set((queue.roles ?? [])
+    .filter((item) => ACTIVE_APPLICATION_REQUEST_STATES.has(item?.application_request?.state))
+    .map((item) => item.application_request?.controller_id)
+    .filter(Boolean))];
+  if (existingControllerIds.length > 1) {
+    const err = new Error('multiple browser-controller IDs already exist; preserve tabs and resolve the conflict before queueing more work');
+    err.httpCode = 409;
+    throw err;
+  }
+  const now = new Date().toISOString();
+  const lease = current?.version === 1 && current.controller === 'active-agent' && current.controller_id
+    ? current
+    : {
+        version: 1,
+        controller: 'active-agent',
+        controller_id: existingControllerIds[0] ?? `browser-controller:${randomUUID()}`,
+        max_active_roles: MAX_ACTIVE_APPLICATION_REQUESTS,
+        created_at: now,
+        updated_at: now,
+      };
+  if (existingControllerIds.length === 1 && existingControllerIds[0] !== lease.controller_id) {
+    const err = new Error('active application requests do not match the persisted browser-controller lease');
+    err.httpCode = 409;
+    throw err;
+  }
+  for (const item of queue.roles ?? []) {
+    if (!ACTIVE_APPLICATION_REQUEST_STATES.has(item?.application_request?.state)) continue;
+    if (item.application_request.controller !== 'active-agent') {
+      const err = new Error('an active application request is owned by a non-canonical controller');
+      err.httpCode = 409;
+      throw err;
+    }
+    item.application_request.controller_id = item.application_request.controller_id ?? lease.controller_id;
+    if (item.application_request.controller_id !== lease.controller_id) {
+      const err = new Error('multiple browser-controller leases are active in the same queue');
+      err.httpCode = 409;
+      throw err;
+    }
+  }
+  lease.max_active_roles = MAX_ACTIVE_APPLICATION_REQUESTS;
+  lease.updated_at = now;
+  queue.settings.application_controller = lease;
+  return lease;
 }
 
-async function spawnFillAndWait(roleId, headless, role, runId) {
-  return new Promise((resolve) => {
-    const args  = ['form-fill.mjs', roleId, ...(headless ? ['--headless'] : [])];
-    const child = spawn(process.execPath, args, {
-      cwd:   ROOT,
-      stdio: 'pipe',
-    });
-
-    let stdout = '';
-    child.stdout?.on('data', (d) => { stdout += d; });
-    child.stderr?.on('data', (d) => { stdout += d; });
-
-    child.on('close', (code) => {
-      const knockoutFlag = stdout.includes('KNOCKOUT');
-      const loginWall    = stdout.includes('Login required') || stdout.includes('🔐 Login');
-      const event = code === 0
-        ? (knockoutFlag ? 'knockout-flag' : loginWall ? 'login-wall' : 'success')
-        : 'failure';
-      emitActivity(runId, roleId, event, role, { exitCode: code });
-      resolve({ event, exitCode: code });
-    });
-  });
+function activeApplicationRequests(queue) {
+  return (queue.roles ?? []).filter(
+    (item) => ACTIVE_APPLICATION_REQUEST_STATES.has(item?.application_request?.state),
+  );
 }
 
-function apiRun(req, res) {
-  readBody(req, async (body) => {
-    const { ids } = safeJson(body) || {};
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return respond(res, 400, { error: 'ids must be a non-empty array' });
+/**
+ * Persist a work request without touching a browser or changing application
+ * status. The interactive agent consumes this record and owns the exact tab for
+ * the whole extract/resolve/L3/teach/verify/receipt run.
+ */
+function enqueueActiveAgentRequest(queue, role, runId, source = 'dashboard') {
+  const lease = applicationControllerLease(queue);
+  const existing = role.application_request;
+  if (existing && ACTIVE_APPLICATION_REQUEST_STATES.has(existing.state)) {
+    if (existing.controller !== 'active-agent') {
+      const err = new Error('role already has an active request owned by a different controller');
+      err.httpCode = 409;
+      throw err;
+    }
+    // One migration path for requests written before controller IDs became
+    // executable. Preserve their run/tab instead of overwriting live work.
+    existing.controller_id = existing.controller_id ?? lease.controller_id;
+    if (existing.controller_id !== lease.controller_id) {
+      const err = new Error('role already belongs to another browser-controller lease');
+      err.httpCode = 409;
+      throw err;
+    }
+    existing.updated_at = new Date().toISOString();
+    return { request: structuredClone(existing), reused: true };
+  }
+  if (existing?.state === 'review-ready') {
+    const err = new Error('role already has a review-ready application request; validate or repair its receipt instead of overwriting it');
+    err.httpCode = 409;
+    throw err;
+  }
+  if (activeApplicationRequests(queue).length >= MAX_ACTIVE_APPLICATION_REQUESTS) {
+    const err = new Error(`browser-controller already has ${MAX_ACTIVE_APPLICATION_REQUESTS} active roles; finish or park one before queueing another`);
+    err.httpCode = 409;
+    throw err;
+  }
+  const requestedAt = new Date().toISOString();
+  role.application_request = {
+    version: 1,
+    request_id: `${runId}:${role.id}`,
+    run_id: runId,
+    role_id: role.id,
+    source,
+    state: 'queued',
+    controller: 'active-agent',
+    controller_id: lease.controller_id,
+    requested_at: requestedAt,
+    url: role.url,
+    contract: [...ACTIVE_AGENT_APPLY_CONTRACT],
+  };
+  lease.updated_at = requestedAt;
+  return { request: structuredClone(role.application_request), reused: false };
+}
+
+const SELECTION_CONFIRMATION_PHRASE = 'I selected these roles for preparation or filling';
+const SELECTION_ACTIONS = new Set(['run', 'fill', 'stage-prepare']);
+
+function exactQueueRoles(queue, ids) {
+  const uniqueIds = [...new Set((Array.isArray(ids) ? ids : []).map(String))];
+  const roles = uniqueIds.map((id) => queue.roles.find((role) => role.id === id));
+  return roles.every(Boolean) ? roles : null;
+}
+
+function selectionRoleStates(roles) {
+  return Object.fromEntries(roles.map((role) => [role.id, role.status]));
+}
+
+function recordCandidateSelectionConfirmation(role, confirmation, source) {
+  role.candidate_selection_confirmation = {
+    version: 1,
+    intent_id: confirmation.intentId,
+    action: confirmation.action,
+    role_ids: [...confirmation.roleIds],
+    role_states: { ...confirmation.roleStates },
+    source,
+    confirmed_at: new Date(confirmation.issuedAt).toISOString(),
+    consumed_at: new Date(confirmation.consumedAt).toISOString(),
+  };
+}
+
+function assertSelectionRoleState(role, confirmation) {
+  if (confirmation.roleStates[role.id] !== role.status) {
+    const err = new Error(`candidate selection is stale because ${role.id} changed state`);
+    err.httpCode = 409;
+    throw err;
+  }
+}
+
+function consumeSelectionConfirmation({ action, ids, nonce, intentId, roles }) {
+  const confirmation = selectionConfirmations.consume({
+    action,
+    roleIds: ids,
+    roleStates: selectionRoleStates(roles),
+    nonce,
+    intentId,
+  });
+  if (!confirmation.accepted) {
+    const err = new Error(confirmation.reason);
+    err.httpCode = 403;
+    throw err;
+  }
+  return confirmation;
+}
+
+function apiSelectionConfirmation(req, res) {
+  readBody(req, res, (body) => {
+    const parsed = safeJson(body) || {};
+    const action = String(parsed.action ?? '').trim();
+    const ids = [...new Set((Array.isArray(parsed.ids) ? parsed.ids : []).map(String))];
+    if (parsed.confirmation !== SELECTION_CONFIRMATION_PHRASE) {
+      return respond(res, 400, { error: 'explicit candidate role-selection confirmation is required' });
+    }
+    if (!SELECTION_ACTIONS.has(action)) {
+      return respond(res, 400, { error: 'selection action must be run | fill | stage-prepare' });
+    }
+    if (ids.length === 0 || ids.length > MAX_ACTIVE_APPLICATION_REQUESTS) {
+      return respond(res, 400, {
+        error: `selection must contain 1–${MAX_ACTIVE_APPLICATION_REQUESTS} unique role IDs`,
+      });
+    }
+    if (action !== 'run' && ids.length !== 1) {
+      return respond(res, 400, { error: `${action} selection must contain exactly one role ID` });
     }
 
     let queue;
@@ -323,126 +623,201 @@ function apiRun(req, res) {
     } catch (err) {
       return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
     }
-    const profile = loadProfile();
-    const concurrency = profile.automation?.fill_concurrency ?? 1;
-
-    const roles = ids
-      .map((id) => queue.roles.find((r) => r.id === id))
-      .filter(Boolean);
-
-    if (roles.length === 0) {
-      return respond(res, 404, { error: 'none of the requested role IDs found' });
+    const roles = exactQueueRoles(queue, ids);
+    if (!roles) return respond(res, 404, { error: 'one or more selected role IDs were not found' });
+    if (action === 'stage-prepare' && stageDragTarget(roles[0], 'todo') !== 'prepare-queued') {
+      return respond(res, 409, { error: 'role is not eligible for a candidate-confirmed PREPARE drag' });
     }
 
-    // Partition the run into execution lanes: deterministic (headless parallel) vs
-    // login-gated (serial headed) vs agent-path (notice only) vs not-prepared
-    // (asset gate — same FILLABLE_STATUSES rule as the single-card Fill endpoint,
-    // so bulk runs can't launch form-fill with stale/missing assets either).
-    // deep-eval-marked roles always go to the agent path so a full oferta runs
-    // before any fill (the headless server has no LLM) — see modes/apply.md →
-    // "Deep-eval marker". The pure logic lives in run-partition.mjs so it can be
-    // unit-tested without starting the server.
-    const { deterministic, loginGated, headedReopen, agentPath, notPrepared } = partitionRunRoles(roles);
+    const issued = selectionConfirmations.issue({
+      roleIds: ids,
+      action,
+      roleStates: selectionRoleStates(roles),
+    });
+    return respond(res, 200, {
+      selection_confirmation_nonce: issued.nonce,
+      selection_intent_id: issued.intentId,
+      role_ids: issued.roleIds,
+      action,
+      expires_in_seconds: 300,
+    });
+  });
+}
 
-    const runId = `run-${Date.now()}`;
+function apiRun(req, res) {
+  readBody(req, res, (body) => {
+    const {
+      ids,
+      selection_confirmation_nonce: selectionNonce,
+      selection_intent_id: selectionIntentId,
+    } = safeJson(body) || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return respond(res, 400, { error: 'ids must be a non-empty array' });
+    }
+    const uniqueIds = [...new Set(ids.map(String))];
+    if (uniqueIds.length > MAX_ACTIVE_APPLICATION_REQUESTS) {
+      return respond(res, 400, {
+        error: `a browser-controller run is limited to ${MAX_ACTIVE_APPLICATION_REQUESTS} roles`,
+      });
+    }
 
-    // Respond immediately — fill runs asynchronously
+    let queue;
+    try {
+      queue = loadQueue();
+    } catch (err) {
+      return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
+    }
+    const roles = exactQueueRoles(queue, uniqueIds);
+
+    if (!roles) {
+      return respond(res, 404, { error: 'one or more requested role IDs were not found' });
+    }
+
+    let selectionConfirmation;
+    try {
+      selectionConfirmation = consumeSelectionConfirmation({
+        action: 'run',
+        ids: uniqueIds,
+        nonce: selectionNonce,
+        intentId: selectionIntentId,
+        roles,
+      });
+    } catch (err) {
+      return respond(res, err.httpCode ?? 403, { error: err.message });
+    }
+
+    const profile = loadProfile();
+    const quality = applicationQualityConfig(profile);
+    const selectedIds = new Set(roles.map((role) => role.id));
+
+    const runId = `run-${selectionConfirmation.intentId}`;
+
+    let dispatch;
+    try {
+      dispatch = mutateQueue((freshQueue) => {
+        const requested = [];
+        const selectedForPrepare = [];
+        const reviewReady = [];
+        const repairRequired = [];
+        const notPrepared = [];
+        const qualityBlocked = [];
+        let selectionOverridesRecorded = 0;
+        for (const role of freshQueue.roles) {
+          if (!selectedIds.has(role.id)) continue;
+          assertSelectionRoleState(role, selectionConfirmation);
+          recordCandidateSelectionConfirmation(role, selectionConfirmation, 'dashboard-run');
+          if (recordCandidateSelectionOverride(
+            role,
+            quality.minimumApplyScore,
+            'dashboard-run',
+          )) selectionOverridesRecorded++;
+          if (role.status === 'filled') {
+            const receiptErrors = applicationReviewErrors(role);
+            if (receiptErrors.length === 0) reviewReady.push(structuredClone(role));
+            else repairRequired.push({ role: structuredClone(role), receiptErrors });
+            continue;
+          }
+          // Dashboard checkbox selection is the durable PREPARE selection.
+          // It never creates a consumable live-application request until fresh
+          // role-specific assets and provenance have passed PREPARE.
+          if (role.status === 'scored') {
+            setStatus(freshQueue, role.id, 'prepare-queued');
+            selectedForPrepare.push(structuredClone(role));
+            continue;
+          }
+          if (role.status === 'prepare-queued') {
+            selectedForPrepare.push(structuredClone(role));
+            continue;
+          }
+          if (!FILLABLE_STATUSES.has(role.status)) {
+            notPrepared.push(structuredClone(role));
+            continue;
+          }
+          const qualityIssues = validateApplicationRole(role, {
+            root: ROOT,
+            profile,
+            quality,
+            requireAssets: true,
+          }).filter((item) => item.level === 'error');
+          if (qualityIssues.length) {
+            qualityBlocked.push({ role: structuredClone(role), qualityIssues });
+            continue;
+          }
+          const queued = enqueueActiveAgentRequest(freshQueue, role, runId, 'dashboard-run');
+          requested.push({
+            role: structuredClone(role),
+            request: queued.request,
+            reused: queued.reused,
+          });
+        }
+        return {
+          requested,
+          selectedForPrepare,
+          reviewReady,
+          repairRequired,
+          notPrepared,
+          qualityBlocked,
+          selectionOverridesRecorded,
+        };
+      });
+    } catch (err) {
+      return respond(res, err.httpCode ?? 503, {
+        error: err.httpCode ? err.message : `could not queue active-agent application work: ${err.message}`,
+      });
+    }
+
+    for (const { role, request, reused } of dispatch.requested) {
+      emitActivity(runId, role.id, 'agent-path', role, {
+        requestId: request.request_id,
+        message: reused
+          ? `Existing active-agent request preserved for ${role.url}; no live tab or run was overwritten.`
+          : isDeepEval(role)
+          ? `Canonical active-agent work queued for ${role.url}; complete oferta first when required, then every L3/teach/verify page receipt.`
+          : `Canonical active-agent work queued for ${role.url}; the active agent owns the tab and every L3/teach/verify page receipt.`,
+      });
+    }
+    for (const role of dispatch.selectedForPrepare) {
+      emitActivity(runId, role.id, 'agent-path', role, {
+        message: `Selected for PREPARE — generate and verify the current role's tailored CV and cover before any live form request.`,
+      });
+    }
+    for (const role of dispatch.reviewReady) {
+      emitActivity(runId, role.id, 'success', role, {
+        message: 'Durable application receipt is already review-ready; no browser work was launched.',
+      });
+    }
+    for (const { role, receiptErrors } of dispatch.repairRequired) {
+      emitActivity(runId, role.id, 'failure', role, {
+        message: `Filled receipt is invalid and was not overwritten. Run application-receipt.mjs --repair-filled ${role.id}, then restart the role.`,
+        receiptErrors,
+      });
+    }
+    for (const role of dispatch.notPrepared) {
+      emitActivity(runId, role.id, 'failure', role, {
+        message: `Role is '${role.status}' and cannot enter PREPARE/live filling from this state. Score or repair it first.`,
+      });
+    }
+    for (const { role, qualityIssues } of dispatch.qualityBlocked) {
+      emitActivity(runId, role.id, 'failure', role, {
+        message: `Prepared assets failed the executable quality gate: ${qualityIssues.map((item) => item.code).join(', ')}`,
+        issues: qualityIssues,
+      });
+    }
+
     respond(res, 200, {
       runId,
-      total:        roles.length,
-      deterministic: deterministic.length,
-      loginGated:   loginGated.length,
-      headedReopen: headedReopen.length,
-      agentPath:    agentPath.length,
-      notPrepared:  notPrepared.length,
-      concurrency,
+      controller: 'active-agent',
+      controllerId: dispatch.requested[0]?.request?.controller_id ?? null,
+      total: roles.length,
+      agentPath: dispatch.requested.length,
+      prepareQueued: dispatch.selectedForPrepare.length,
+      reviewReady: dispatch.reviewReady.length,
+      repairRequired: dispatch.repairRequired.length,
+      notPrepared: dispatch.notPrepared.length,
+      qualityBlocked: dispatch.qualityBlocked.length,
+      selectionOverridesRecorded: dispatch.selectionOverridesRecorded,
+      requestIds: dispatch.requested.map((item) => item.request.request_id),
     });
-
-    // ── Not-prepared roles — asset gate, notice only (never filled) ───────────
-    for (const role of notPrepared) {
-      emitActivity(runId, role.id, 'failure', role, {
-        message: `Skipped — role is '${role.status}': run /career-ops queue prepare to generate fresh assets before filling`,
-      });
-    }
-
-    // ── Agent-path roles — emit notice only (user must run /career-ops apply) ──
-    for (const role of agentPath) {
-      emitActivity(runId, role.id, 'agent-path', role, {
-        message: isDeepEval(role)
-          ? `Marked deep-eval — run: /career-ops apply and open ${role.url} (a full oferta runs first if no current report exists)`
-          : `Custom ATS — run: /career-ops apply and open ${role.url}`,
-      });
-    }
-
-    // ── Deterministic fills — bounded parallel, headless ─────────────────────
-    if (deterministic.length > 0) {
-      const queue2 = [...deterministic];
-      const inFlight = new Set();
-
-      const runNext = async () => {
-        if (queue2.length === 0) return;
-        const role = queue2.shift();
-        inFlight.add(role.id);
-        emitActivity(runId, role.id, 'started', role);
-        await spawnFillAndWait(role.id, true, role, runId);
-        inFlight.delete(role.id);
-        await runNext();
-      };
-
-      const workers = Array.from(
-        { length: Math.min(concurrency, deterministic.length) },
-        () => runNext()
-      );
-      // Fire-and-forget — don't await (already responded)
-      Promise.all(workers).catch(() => {});
-    }
-
-    // ── Headed fills (login-gated + re-opens) — serial, poll-based ───────────
-    // Headed fills are designed to stay open (block) for user review, so we
-    // cannot await process exit.  Instead: spawn detached, then poll the queue
-    // until the role's status advances to 'filled' (or a DONE status), then
-    // launch the next one.  The per-role timeout matches login_timeout_min.
-    // Re-opens of prefilled/filled roles run here too — a headless pass would
-    // rewrite a headed-reviewed 'filled' role back to 'prefilled'.
-    const loginTimeoutMs = (loadProfile().automation?.login_timeout_min ?? 10) * 60 * 1000
-      + 5 * 60 * 1000; // add 5 min buffer for fill time after login
-
-    const waitForFilled = async (roleId) => {
-      const deadline = Date.now() + loginTimeoutMs;
-      while (Date.now() < deadline) {
-        const q = loadQueue();
-        const r = q.roles.find((x) => x.id === roleId);
-        if (r && (r.status === 'filled' || DONE_STATUSES.has(r.status))) return true;
-        await new Promise((res) => setTimeout(res, 5_000));
-      }
-      return false;
-    };
-
-    const runSerial = async () => {
-      for (const role of loginGated) {
-        emitActivity(runId, role.id, 'login-wall', role, {
-          message: 'Login required — headed browser opening (serial). Authenticate, then continue.',
-        });
-        spawnFillDetached(role.id, false); // headed, stays open for user review
-        const ok = await waitForFilled(role.id);
-        const freshRole = loadQueue().roles.find((r) => r.id === role.id) ?? role;
-        emitActivity(runId, role.id, ok ? 'success' : 'failure', freshRole, {
-          detail: ok ? 'status reached filled' : 'timeout waiting for login',
-        });
-      }
-      for (const role of headedReopen) {
-        emitActivity(runId, role.id, 'started', role, {
-          message: 'Re-opening headed for review — browser stays open; review, then submit manually.',
-        });
-        spawnFillDetached(role.id, false); // headed, stays open for user review
-        const ok = await waitForFilled(role.id);
-        const freshRole = loadQueue().roles.find((r) => r.id === role.id) ?? role;
-        emitActivity(runId, role.id, ok ? 'success' : 'failure', freshRole, {
-          detail: ok ? 'status reached filled' : 'timeout waiting for headed review',
-        });
-      }
-    };
-    runSerial().catch(() => {});
   });
 }
 
@@ -461,6 +836,17 @@ function provenanceSummary(drafts = {}) {
     : null;
 }
 
+function applicationReviewErrors(role) {
+  // `submissionReadinessErrors` accepts both the normal review-ready `filled`
+  // report and an already-promoted `submitted` report left by a retryable queue
+  // backend failure. Either state must suppress a second browser fill.
+  const errors = submissionReadinessErrors(role);
+  if (role?.status !== 'filled') {
+    errors.unshift(`role status is '${role?.status ?? 'missing'}', not receipt-gated 'filled'`);
+  }
+  return errors;
+}
+
 // ── API handlers ─────────────────────────────────────────────────────────────
 
 // Reconciliation-persist backoff: a GET must not become a per-poll write storm
@@ -476,8 +862,17 @@ function apiGetQueue(res) {
   } catch (err) {
     return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
   }
-  const trackerReconciled = reconcileQueueWithTracker(queue);
+  let trackerReconciled = [];
   let trackerReconcileWarning = null;
+  try {
+    trackerReconciled = reconcileQueueWithTracker(queue);
+  } catch (err) {
+    // Tracker reconciliation is a convenience projection for the dashboard.
+    // A malformed or temporarily unreadable tracker must not take the queue API
+    // down or mutate the already-loaded queue.
+    trackerReconcileWarning = `tracker reconciliation could not be evaluated: ${err.message}`;
+    console.warn(`WARN: ${trackerReconcileWarning}`);
+  }
   if (trackerReconciled.length > 0) {
     // The reconciled statuses are already applied in memory (and rendered
     // below) either way; the save only persists them. Under a persistent
@@ -487,7 +882,10 @@ function apiGetQueue(res) {
       trackerReconcileWarning = 'tracker reconciliation persist backing off after a recent failure';
     } else {
       try {
-        saveQueue(queue);
+        queue = mutateQueue((freshQueue) => {
+          reconcileQueueWithTracker(freshQueue);
+          return structuredClone(freshQueue);
+        });
         reconcileSaveFailedAt = 0;
       } catch (err) {
         reconcileSaveFailedAt = Date.now();
@@ -500,12 +898,17 @@ function apiGetQueue(res) {
 
   const enriched = queue.roles
     .filter(r => ACTIVE_STATUSES.has(r.status))
-    .map(r => ({
-      ...r,
-      lane:               computeLane(r),
-      stage:              computeStage(r),
-      provenance_summary: provenanceSummary(r.drafts),
-    }));
+    .map((r) => {
+      const receiptErrors = applicationReviewErrors(r);
+      return {
+        ...r,
+        lane:               computeLane(r),
+        stage:              computeStage(r),
+        provenance_summary: provenanceSummary(r.drafts),
+        submission_ready:   r.status === 'filled' && receiptErrors.length === 0,
+        receipt_errors:     receiptErrors,
+      };
+    });
 
   // Done column: sourced from the tracker (applications.md), not the queue store —
   // done roles are evicted from active_roles into seen_urls on save, so the tracker
@@ -523,64 +926,51 @@ function apiGetQueue(res) {
   if (trackerReconciled.length > 0) settings.tracker_reconciled = trackerReconciled.length;
   if (trackerReconcileWarning) settings.tracker_reconcile_warning = trackerReconcileWarning;
 
-  respond(res, 200, { settings, stats, roles: enriched, done });
+  respond(res, 200, {
+    csrf_token: DASHBOARD_CSRF_TOKEN,
+    settings,
+    stats,
+    roles: enriched,
+    done,
+  });
 }
 
 function apiSetThreshold(req, res) {
-  readBody(req, (body) => {
+  readBody(req, res, (body) => {
     const { value } = safeJson(body) || {};
     const threshold = parseFloat(value);
     if (isNaN(threshold) || threshold < 0 || threshold > 5) {
       return respond(res, 400, { error: 'threshold must be 0–5' });
     }
 
-    const queue = loadQueue();
-    const quality = applicationQualityConfig(loadProfile());
-    queue.settings.score_threshold = threshold;
-
-    // Flip all ready-lane scored roles at or above the threshold to prepare-queued
-    let flipped = 0;
-    for (const role of queue.roles) {
-      if (role.status !== 'scored') continue;
-      if (computeLane(role) !== 'ready') continue;
-      if (role.score != null && role.score >= threshold) {
-        role.status = 'prepare-queued';
-        recordCandidateSelectionOverride(role, quality.minimumApplyScore, 'dashboard-threshold');
-        flipped++;
-      }
-    }
-
     try {
-      saveQueue(queue);
+      mutateQueue((queue) => {
+        queue.settings.score_threshold = threshold;
+      });
     } catch (err) {
       return respond(res, 503, { error: `queue store write failed: ${err.message}` });
     }
-    respond(res, 200, { threshold, flipped });
+    // The threshold is a dashboard selection/filter preference only. Candidate
+    // selection remains an explicit checkbox/drag action and this endpoint must
+    // never promote, queue, or otherwise mutate an individual role.
+    respond(res, 200, { threshold, selection_unchanged: true });
   });
 }
 
 // Global one-shot default: when settings.auto_fill_all is true, PREPARE chains
-// straight into the fill for EVERY role it prepares (see modes/queue.md →
+// straight into the fill for every explicitly selected role it prepares (see modes/queue.md →
 // "One-shot auto-fill"), without needing the per-role auto-fill flag. Stored in
-// queue settings so the prepare agent reads it from the same store. Marker only —
-// flipping it never launches anything from the server.
+// queue settings so the prepare agent reads it from the same store. It never selects
+// a role; flipping it never launches anything from the server.
 function apiSetAutoFillAll(req, res) {
-  readBody(req, (body) => {
+  readBody(req, res, (body) => {
     const { value } = safeJson(body) || {};
     if (typeof value !== 'boolean') {
       return respond(res, 400, { error: 'value must be a boolean' });
     }
 
-    let queue;
     try {
-      queue = loadQueue();
-    } catch (err) {
-      return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
-    }
-    queue.settings.auto_fill_all = value;
-
-    try {
-      saveQueue(queue);
+      mutateQueue((queue) => { queue.settings.auto_fill_all = value; });
     } catch (err) {
       return respond(res, 503, { error: `queue store write failed: ${err.message}` });
     }
@@ -589,147 +979,410 @@ function apiSetAutoFillAll(req, res) {
 }
 
 function apiRoleFill(req, res, id) {
-  let queue;
+  readBody(req, res, (body) => {
+  const parsed = safeJson(body) || {};
+  let initialQueue;
   try {
-    queue = loadQueue();
+    initialQueue = loadQueue();
   } catch (err) {
     return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
   }
-  const role = queue.roles.find(r => r.id === id);
-  if (!role) return respond(res, 404, { error: 'role not found' });
+  const initialRole = initialQueue.roles.find((item) => item.id === id);
+  if (!initialRole) return respond(res, 404, { error: 'role not found' });
 
-  const ats = role.ats;
+  let selectionConfirmation;
+  try {
+    selectionConfirmation = consumeSelectionConfirmation({
+      action: 'fill',
+      ids: [id],
+      nonce: parsed.selection_confirmation_nonce,
+      intentId: parsed.selection_intent_id,
+      roles: [initialRole],
+    });
+  } catch (err) {
+    return respond(res, err.httpCode ?? 403, { error: err.message });
+  }
 
-  // Deep-eval marker: route to the agent path so a full oferta runs before any fill
-  // (see modes/apply.md → "Deep-eval marker"). A headless fill here would bypass the
-  // oferta-first guarantee, so a marked role is never deterministically filled.
-  if (isDeepEval(role)) {
-    return respond(res, 200, {
-      method: 'agent',
-      message: `This role is marked deep-eval. Run: /career-ops apply\nA full oferta runs first if no current report exists, then it fills.\nThen open: ${role.url}`,
+  const runId = `fill-${selectionConfirmation.intentId}`;
+  const profile = loadProfile();
+  const quality = applicationQualityConfig(profile);
+  let dispatch;
+  try {
+    dispatch = mutateQueue((freshQueue) => {
+      const freshRole = freshQueue.roles.find((item) => item.id === id);
+      if (!freshRole) {
+        const err = new Error('role not found');
+        err.httpCode = 404;
+        throw err;
+      }
+      assertSelectionRoleState(freshRole, selectionConfirmation);
+      recordCandidateSelectionConfirmation(freshRole, selectionConfirmation, 'dashboard-fill');
+      const overrideRecorded = recordCandidateSelectionOverride(
+        freshRole,
+        quality.minimumApplyScore,
+        'dashboard-fill',
+      );
+      // `filled` is not a resumable begin state. Persist the explicit selection
+      // override, then preserve a valid receipt or direct corrupt legacy state
+      // through the one repair command instead of silently demoting it.
+      if (freshRole.status === 'filled') {
+        const freshReceiptErrors = applicationReviewErrors(freshRole);
+        if (freshReceiptErrors.length === 0) {
+          return {
+            reviewReady: true,
+            role: structuredClone(freshRole),
+            overrideRecorded,
+          };
+        }
+        return {
+          repairRequired: true,
+          role: structuredClone(freshRole),
+          receiptErrors: freshReceiptErrors,
+          overrideRecorded,
+        };
+      }
+
+      if (freshRole.status === 'scored') {
+        setStatus(freshQueue, freshRole.id, 'prepare-queued');
+        return {
+          preparationQueued: true,
+          role: structuredClone(freshRole),
+          overrideRecorded,
+        };
+      }
+
+      // ATS type and deep-eval flags never bypass PREPARE. A selected scored
+      // role becomes prepare-queued; only prepared/prefilled roles can receive
+      // a consumable active-agent application request.
+      if (!FILLABLE_STATUSES.has(freshRole.status)) {
+        return {
+          notPrepared: true,
+          role: structuredClone(freshRole),
+          overrideRecorded,
+        };
+      }
+
+      const qualityIssues = validateApplicationRole(freshRole, {
+        root: ROOT,
+        profile,
+        quality,
+        requireAssets: true,
+      }).filter((item) => item.level === 'error');
+      if (qualityIssues.length > 0) {
+        return {
+          qualityIssues,
+          role: structuredClone(freshRole),
+          overrideRecorded,
+        };
+      }
+      const queued = enqueueActiveAgentRequest(freshQueue, freshRole, runId, 'dashboard-fill');
+      return {
+        reviewReady: false,
+        role: structuredClone(freshRole),
+        request: queued.request,
+        reused: queued.reused,
+        overrideRecorded,
+      };
+    });
+  } catch (err) {
+    return respond(res, err.httpCode ?? 503, {
+      error: err.httpCode ? err.message : `could not queue active-agent application work: ${err.message}`,
+      receipt_errors: err.receiptErrors,
     });
   }
 
-  // Agent-driven path for custom/Workday forms
-  if (ats === 'custom') {
-    return respond(res, 200, {
-      method: 'agent',
-      message: `This role uses a custom ATS. Run: /career-ops apply\nThen open: ${role.url}`,
-    });
-  }
-
-  // Asset gate (modes/_custom.md): a deterministic fill attaches role.cv_pdf,
-  // so it only makes sense after PREPARE has produced fresh assets. This blocks
-  // filling an unprepared role, and a role sent back for redo from re-attaching
-  // its stale CV. (The agent-path branches above are guidance-only, so they
-  // stay reachable from any status; bulk /api/run keeps its own semantics.)
-  if (!FILLABLE_STATUSES.has(role.status)) {
+  if (dispatch.repairRequired) {
     return respond(res, 409, {
-      error: `role is '${role.status}' — run /career-ops queue prepare to generate fresh assets before filling`,
+      error: `filled receipt is invalid and cannot be resumed; run application-receipt.mjs --repair-filled ${dispatch.role.id} before filling again`,
+      receipt_errors: dispatch.receiptErrors,
+      repair_required: true,
+      selection_override_recorded: dispatch.overrideRecorded,
     });
   }
 
-  const qualityIssues = validateApplicationRole(role, {
-    root: ROOT,
-    profile: loadProfile(),
-    requireAssets: true,
-  }).filter((item) => item.level === 'error');
-  if (qualityIssues.length) {
+  if (dispatch.notPrepared) {
     return respond(res, 409, {
-      error: `application quality gate failed: ${qualityIssues.map((item) => `${item.code}: ${item.message}`).join(' | ')}`,
-      issues: qualityIssues,
+      error: `role is '${dispatch.role.status}' — run /career-ops queue prepare to generate fresh assets before filling`,
+      selection_override_recorded: dispatch.overrideRecorded,
     });
   }
 
-  // Deterministic fill via form-fill.mjs for GH/Lever/Ashby
-  const child = spawn(
-    process.execPath,
-    ['form-fill.mjs', id],
-    {
-      cwd:      ROOT,
-      detached: true,
-      stdio:    ['ignore', 'ignore', 'ignore'],
-    }
-  );
-  child.unref();
+  if (dispatch.preparationQueued) {
+    emitActivity(runId, id, 'agent-path', dispatch.role, {
+      message: `Selected for PREPARE — generate and verify the current role's tailored CV and cover before live filling.`,
+    });
+    return respond(res, 202, {
+      method: 'prepare-queued',
+      status: dispatch.role.status,
+      message: `${dispatch.role.company} – ${dispatch.role.title} is selected for PREPARE. No live form request was created.`,
+      selection_override_recorded: dispatch.overrideRecorded,
+    });
+  }
+
+  if (dispatch.qualityIssues?.length) {
+    return respond(res, 409, {
+      error: `application quality gate failed: ${dispatch.qualityIssues.map((item) => `${item.code}: ${item.message}`).join(' | ')}`,
+      issues: dispatch.qualityIssues,
+      selection_override_recorded: dispatch.overrideRecorded,
+    });
+  }
+
+  if (dispatch.reviewReady) {
+    return respond(res, 200, {
+      method: 'review-ready',
+      message: `Durable application receipt verified for ${dispatch.role.company} – ${dispatch.role.title}. No browser work was launched.`,
+      receipt_errors: [],
+      selection_override_recorded: dispatch.overrideRecorded,
+    });
+  }
+
+  const { request } = dispatch;
+  const role = dispatch.role;
+  const agentSpecial = role.ats === 'custom' || isDeepEval(role);
+
+  emitActivity(request.run_id, id, 'agent-path', role, {
+    requestId: request.request_id,
+    message: agentSpecial && isDeepEval(role)
+      ? `Canonical active-agent work queued; complete oferta first when required, then own the live tab through every receipt page. Open: ${role.url}`
+      : `Canonical active-agent work queued; the active agent owns the live tab through every L3/teach/verify receipt page. Open: ${role.url}`,
+  });
 
   respond(res, 200, {
-    method:  'form-fill',
-    message: `Playwright fill launched for ${role.company} – ${role.title}. The browser will open shortly.`,
+    method: 'agent',
+    runId: request.run_id,
+    requestId: request.request_id,
+    controller: 'active-agent',
+    controllerId: request.controller_id,
+    reused: dispatch.reused,
+    selectionOverrideRecorded: dispatch.overrideRecorded,
+    message: dispatch.reused
+      ? `Existing active-agent application request preserved for ${role.company} – ${role.title}; no live run or tab was overwritten.`
+      : `Canonical active-agent application work queued for ${role.company} – ${role.title}. No private browser was launched.`,
+  });
+  });
+}
+
+const SUBMISSION_CONFIRMATION_PHRASE = 'I submitted this application in the portal';
+
+function apiSubmissionConfirmation(req, res, id) {
+  readBody(req, res, (body) => {
+    const parsed = safeJson(body) || {};
+    if (parsed.confirmation !== SUBMISSION_CONFIRMATION_PHRASE) {
+      return respond(res, 400, { error: 'explicit portal-submission confirmation is required' });
+    }
+    let role;
+    try {
+      role = loadQueue().roles.find((item) => item.id === id);
+    } catch (err) {
+      return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
+    }
+    if (!role) return respond(res, 404, { error: 'role not found' });
+    const errors = applicationReviewErrors(role);
+    if (errors.length) {
+      return respond(res, 409, {
+        error: 'a valid receipt-bound filled application is required before submission can be confirmed',
+        receipt_errors: errors,
+      });
+    }
+    return respond(res, 200, {
+      confirmation_nonce: submissionConfirmations.issue(id),
+      expires_in_seconds: 300,
+    });
   });
 }
 
 function apiRoleDecision(req, res, id) {
-  readBody(req, (body) => {
-    const { decision } = safeJson(body) || {};
+  readBody(req, res, (body) => {
+    const { decision, confirmation_nonce: confirmationNonce } = safeJson(body) || {};
     if (!['submitted', 'skipped', 'reviewed'].includes(decision)) {
       return respond(res, 400, { error: 'decision must be submitted | skipped | reviewed' });
     }
 
-    const queue = loadQueue();
-    const role = queue.roles.find(r => r.id === id);
-    if (!role) return respond(res, 404, { error: 'role not found' });
-    if (decision === 'submitted' && role.status === 'prefilled') {
-      return respond(res, 409, {
-        error: 'prefilled roles must be reopened with headed Fill Form before marking submitted',
+    if (decision === 'submitted') {
+      const confirmation = submissionConfirmations.consume(id, confirmationNonce);
+      if (!confirmation.accepted) {
+        return respond(res, 403, { error: confirmation.reason });
+      }
+    }
+
+    let started;
+    try {
+      // Persist the intent first. Every later side effect is idempotent and the
+      // transaction remains resumable if tracker/cloud/local I/O fails midway.
+      started = mutateQueue((queue) => beginCandidateDecision(queue, id, decision));
+    } catch (err) {
+      if (err.httpCode) {
+        return respond(res, err.httpCode, { error: err.message, receipt_errors: err.receiptErrors });
+      }
+      return respond(res, 503, { error: `candidate decision persistence failed: ${err.message}` });
+    }
+
+    if (started.alreadyCommitted) {
+      return respond(res, 200, {
+        id,
+        decision,
+        status: decision,
+        transaction_id: started.transaction.transaction_id,
+        receipt_id: decision === 'submitted' ? started.role.application_progress?.receipt_id : undefined,
+        idempotent: true,
       });
     }
 
-    setStatus(queue, id, decision);
+    const transactionId = started.transaction.transaction_id;
+    let workingRole = started.role;
+    let report = null;
+    let tracker = null;
     try {
-      saveQueue(queue);
+      if (decision === 'submitted') {
+        // Candidate confirmation is the authority for the report transition.
+        // If the following queue write fails, the durable pending transaction
+        // makes the already-submitted report safely resumable on the next call.
+        report = promoteOrReconcileSubmittedReport(workingRole, started.transaction);
+        workingRole = mutateQueue((queue) => {
+          const role = queue.roles.find((item) => item.id === id);
+          if (!role) throw new Error('role disappeared while promoting its submission report');
+          const transaction = assertDecisionTransaction(role, transactionId, decision);
+          const syncedReport = promoteOrReconcileSubmittedReport(role, transaction);
+          transaction.state = 'report-promoted';
+          transaction.report_path = syncedReport.path;
+          transaction.updated_at = new Date().toISOString();
+          return structuredClone(role);
+        });
+      }
+
+      tracker = writeTrackerTsv(workingRole, decision, {
+        receiptId: decision === 'submitted' ? workingRole.application_progress?.receipt_id : null,
+      });
+
+      const result = mutateQueue((queue) => {
+        const role = queue.roles.find((item) => item.id === id);
+        if (!role) throw new Error('role disappeared before its candidate decision could commit');
+        const transaction = assertDecisionTransaction(role, transactionId, decision);
+        if (decision === 'submitted') {
+          promoteOrReconcileSubmittedReport(role, transaction);
+        }
+        transaction.state = 'tracker-written';
+        transaction.tracker = tracker;
+        transaction.updated_at = new Date().toISOString();
+        setStatus(queue, id, decision);
+        transaction.state = 'committed';
+        transaction.completed_at = new Date().toISOString();
+        transaction.updated_at = transaction.completed_at;
+        return { role: structuredClone(role), transaction: structuredClone(transaction) };
+      });
+
+      return respond(res, 200, {
+        id,
+        decision,
+        status: decision,
+        tracker,
+        report,
+        transaction_id: result.transaction.transaction_id,
+        receipt_id: decision === 'submitted' ? result.role.application_progress?.receipt_id : undefined,
+      });
     } catch (err) {
-      return respond(res, 503, { error: `queue store write failed: ${err.message}` });
+      return respond(res, 503, {
+        error: `candidate decision transaction is pending and safe to retry: ${err.message}`,
+        transaction_id: transactionId,
+        retry_same_decision: true,
+      });
     }
 
-    // Write tracker TSV + merge into applications.md
-    try {
-      writeTrackerTsv(role, decision);
-    } catch (err) {
-      console.warn('WARN: tracker write-back failed:', err.message);
-    }
-
-    respond(res, 200, { id, decision, status: decision });
   });
 }
 
 // ── Kanban board — drag-to-move ───────────────────────────────────────────────
 //
 // Handles ONLY the drags that are a legal bare status flip: Inbox↔To Do
-// (select/deselect) and Prepared/In Review → To Do (send back for redo).
+// (select/deselect), Prepared → To Do, and legacy Prefilled → To Do.
+// Receipt-gated Filled is immutable here: valid evidence stays review-ready,
+// while corrupt historical evidence must pass the explicit repair command.
 // Forward moves into Prepared/In Review/Done are never accepted here — the web
 // UI routes those drops to the existing /fill and /decision endpoints instead,
 // so a card can never claim to be further along than it actually is.
 
 function apiRoleStage(req, res, id) {
-  readBody(req, (body) => {
-    const { stage } = safeJson(body) || {};
+  readBody(req, res, (body) => {
+    const {
+      stage,
+      selection_confirmation_nonce: selectionNonce,
+      selection_intent_id: selectionIntentId,
+    } = safeJson(body) || {};
     if (!DRAG_TARGET_STAGES.includes(stage)) {
       return respond(res, 400, { error: `stage must be ${DRAG_TARGET_STAGES.join(' | ')}` });
     }
 
-    let queue;
-    try {
-      queue = loadQueue();
-    } catch (err) {
-      return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
+    let selectionConfirmation = null;
+    if (stage === 'todo') {
+      let queue;
+      try {
+        queue = loadQueue();
+      } catch (err) {
+        return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
+      }
+      const role = queue.roles.find((item) => item.id === id);
+      if (!role) return respond(res, 404, { error: 'role not found' });
+      if (stageDragTarget(role, stage) === 'prepare-queued') {
+        try {
+          selectionConfirmation = consumeSelectionConfirmation({
+            action: 'stage-prepare',
+            ids: [id],
+            nonce: selectionNonce,
+            intentId: selectionIntentId,
+            roles: [role],
+          });
+        } catch (err) {
+          return respond(res, err.httpCode ?? 403, { error: err.message });
+        }
+      }
     }
-    const role = queue.roles.find(r => r.id === id);
-    if (!role) return respond(res, 404, { error: 'role not found' });
 
-    const nextStatus = stageDragTarget(role, stage);
-    if (!nextStatus) {
-      return respond(res, 409, { error: `cannot move this role to ${stage} — not a valid drag transition` });
-    }
-
-    if (nextStatus === 'prepare-queued') {
-      const quality = applicationQualityConfig(loadProfile());
-      recordCandidateSelectionOverride(role, quality.minimumApplyScore, 'dashboard-drag');
-    }
-    setStatus(queue, id, nextStatus);
+    let nextStatus;
     try {
-      saveQueue(queue);
+      nextStatus = mutateQueue((queue) => {
+        const role = queue.roles.find((item) => item.id === id);
+        if (!role) {
+          const err = new Error('role not found');
+          err.httpCode = 404;
+          throw err;
+        }
+        if (role.status === 'filled' && stage === 'todo') {
+          const receiptErrors = applicationReviewErrors(role);
+          const err = new Error(receiptErrors.length === 0
+            ? 'receipt-gated filled roles remain review-ready and cannot be dragged backward'
+            : `filled receipt is invalid; run application-receipt.mjs --repair-filled ${role.id} before restarting it`);
+          err.httpCode = 409;
+          err.receiptErrors = receiptErrors;
+          throw err;
+        }
+        const target = stageDragTarget(role, stage);
+        if (!target) {
+          const err = new Error(`cannot move this role to ${stage} — not a valid drag transition`);
+          err.httpCode = 409;
+          throw err;
+        }
+        if (target === 'prepare-queued') {
+          if (!selectionConfirmation) {
+            const err = new Error('candidate selection confirmation is required before PREPARE');
+            err.httpCode = 403;
+            throw err;
+          }
+          assertSelectionRoleState(role, selectionConfirmation);
+          recordCandidateSelectionConfirmation(role, selectionConfirmation, 'dashboard-drag');
+          const quality = applicationQualityConfig(loadProfile());
+          recordCandidateSelectionOverride(role, quality.minimumApplyScore, 'dashboard-drag');
+        }
+        setStatus(queue, id, target);
+        return target;
+      });
     } catch (err) {
+      if (err.httpCode) {
+        return respond(res, err.httpCode, {
+          error: err.message,
+          receipt_errors: err.receiptErrors,
+          repair_required: Array.isArray(err.receiptErrors) && err.receiptErrors.length > 0,
+        });
+      }
       return respond(res, 503, { error: `queue store write failed: ${err.message}` });
     }
 
@@ -745,12 +1398,11 @@ function apiRoleStage(req, res, id) {
 // each marker later:
 //   - `deep-eval` (see modes/apply.md → "Deep-eval marker"): a marked role gets a
 //     full `oferta` first, then fills as normal. To keep that guarantee, the
-//     fill/run dispatch routes deep-eval-marked roles to the agent path (never
-//     headless).
-//   - `auto-fill` (see modes/queue.md → "One-shot auto-fill"): PREPARE chains
-//     straight into the fill for a marked role instead of parking at Prepared.
-//     The fill still stops before submit; the asset gate is untouched because the
-//     chain runs fill strictly AFTER prepare has produced fresh assets.
+//     fill/run dispatch routes deep-eval-marked roles to the active-agent path;
+//     the server never launches a browser.
+//   - `auto-fill` (see modes/queue.md → "One-shot auto-fill"): PREPARE queues an
+//     active-agent application request instead of parking at Prepared. The agent
+//     still stops before submit and uses the fresh PREPARE assets.
 // Unmarked roles are unaffected.
 
 const DEEP_EVAL_FLAG = 'deep-eval';
@@ -758,7 +1410,7 @@ const AUTO_FILL_FLAG = 'auto-fill';
 const TOGGLEABLE_FLAGS = new Set([DEEP_EVAL_FLAG, AUTO_FILL_FLAG]);
 
 function apiRoleFlag(req, res, id) {
-  readBody(req, (body) => {
+  readBody(req, res, (body) => {
     const parsed = safeJson(body) || {};
     const flag = parsed.flag || DEEP_EVAL_FLAG;
     // Safelist: this endpoint only manages the hand-set markers. Other flags are
@@ -767,29 +1419,28 @@ function apiRoleFlag(req, res, id) {
       return respond(res, 400, { error: `flag must be one of: ${[...TOGGLEABLE_FLAGS].join(' | ')}` });
     }
 
-    let queue;
+    let result;
     try {
-      queue = loadQueue();
+      result = mutateQueue((queue) => {
+        const role = queue.roles.find((item) => item.id === id);
+        if (!role) {
+          const err = new Error('role not found');
+          err.httpCode = 404;
+          throw err;
+        }
+        role.flags = Array.isArray(role.flags) ? role.flags : [];
+        const has = role.flags.includes(flag);
+        const next = typeof parsed.value === 'boolean' ? parsed.value : !has;
+        if (next && !has) role.flags.push(flag);
+        if (!next && has) role.flags = role.flags.filter((item) => item !== flag);
+        return { next, flags: [...role.flags] };
+      });
     } catch (err) {
-      return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
-    }
-    const role = queue.roles.find(r => r.id === id);
-    if (!role) return respond(res, 404, { error: 'role not found' });
-
-    role.flags = Array.isArray(role.flags) ? role.flags : [];
-    const has  = role.flags.includes(flag);
-    // Explicit value wins; otherwise toggle.
-    const next = typeof parsed.value === 'boolean' ? parsed.value : !has;
-    if (next && !has) role.flags.push(flag);
-    if (!next && has) role.flags = role.flags.filter(f => f !== flag);
-
-    try {
-      saveQueue(queue);
-    } catch (err) {
+      if (err.httpCode) return respond(res, err.httpCode, { error: err.message });
       return respond(res, 503, { error: `queue store write failed: ${err.message}` });
     }
 
-    respond(res, 200, { id, flag, marked: next, flags: role.flags });
+    respond(res, 200, { id, flag, marked: result.next, flags: result.flags });
   });
 }
 
@@ -805,10 +1456,23 @@ function respond(res, code, data) {
   res.end(body);
 }
 
-function readBody(req, cb) {
+function readBody(req, res, cb) {
   const chunks = [];
-  req.on('data', c => chunks.push(c));
-  req.on('end', () => cb(Buffer.concat(chunks).toString('utf-8')));
+  let bytes = 0;
+  let rejected = false;
+  req.on('data', (chunk) => {
+    if (rejected) return;
+    bytes += chunk.length;
+    if (bytes > DASHBOARD_JSON_BODY_LIMIT) {
+      rejected = true;
+      respond(res, 413, { error: `request body exceeds ${DASHBOARD_JSON_BODY_LIMIT} bytes` });
+      return;
+    }
+    chunks.push(chunk);
+  });
+  req.on('end', () => {
+    if (!rejected) cb(Buffer.concat(chunks).toString('utf-8'));
+  });
 }
 
 function safeJson(str) {
@@ -831,15 +1495,30 @@ function serveStatic(res, filePath) {
 const server = http.createServer((req, res) => {
   // CORS — localhost only; this extra header prevents other pages from reading
   // the API if a browser happens to have a tab open with cross-origin XHR.
-  res.setHeader('Access-Control-Allow-Origin', `http://${HOST}:${PORT}`);
+  res.setHeader('Access-Control-Allow-Origin', DASHBOARD_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Career-Ops-CSRF');
 
-  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+  if (req.method === 'OPTIONS') {
+    if (req.headers.origin && req.headers.origin !== DASHBOARD_ORIGIN) {
+      return respond(res, 403, { error: 'cross-origin dashboard mutation is forbidden' });
+    }
+    res.writeHead(204); res.end(); return;
+  }
 
   const url    = new URL(req.url, `http://${HOST}:${PORT}`);
   const path   = url.pathname;
   const method = req.method;
+
+  if (method === 'POST') {
+    const authorization = validateDashboardMutationRequest(req.headers, {
+      expectedOrigin: DASHBOARD_ORIGIN,
+      csrfToken: DASHBOARD_CSRF_TOKEN,
+    });
+    if (!authorization.allowed) {
+      return respond(res, authorization.status, { error: authorization.reason });
+    }
+  }
 
   // API routes
   if (path === '/api/queue'    && method === 'GET')  return apiGetQueue(res);
@@ -848,8 +1527,17 @@ const server = http.createServer((req, res) => {
   if (path === '/api/run'      && method === 'POST')  return apiRun(req, res);
   if (path === '/api/activity' && method === 'GET')   return apiActivity(req, res);
 
+  if (path === '/api/selection-confirmation' && method === 'POST') {
+    return apiSelectionConfirmation(req, res);
+  }
+
   const fillMatch = path.match(/^\/api\/role\/([^/]+)\/fill$/);
   if (fillMatch && method === 'POST') return apiRoleFill(req, res, decodeURIComponent(fillMatch[1]));
+
+  const submissionConfirmationMatch = path.match(/^\/api\/role\/([^/]+)\/submission-confirmation$/);
+  if (submissionConfirmationMatch && method === 'POST') {
+    return apiSubmissionConfirmation(req, res, decodeURIComponent(submissionConfirmationMatch[1]));
+  }
 
   const decisionMatch = path.match(/^\/api\/role\/([^/]+)\/decision$/);
   if (decisionMatch && method === 'POST') return apiRoleDecision(req, res, decodeURIComponent(decisionMatch[1]));

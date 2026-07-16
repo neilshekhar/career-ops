@@ -6,9 +6,8 @@ set -euo pipefail
 # tracks state in batch-state.tsv for resumability.
 #
 # NOTE: This script is Claude Code-specific. It uses claude -p with
-# --dangerously-skip-permissions and --append-system-prompt-file flags
-# that are not available in other CLIs. Multi-CLI support is out of scope
-# for now — contributions welcome.
+# path-scoped tool permissions and --append-system-prompt-file flags that are
+# not available in other CLIs. Multi-CLI support is out of scope for now.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -42,10 +41,254 @@ BATCH_PAUSED=false
 STATUS_ONLY=false
 WATCH_MODE=false
 LIMIT=0
+ACTIVE_WORKER_PIDS=()
+RUN_TEMP_DIR=""
 
 # Return success for non-negative integer or decimal strings.
 is_decimal_number() {
   [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]
+}
+
+render_prompt_template() {
+  local template_file="$1"
+  local output_file="$2"
+  local url="$3"
+  local jd_file="$4"
+  local report_num="$5"
+  local date="$6"
+  local id="$7"
+
+  node - "$template_file" "$output_file" "$url" "$jd_file" "$report_num" "$date" "$id" <<'NODE'
+const fs = require('node:fs');
+
+const [templateFile, outputFile, url, jdFile, reportNum, date, id] = process.argv.slice(2);
+const values = {
+  URL: url,
+  JD_FILE: jdFile,
+  REPORT_NUM: reportNum,
+  DATE: date,
+  ID: id,
+};
+const template = fs.readFileSync(templateFile, 'utf8');
+// URL/JD/report identify the assignment. DATE and ID remain supported but are
+// optional so minimal test/alternate templates can rely on the runtime prompt.
+for (const key of ['URL', 'JD_FILE', 'REPORT_NUM']) {
+  if (!template.includes(`{{${key}}}`)) {
+    throw new Error(`batch prompt template is missing required placeholder {{${key}}}`);
+  }
+}
+const rendered = template.replace(
+  /\{\{(URL|JD_FILE|REPORT_NUM|DATE|ID)\}\}/g,
+  (_, key) => values[key],
+);
+fs.writeFileSync(outputFile, rendered, 'utf8');
+NODE
+  chmod 600 "$output_file"
+}
+
+permission_path_rule() {
+  local tool="$1"
+  local path_pattern="$2"
+  if [[ "$path_pattern" != /* ]]; then
+    path_pattern="$PROJECT_DIR/$path_pattern"
+  fi
+  # Claude Code permission rules use a double-leading slash for absolute paths.
+  printf '%s(/%s)' "$tool" "$path_pattern"
+}
+
+permission_edit_rule() {
+  permission_path_rule Edit "$1"
+}
+
+permission_write_rule() {
+  permission_path_rule Write "$1"
+}
+
+permission_read_rule() {
+  permission_path_rule Read "$1"
+}
+
+verify_worker_artifacts() {
+  local id="$1"
+  local url="$2"
+  local report_num="$3"
+  local date="$4"
+  local skip_pdf="$5"
+
+  node - "$REPORTS_DIR" "$TRACKER_DIR" "$PROJECT_DIR" \
+    "$id" "$url" "$report_num" "$date" "$skip_pdf" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const yaml = require('js-yaml');
+
+const [
+  reportsDir, trackerDir, projectDir,
+  id, url, reportNum, date, skipPdfRaw,
+] = process.argv.slice(2);
+const skipPdf = skipPdfRaw === 'true';
+
+function invariant(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+function regularNonemptyFile(file, label) {
+  let stat;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    throw new Error(`${label} is missing: ${file}`);
+  }
+  invariant(stat.isFile() && stat.size > 0, `${label} is empty or not a regular file: ${file}`);
+}
+
+try {
+  const trackerPath = path.join(trackerDir, `${id}.tsv`);
+  regularNonemptyFile(trackerPath, 'assigned tracker addition');
+  const trackerText = fs.readFileSync(trackerPath, 'utf8').replace(/\r/g, '');
+  const trackerLines = trackerText.split('\n').filter((line) => line.length > 0);
+  invariant(trackerLines.length === 1, 'assigned tracker addition must contain exactly one line');
+  const fields = trackerLines[0].split('\t');
+  invariant(fields.length >= 9, 'assigned tracker addition must contain at least 9 TSV columns');
+  invariant(/^[0-9]+$/.test(fields[0]), 'tracker number must be numeric');
+  invariant(fields[1] === date, `tracker date must equal assigned date ${date}`);
+  invariant(fields[2].trim() !== '' && fields[3].trim() !== '', 'tracker company and role are required');
+  invariant(fields[4] === 'Evaluated', 'batch tracker status must be exactly Evaluated');
+  invariant(fields[8].trim() !== '', 'tracker notes are required');
+
+  const reportLink = fields[7].match(/^\[([0-9]+)\]\((reports\/([^/]+\.md))\)$/);
+  invariant(reportLink, 'tracker report field must be one root-relative markdown link');
+  invariant(reportLink[1] === reportNum, `tracker report number must equal assigned report ${reportNum}`);
+  const reportBasename = reportLink[3];
+  const expectedReportPattern = new RegExp(
+    `^${reportNum.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-[^/]+-${date.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.md$`,
+  );
+  invariant(expectedReportPattern.test(reportBasename), 'tracker report filename does not match the assigned report/date');
+
+  const reportPath = path.join(reportsDir, reportBasename);
+  regularNonemptyFile(reportPath, 'assigned report');
+  const report = fs.readFileSync(reportPath, 'utf8').replace(/\r/g, '');
+  invariant(report.split('\n').includes(`**URL:** ${url}`), 'report URL does not exactly match the assigned URL');
+  invariant(report.split('\n').includes(`**Batch ID:** ${id}`), 'report Batch ID does not match the assigned item');
+  for (const section of ['A', 'B', 'C', 'D', 'E', 'F', 'G']) {
+    invariant(
+      new RegExp(`^## ${section}\\)`, 'm').test(report),
+      `report is missing required section ${section}`,
+    );
+  }
+
+  const summaryBlocks = [...report.matchAll(
+    /^## Machine Summary[ \t]*\n+[ \t]*```yaml[ \t]*\n([\s\S]*?)\n```[ \t]*$/gm,
+  )];
+  invariant(summaryBlocks.length === 1, 'report must contain exactly one fenced YAML Machine Summary');
+  const summary = yaml.load(summaryBlocks[0][1], { schema: yaml.JSON_SCHEMA });
+  invariant(summary && typeof summary === 'object' && !Array.isArray(summary), 'Machine Summary must be a YAML mapping');
+  const requiredKeys = [
+    'company', 'role', 'score', 'legitimacy_tier', 'archetype',
+    'final_decision', 'hard_stops', 'soft_gaps', 'top_strengths',
+    'risk_level', 'confidence', 'next_action', 'via',
+    'company_confidential', 'advertised_comp',
+  ];
+  for (const key of requiredKeys) {
+    invariant(Object.prototype.hasOwnProperty.call(summary, key), `Machine Summary is missing ${key}`);
+  }
+  invariant(typeof summary.company === 'string' && summary.company.trim() !== '', 'Machine Summary company is required');
+  invariant(typeof summary.role === 'string' && summary.role.trim() !== '', 'Machine Summary role is required');
+  invariant(summary.company === fields[2], 'Machine Summary company must match the tracker company');
+  invariant(summary.role === fields[3], 'Machine Summary role must match the tracker role');
+  invariant(typeof summary.score === 'number' && Number.isFinite(summary.score), 'Machine Summary score must be numeric');
+  invariant(summary.score >= 0 && summary.score <= 5, 'Machine Summary score must be between 0 and 5');
+  for (const key of ['hard_stops', 'soft_gaps', 'top_strengths']) {
+    invariant(Array.isArray(summary[key]), `Machine Summary ${key} must be an array`);
+  }
+  invariant(typeof summary.company_confidential === 'boolean', 'Machine Summary company_confidential must be boolean');
+  invariant(summary.via === null || typeof summary.via === 'string', 'Machine Summary via must be a string or null');
+  invariant(
+    summary.advertised_comp === null || typeof summary.advertised_comp === 'string',
+    'Machine Summary advertised_comp must be a string or null',
+  );
+
+  const trackerScore = fields[5].match(/^([0-9]+(?:\.[0-9]+)?)\/5$/);
+  invariant(trackerScore, 'completed batch tracker score must be numeric and end in /5');
+  invariant(
+    Math.abs(Number(trackerScore[1]) - summary.score) < 1e-9,
+    'Machine Summary score must match the tracker score',
+  );
+  const reportScore = report.match(/^\*\*Score:\*\*[ \t]*([0-9]+(?:\.[0-9]+)?)\/5[ \t]*$/m);
+  invariant(reportScore, 'report header must contain a numeric Score');
+  invariant(
+    Math.abs(Number(reportScore[1]) - summary.score) < 1e-9,
+    'Machine Summary score must match the report header score',
+  );
+
+  const pdfHeader = report.match(/^\*\*PDF:\*\*[ \t]*(.+?)[ \t]*$/m);
+  invariant(pdfHeader, 'report header must contain PDF metadata');
+  const pdfCell = fields[6];
+  let draftThreshold = 3.0;
+  const profilePath = path.join(projectDir, 'config', 'profile.yml');
+  if (fs.existsSync(profilePath)) {
+    const profile = yaml.load(fs.readFileSync(profilePath, 'utf8'), { schema: yaml.JSON_SCHEMA });
+    const configuredThreshold = profile?.auto_pdf_score_threshold;
+    if (configuredThreshold !== undefined && configuredThreshold !== null && configuredThreshold !== '') {
+      draftThreshold = Number(configuredThreshold);
+      invariant(
+        Number.isFinite(draftThreshold) && draftThreshold >= 0,
+        'config/profile.yml auto_pdf_score_threshold must be a non-negative number',
+      );
+    }
+  }
+  const draftPdfRequired = !skipPdf && summary.score >= draftThreshold;
+  if (!draftPdfRequired) {
+    invariant(pdfCell === '❌', 'evaluation-only tracker PDF marker must be ❌');
+    invariant(
+      /^not generated\b/i.test(pdfHeader[1]),
+      'report must say the PDF was not generated when tracker PDF is ❌',
+    );
+  } else {
+    invariant(
+      pdfCell === '✅',
+      `draft-PDF tracker marker must be ✅ when score ${summary.score} meets threshold ${draftThreshold}`,
+    );
+    const pdfRelative = pdfHeader[1];
+    const escapedDate = date.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    invariant(
+      new RegExp(`^output/cv-candidate-[^/]+-${escapedDate}\\.pdf$`).test(pdfRelative)
+        && !pdfRelative.includes('..'),
+      'draft PDF metadata must be its assigned dated output/cv-candidate-*.pdf path',
+    );
+    const outputRoot = path.resolve(projectDir, 'output');
+    const pdfPath = path.resolve(projectDir, pdfRelative);
+    invariant(
+      pdfPath.startsWith(`${outputRoot}${path.sep}`),
+      'draft PDF path escapes the project output directory',
+    );
+    regularNonemptyFile(pdfPath, 'declared draft PDF');
+    const header = Buffer.alloc(5);
+    const fd = fs.openSync(pdfPath, 'r');
+    try {
+      fs.readSync(fd, header, 0, header.length, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+    invariant(header.toString('ascii') === '%PDF-', 'declared draft PDF does not have a PDF header');
+    const htmlPath = pdfPath.replace(/\.pdf$/i, '.html');
+    regularNonemptyFile(htmlPath, 'declared draft PDF source HTML');
+  }
+
+  process.stdout.write(String(summary.score));
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
+NODE
+}
+
+quarantine_tracker_addition() {
+  local id="$1"
+  local report_num="$2"
+  local tracker_file="$TRACKER_DIR/${id}.tsv"
+  if [[ -f "$tracker_file" ]]; then
+    mv "$tracker_file" "$LOGS_DIR/${report_num}-${id}.tracker.failed.tsv"
+  fi
 }
 
 usage() {
@@ -63,7 +306,8 @@ Options:
   --start-from N       Start from offer ID N (skip earlier IDs)
   --limit N            Max number of offers to process in this run
   --max-retries N      Max retry attempts per offer (default: 2)
-  --min-score N        Skip PDF/tracker for offers scoring below N (default: 0 = off)
+  --min-score N        After evaluation, mark lower-scoring batch items skipped
+                       (report + Evaluated tracker row remain; default: 0 = off)
   --skip-pdf           Skip PDF generation (default; keeps batch evaluation-only)
   --draft-pdf          Generate non-release batch PDF drafts. Requires an explicit
                        model ID; an optional profile allowlist can restrict it.
@@ -175,7 +419,43 @@ release_lock() {
   rm -f "$LOCK_FILE"
 }
 
-trap release_lock EXIT
+initialize_run_temp_dir() {
+  RUN_TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/career-ops-batch-${MAIN_PID}.XXXXXX")
+  chmod 700 "$RUN_TEMP_DIR"
+}
+
+cleanup_run_temp_dir() {
+  if [[ -z "$RUN_TEMP_DIR" || ! -d "$RUN_TEMP_DIR" ]]; then
+    return
+  fi
+  local temp_file
+  for temp_file in "$RUN_TEMP_DIR"/batch-jd-* "$RUN_TEMP_DIR"/batch-prompt-*; do
+    if [[ -f "$temp_file" ]]; then
+      rm -f -- "$temp_file"
+    fi
+  done
+  rmdir "$RUN_TEMP_DIR" 2>/dev/null || true
+  RUN_TEMP_DIR=""
+}
+
+cleanup_main() {
+  local exit_code=$?
+  # Prevent recursive traps while terminating any still-running worker
+  # subshells. Their TERM/EXIT traps remove the per-offer JD and prompt files.
+  trap - EXIT HUP INT TERM
+  local children child_pid
+  children="${ACTIVE_WORKER_PIDS[*]:-} $(jobs -pr 2>/dev/null || true)"
+  for child_pid in $children; do
+    kill -TERM "$child_pid" 2>/dev/null || true
+  done
+  for child_pid in $children; do
+    wait "$child_pid" 2>/dev/null || true
+  done
+  cleanup_run_temp_dir
+  release_state_lock
+  release_lock
+  exit "$exit_code"
+}
 
 # Validate prerequisites
 check_prerequisites() {
@@ -418,9 +698,34 @@ reserve_report_num() {
   run_with_state_lock reserve_report_num_unlocked "$@"
 }
 
-# Process a single offer
-process_offer() {
+# Process a single offer in its own subshell so per-worker traps and permission
+# variables cannot leak into the orchestrator or sibling workers.
+process_offer() (
   local id="$1" url="$2" source="$3" notes="$4"
+  local jd_file=""
+  local resolved_prompt=""
+  local worker_command_pid=""
+
+  cleanup_worker_temps() {
+    if [[ -n "$worker_command_pid" ]] && kill -0 "$worker_command_pid" 2>/dev/null; then
+      kill -TERM "$worker_command_pid" 2>/dev/null || true
+      wait "$worker_command_pid" 2>/dev/null || true
+    fi
+    if [[ -n "$resolved_prompt" ]]; then
+      rm -f -- "$resolved_prompt"
+    fi
+    if [[ -n "$jd_file" ]]; then
+      rm -f -- "$jd_file"
+    fi
+  }
+  # EXIT covers success, ordinary failure, early return, and the signal exits.
+  # Signal traps deliberately terminate so an interrupted worker cannot resume
+  # after its temporary instruction/JD files have been removed.
+  trap cleanup_worker_temps EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  umask 077
 
   local started_at
   started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -433,18 +738,22 @@ process_offer() {
   # Use mktemp instead of a predictable /tmp path: a fixed name like
   # /tmp/batch-jd-${id}.txt is guessable, so an attacker on a shared machine
   # could pre-create it as a symlink and redirect or clobber the write.
-  local jd_file
-  jd_file="$(mktemp "${TMPDIR:-/tmp}/batch-jd-${id}.XXXXXX")"
+  if [[ -z "$RUN_TEMP_DIR" || ! -d "$RUN_TEMP_DIR" ]]; then
+    echo "ERROR: Batch run temp directory is unavailable."
+    return 1
+  fi
+  jd_file="$(mktemp "$RUN_TEMP_DIR/batch-jd-${id}.XXXXXX")"
+  resolved_prompt="$(mktemp "$RUN_TEMP_DIR/batch-prompt-${id}.XXXXXX")"
 
   echo "--- Processing offer #$id: $url (report $report_num, attempt $((retries + 1)))"
 
   # Build the prompt with placeholders replaced
   local prompt
   if [[ "$SKIP_PDF" == "true" ]]; then
-    prompt="Procesa esta oferta de empleo. Ejecuta el pipeline: evaluación A-F + report .md + tracker line. NO generes PDF; en el tracker escribe ❌ en la columna PDF y en el JSON final establece \"pdf\": null."
+    prompt="Procesa esta oferta de empleo. Ejecuta el pipeline: evaluación A-G + report .md + tracker line. NO generes PDF; en el tracker escribe ❌ en la columna PDF y en el JSON final establece \"pdf\": null."
     echo "    ⏭️  evaluation-only batch — skipping PDF generation for #$id ($url)"
   else
-    prompt="Procesa esta oferta de empleo. Ejecuta evaluación A-F + report .md + PDF BORRADOR + tracker line. El PDF es batch-draft, no es elegible para PREPARE ni para enviar; no escribas generation_provenance."
+    prompt="Procesa esta oferta de empleo. Ejecuta evaluación A-G + report .md + PDF BORRADOR + tracker line. El PDF es batch-draft, no es elegible para PREPARE ni para enviar; no escribas generation_provenance."
   fi
   prompt="$prompt URL: $url"
   prompt="$prompt JD file: $jd_file"
@@ -454,24 +763,10 @@ process_offer() {
 
   local log_file="$LOGS_DIR/${report_num}-${id}.log"
 
-  # Prepare system prompt with placeholders resolved
-  local resolved_prompt="$BATCH_DIR/.resolved-prompt-${id}.md"
-  # Escape sed delimiter characters in variables to prevent substitution breakage
-  local esc_url esc_jd_file esc_report_num esc_date esc_id
-  esc_url="${url//\\/\\\\}"
-  esc_url="${esc_url//|/\\|}"
-  esc_jd_file="${jd_file//\\/\\\\}"
-  esc_jd_file="${esc_jd_file//|/\\|}"
-  esc_report_num="${report_num//|/\\|}"
-  esc_date="${date//|/\\|}"
-  esc_id="${id//|/\\|}"
-  sed \
-    -e "s|{{URL}}|${esc_url}|g" \
-    -e "s|{{JD_FILE}}|${esc_jd_file}|g" \
-    -e "s|{{REPORT_NUM}}|${esc_report_num}|g" \
-    -e "s|{{DATE}}|${esc_date}|g" \
-    -e "s|{{ID}}|${esc_id}|g" \
-    "$PROMPT_FILE" > "$resolved_prompt"
+  # One-pass callback replacement preserves every URL byte (including &, \,
+  # delimiter-like text, and strings that resemble another placeholder).
+  render_prompt_template \
+    "$PROMPT_FILE" "$resolved_prompt" "$url" "$jd_file" "$report_num" "$date" "$id"
 
   # Inject user-layer personalization into the temporary worker prompt.
   # The resolved prompt is gitignored runtime state, so user profile data stays
@@ -494,7 +789,45 @@ process_offer() {
   # servers: they only evaluate offers and need none. Without it each parallel
   # worker inherits the parent session's MCP (e.g. Playwright) and they deadlock
   # fighting over the single shared browser when --parallel > 1 (issue #506).
-  local -a claude_args=(-p --dangerously-skip-permissions --strict-mcp-config)
+  #
+  # `dontAsk` denies anything not explicitly pre-approved in headless mode.
+  # Edit permissions are restricted to this worker's report number and exact
+  # tracker file. Draft mode adds only the dated draft HTML path and the one
+  # renderer command; evaluation-only workers receive no Bash tool at all.
+  local worker_tools="Read,Edit,Write,WebFetch,WebSearch"
+  local allowed_tools
+  allowed_tools="WebFetch,WebSearch"
+  local readable_path
+  for readable_path in \
+    "$jd_file" \
+    "$PROJECT_DIR/cv.md" \
+    "$PROJECT_DIR/llms.txt" \
+    "$PROJECT_DIR/article-digest.md" \
+    "$PROJECT_DIR/i18n.ts" \
+    "$PROJECT_DIR/config/profile.yml" \
+    "$PROJECT_DIR/modes/_profile.md" \
+    "$PROJECT_DIR/modes/_custom.md" \
+    "$PROJECT_DIR/data/applications.md" \
+    "$PROJECT_DIR/data/scan-history.tsv"; do
+    allowed_tools+=",$(permission_read_rule "$readable_path")"
+  done
+  allowed_tools+=",$(permission_read_rule "$REPORTS_DIR/${report_num}-*-${date}.md")"
+  allowed_tools+=",$(permission_read_rule "$TRACKER_DIR/${id}.tsv")"
+  allowed_tools+=",$(permission_edit_rule "$REPORTS_DIR/${report_num}-*-${date}.md")"
+  allowed_tools+=",$(permission_edit_rule "$TRACKER_DIR/${id}.tsv")"
+  allowed_tools+=",$(permission_write_rule "$REPORTS_DIR/${report_num}-*-${date}.md")"
+  allowed_tools+=",$(permission_write_rule "$TRACKER_DIR/${id}.tsv")"
+  if [[ "$SKIP_PDF" == "false" ]]; then
+    worker_tools+=",Bash"
+    allowed_tools+=",$(permission_read_rule "$PROJECT_DIR/templates/cv-template.html")"
+    allowed_tools+=",$(permission_read_rule "$PROJECT_DIR/generate-pdf.mjs")"
+    allowed_tools+=",$(permission_read_rule "$PROJECT_DIR/output/cv-candidate-*-${date}.html")"
+    allowed_tools+=",$(permission_read_rule "$PROJECT_DIR/output/cv-candidate-*-${date}.pdf")"
+    allowed_tools+=",$(permission_edit_rule "$PROJECT_DIR/output/cv-candidate-*-${date}.html")"
+    allowed_tools+=",$(permission_write_rule "$PROJECT_DIR/output/cv-candidate-*-${date}.html")"
+    allowed_tools+=",Bash(node generate-pdf.mjs:*)"
+  fi
+  local -a claude_args=(-p --safe-mode --no-session-persistence --permission-mode dontAsk --tools "$worker_tools" --allowedTools "$allowed_tools" --strict-mcp-config)
   if [[ -n "$MODEL" ]]; then
     claude_args+=(--model "$MODEL")
   fi
@@ -504,9 +837,15 @@ process_offer() {
   local terminal_failure_recorded=false
   local shim_retries=0
   local max_shim_retries=4
+  # All worker instructions and allowed Bash command paths are rooted here,
+  # even when the caller invokes this script from another working directory.
+  cd "$PROJECT_DIR"
   while true; do
     exit_code=0
-    claude "${claude_args[@]}" > "$log_file" 2>&1 || exit_code=$?
+    claude "${claude_args[@]}" > "$log_file" 2>&1 &
+    worker_command_pid=$!
+    wait "$worker_command_pid" 2>/dev/null || exit_code=$?
+    worker_command_pid=""
 
     if [[ $exit_code -eq 0 ]]; then
       break
@@ -546,26 +885,37 @@ process_offer() {
     break
   done
 
-  # Cleanup resolved prompt
-  rm -f "$resolved_prompt"
-
   local completed_at
   completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   if [[ $exit_code -eq 0 ]]; then
-    # Try to extract score from worker output
+    # Treat stdout as an untrusted claim. Completion is authorized only by the
+    # assigned durable report/tracker/Machine Summary (and declared draft PDF).
     local score="-"
-    local score_match
-   score_match=$(sed -nE 's/.*"score":[[:space:]]*([0-9.]+).*/\1/p' "$log_file" 2>/dev/null | head -1 || true)
-    if [[ -n "$score_match" ]]; then
-      score="$score_match"
+    local verification_output=""
+    if verification_output=$(verify_worker_artifacts \
+      "$id" "$url" "$report_num" "$date" "$SKIP_PDF" 2>&1); then
+      score="$verification_output"
+    else
+      if (( retries < MAX_RETRIES )); then
+        retries=$((retries + 1))
+      fi
+      local verification_error
+      verification_error=$(printf '%s' "$verification_output" | tr '\t\r\n' ' ' | cut -c1-200)
+      quarantine_tracker_addition "$id" "$report_num"
+      update_state "$id" "$url" "failed" "$started_at" "$completed_at" "$report_num" "-" \
+        "artifact-verification: ${verification_error:-unknown verification failure}" "$retries"
+      echo "    ❌ Failed artifact verification (attempt $retries): ${verification_error:-unknown verification failure}"
+      return 0
     fi
 
-    # Check min-score gate
+    # Optional triage-state gate. The worker has already persisted the canonical
+    # A-G report and Evaluated tracker row; this only prevents low-scoring batch
+    # items from being treated as completed candidates for later batch actions.
     if is_decimal_number "$score" && awk -v min="$MIN_SCORE" 'BEGIN{exit !(min > 0)}'; then
       if awk -v score="$score" -v min="$MIN_SCORE" 'BEGIN{exit !(score < min)}'; then
         update_state "$id" "$url" "skipped" "$started_at" "$completed_at" "$report_num" "$score" "below-min-score" "$retries"
-        echo "    ⏭️  Skipped (score: $score < min-score: $MIN_SCORE)"
+        echo "    ⏭️  Triage-skipped (score: $score < min-score: $MIN_SCORE; report/tracker preserved)"
         return 0
       fi
     fi
@@ -573,6 +923,7 @@ process_offer() {
     update_state "$id" "$url" "completed" "$started_at" "$completed_at" "$report_num" "$score" "-" "$retries"
     echo "    ✅ Completed (score: $score, report: $report_num)"
   elif [[ "$terminal_failure_recorded" == "false" ]]; then
+    quarantine_tracker_addition "$id" "$report_num"
     if (( retries < MAX_RETRIES )); then
       retries=$((retries + 1))
     fi
@@ -580,8 +931,10 @@ process_offer() {
     error_msg=$(tail -5 "$log_file" 2>/dev/null | tr '\n' ' ' | cut -c1-200 || echo "Unknown error (exit code $exit_code)")
     update_state "$id" "$url" "failed" "$started_at" "$completed_at" "$report_num" "-" "$error_msg" "$retries"
     echo "    ❌ Failed (attempt $retries, exit code $exit_code)"
+  else
+    quarantine_tracker_addition "$id" "$report_num"
   fi
-}
+)
 
 # Merge tracker additions into applications.md
 merge_tracker() {
@@ -590,10 +943,12 @@ merge_tracker() {
   node "$PROJECT_DIR/merge-tracker.mjs"
   echo ""
   echo "=== Reconciling pipeline.md ==="
-  node "$PROJECT_DIR/reconcile-pipeline.mjs" || echo "⚠️  Pipeline reconcile had issues (see above)"
+  node "$PROJECT_DIR/reconcile-pipeline.mjs"
   echo ""
   echo "=== Verifying pipeline integrity ==="
-  node "$PROJECT_DIR/verify-pipeline.mjs" || echo "⚠️  Verification found issues (see above)"
+  # A failed integrity check is a failed batch run. Do not print a warning and
+  # continue with a misleading process exit code of zero.
+  node "$PROJECT_DIR/verify-pipeline.mjs"
 }
 
 # Print summary
@@ -737,7 +1092,7 @@ watch_status() {
   if [[ -f "$PROJECT_DIR/verify-pipeline.mjs" ]]; then
     echo ""
     echo "=== Running pipeline verification ==="
-    node "$PROJECT_DIR/verify-pipeline.mjs" || echo "⚠️  Verification found issues"
+    node "$PROJECT_DIR/verify-pipeline.mjs"
   fi
 }
 
@@ -759,6 +1114,11 @@ main() {
 
   if [[ "$DRY_RUN" == "false" ]]; then
     acquire_lock
+    trap cleanup_main EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    initialize_run_temp_dir
     rm -f "$PAUSE_FILE"
   fi
 
@@ -878,7 +1238,13 @@ main() {
   if (( PARALLEL <= 1 )); then
     # Sequential processing
     for i in "${!pending_ids[@]}"; do
-      process_offer "${pending_ids[$i]}" "${pending_urls[$i]}" "${pending_sources[$i]}" "${pending_notes[$i]}"
+      # Keep even the single worker as a managed child so TERM sent directly to
+      # the orchestrator can be forwarded and its temp-file traps can run.
+      process_offer "${pending_ids[$i]}" "${pending_urls[$i]}" "${pending_sources[$i]}" "${pending_notes[$i]}" &
+      local worker_pid=$!
+      ACTIVE_WORKER_PIDS=("$worker_pid")
+      wait "$worker_pid" 2>/dev/null || true
+      ACTIVE_WORKER_PIDS=()
       if [[ "$BATCH_PAUSED" == "true" || -f "$PAUSE_FILE" ]]; then
         echo "=== Batch paused: session/rate limit reached. Resume later with --resume-paused. ==="
         break
@@ -910,6 +1276,7 @@ main() {
         # Compact arrays
         pids=("${pids[@]}")
         pid_ids=("${pid_ids[@]}")
+        ACTIVE_WORKER_PIDS=("${pids[@]}")
         if [[ "$BATCH_PAUSED" == "true" || -f "$PAUSE_FILE" ]]; then
           echo "=== Batch paused: session/rate limit reached. Waiting for running workers, not scheduling new offers. ==="
           break
@@ -925,6 +1292,7 @@ main() {
       process_offer "${pending_ids[$i]}" "${pending_urls[$i]}" "${pending_sources[$i]}" "${pending_notes[$i]}" &
       pids+=($!)
       pid_ids+=("${pending_ids[$i]}")
+      ACTIVE_WORKER_PIDS=("${pids[@]}")
       running=$((running + 1))
     done
 
@@ -932,6 +1300,7 @@ main() {
     for pid in "${pids[@]}"; do
       wait "$pid" 2>/dev/null || true
     done
+    ACTIVE_WORKER_PIDS=()
   fi
 
   # Merge tracker additions
@@ -943,4 +1312,6 @@ main() {
   exit 0
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

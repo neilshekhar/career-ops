@@ -69,7 +69,7 @@
 
 Career-Ops 可以把任何 AI 编码 CLI 变成完整的求职指挥中心。你不需要再手动用电子表格追踪申请流程，而是获得一个 AI 驱动的管道，能够：
 
-- **评估职位**，使用结构化的 A-F 评分系统（10 个加权维度）
+- **评估职位**，使用结构化的 A-G 评估系统（10 个加权评分维度，另含职位真实性分析）
 - **生成定制 PDF**，针对每份职位描述输出 ATS 优化简历
 - **自动扫描招聘平台**（Greenhouse、Ashby、Lever、公司招聘页）
 - **批量处理**，通过子代理并行评估 10 份以上职位
@@ -87,14 +87,14 @@ career-ops 具备代理式工作能力：Claude Code 会用 Playwright 浏览招
 
 | 功能 | 说明 |
 |------|------|
-| **自动管道** | 粘贴一个 URL，即可获得完整评估 + PDF + 追踪记录 |
-| **6 个评估模块** | 职位总结、简历匹配、职级策略、薪酬调研、个性化建议、面试准备（STAR+R）—— 外加一个用于核查职位真实性的 Block G 模块，可标记诈骗职位和幽灵职位 |
+| **自动管道** | 粘贴 URL 后先完成评估/评分并显示结论；定制材料和申请操作需明确继续或在仪表盘中选择 |
+| **A-G 评估** | 职位总结、简历匹配、职级策略、薪酬调研、个性化建议、面试准备（STAR+R），以及用于核查职位真实性的 Block G |
 | **面试故事库** | 跨多次评估积累 STAR+Reflection 故事，沉淀出 5-10 个可回答任意行为面试题的主线故事 |
 | **谈薪脚本** | 薪资谈判框架、地域折扣反驳话术、竞品 offer 杠杆策略 |
 | **ATS PDF 生成** | 注入关键词的简历，采用 Space Grotesk + DM Sans 设计 |
 | **平台扫描器** | 预配置 45+ 家公司（Anthropic、OpenAI、ElevenLabs、Retool、n8n...），支持跨 Ashby、Greenhouse、Lever、Wellfound 的自定义查询 |
 | **批量处理** | 使用 `claude -p` worker 并行评估 |
-| **本地看板仪表盘** | 在浏览器中用本地看板审阅、筛选、准备和填写申请 |
+| **本地看板仪表盘** | 在浏览器中审阅、筛选和准备职位，并为当前代理排队申请处理请求 |
 | **人类在环** | AI 负责评估和建议，你负责决定和行动。系统绝不会自动提交申请，最终决定始终在你手上 |
 | **管道完整性** | 自动合并、去重、状态标准化和健康检查 |
 
@@ -125,7 +125,7 @@ claude   # 或 gemini / codex / qwen / opencode —— 在这里打开你的 AI 
 ```bash
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
-npx playwright install chromium   # 仅生成 PDF 时需要
+npx playwright install chromium   # 用于 PDF 生成和 Playwright 浏览器/职位有效性验证
 claude   # 打开你的 AI CLI —— 它会在首次启动时引导你完成设置
 ```
 
@@ -185,7 +185,7 @@ career-ops 是一个单一斜杠命令，带有多种模式：
 
 ```
 /career-ops                → 显示所有可用命令
-/career-ops {粘贴职位描述}  → 完整自动管道（评估 + PDF + 追踪）
+/career-ops {粘贴职位描述}  → 先评估/评分并显示结论；等待明确继续或仪表盘选择
 /career-ops scan           → 扫描平台上的新职位
 /career-ops pdf            → 生成 ATS 优化简历
 /career-ops batch          → 批量评估多个职位
@@ -198,7 +198,7 @@ career-ops 是一个单一斜杠命令，带有多种模式：
 /career-ops project        → 评估作品集项目
 ```
 
-或者直接粘贴职位 URL 或职位描述，career-ops 会自动识别并运行完整流程。
+或者直接粘贴职位 URL 或职位描述，career-ops 会自动识别、评估/评分并先显示结论。根据 `modes/_custom.md`，在你明确继续或在仪表盘中选择职位前，它不会生成定制材料、推进追踪器中的申请状态、代你选择职位、打开浏览器或填写在线表单。
 
 ## 工作原理
 
@@ -211,14 +211,18 @@ career-ops 是一个单一斜杠命令，带有多种模式：
 └────────┬─────────┘
          │
 ┌────────▼─────────┐
-│  A-F 评估        │  匹配度、能力缺口、薪酬调研、STAR 故事
+│  A-G 评估        │  匹配度、能力缺口、薪酬调研、STAR 故事、职位真实性
 │  （读取 cv.md）  │
 └────────┬─────────┘
          │
-    ┌────┼────┐
-    ▼    ▼    ▼
-  报告  PDF  追踪
-  .md  .pdf  .tsv
+         ▼
+评分/结论 + 报告 + 追踪状态：Evaluated
+         │
+         ▼
+明确继续或在仪表盘中选择
+         │
+         ▼
+定制材料 → 浏览器/在线填写 → 候选人审阅并提交
 ```
 
 ## 预配置平台
@@ -244,7 +248,7 @@ career-ops 是一个单一斜杠命令，带有多种模式：
 npm run launch   # 打开 http://127.0.0.1:7777
 ```
 
-用它审阅匹配分数、选择要准备的职位、启动表单填写、检查草稿和文件，并在提交前保留人工确认。仪表盘不会替你提交申请。
+用它审阅匹配分数、选择要准备的职位、为当前代理排队持久申请请求、检查草稿和文件，并在提交前保留人工确认。仪表盘本身不会启动浏览器自动化，也不会填写或提交申请。
 
 ### 终端 Tracker TUI
 
@@ -296,7 +300,7 @@ career-ops/
 ![Bubble Tea](https://img.shields.io/badge/Bubble_Tea-FF75B5?style=flat&logo=go&logoColor=white)
 
 - **代理**：Claude Code，配合自定义技能与 modes
-- **PDF**：Playwright/Puppeteer + HTML 模板
+- **PDF**：Playwright + HTML 模板
 - **扫描器**：Playwright + Greenhouse API + WebSearch
 - **Dashboard**：Go + Bubble Tea + Lipgloss（Catppuccin Mocha 主题）
 - **数据**：Markdown 表格 + YAML 配置 + TSV 批处理文件

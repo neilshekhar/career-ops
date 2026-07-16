@@ -3,6 +3,7 @@ package data
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -655,84 +656,72 @@ func resolveTrackerColumns(lines []string) map[string]int {
 	return legacyTrackerColumns
 }
 
-// UpdateApplicationStatus updates the status of an application in applications.md.
+// AllowedTrackerStatusTransitions returns the only transitions exposed by the
+// generic TUI. Applied is intentionally absent: a live application can enter
+// Applied only through the receipt-gated localhost dashboard after the
+// candidate confirms that they submitted it. The lifecycle transitions below
+// represent outcomes observed outside career-ops, so the writer records
+// explicit external provenance for them.
+func AllowedTrackerStatusTransitions(current string) []string {
+	var options []string
+	switch NormalizeStatus(current) {
+	case "evaluated":
+		options = []string{"Discarded", "SKIP"}
+	case "applied":
+		options = []string{"Responded", "Interview", "Offer", "Hired", "Rejected", "Discarded", "SKIP"}
+	case "responded":
+		options = []string{"Interview", "Offer", "Hired", "Rejected", "Discarded", "SKIP"}
+	case "interview":
+		options = []string{"Offer", "Hired", "Rejected", "Discarded", "SKIP"}
+	case "offer":
+		options = []string{"Hired", "Rejected", "Discarded", "SKIP"}
+	case "discarded", "skip":
+		options = []string{"Evaluated"}
+	}
+	return append([]string(nil), options...)
+}
+
+func validateTrackerStatusTransition(oldStatus, newStatus string) error {
+	want := NormalizeStatus(newStatus)
+	if want == "applied" {
+		return fmt.Errorf("generic tracker controls cannot set Applied; use the receipt-gated localhost dashboard after candidate submission")
+	}
+	for _, option := range AllowedTrackerStatusTransitions(oldStatus) {
+		if NormalizeStatus(option) == want {
+			return nil
+		}
+	}
+	return fmt.Errorf("generic tracker controls cannot change %s to %s; use set-status.mjs --external for a verified historical correction", oldStatus, newStatus)
+}
+
+func statusNeedsExternalProvenance(status string) bool {
+	switch NormalizeStatus(status) {
+	case "responded", "interview", "offer", "hired", "rejected":
+		return true
+	default:
+		return false
+	}
+}
+
+// canonicalStatusWriter is replaceable in package tests, but production always
+// executes the canonical locked Node writer. Keeping the tracker mutation in
+// set-status.mjs prevents the Go dashboard from becoming a second lock-free
+// applications.md implementation.
+var canonicalStatusWriter = func(careerOpsPath string, args ...string) ([]byte, error) {
+	root, err := filepath.Abs(careerOpsPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve career-ops root: %w", err)
+	}
+	script := filepath.Join(root, "set-status.mjs")
+	cmd := exec.Command("node", append([]string{script}, args...)...)
+	cmd.Dir = root
+	return cmd.CombinedOutput()
+}
+
+// UpdateApplicationStatus delegates a candidate-entered tracker outcome to the
+// canonical set-status.mjs writer.
 func UpdateApplicationStatus(careerOpsPath string, app model.CareerApplication, newStatus string) error {
 	return UpdateApplicationStatusAndNotes(careerOpsPath, app, newStatus, "")
-}
-
-// replaceStatusInLine rewrites only the Status cell of a tracker row, leaving
-// every other cell untouched. The previous implementation used
-// strings.Replace(line, oldStatus, …, 1), which replaces the first occurrence of
-// the status text anywhere in the row — so a status word appearing as a
-// substring of an earlier cell (e.g. Company "Applied Materials") was rewritten
-// instead of the Status cell, corrupting that cell while the status appeared to
-// stay unchanged (#1180). Matching is whole-cell (never a substring) and, as the
-// old comment claimed but the code did not, case-insensitive.
-//
-// statusField is the Status column index in splitTrackerRow field space (5 in
-// the legacy layout), resolved from the table header so a customized layout
-// (e.g. an inserted Location column) targets the right cell.
-func replaceStatusInLine(line, oldStatus, newStatus string, statusField int) string {
-	want := strings.TrimSpace(oldStatus)
-
-	// Mixed "| " + tab-separated format (mirrors ParseApplications). The body is
-	// tab-split, so cell index equals the field index.
-	if strings.Contains(line, "\t") {
-		prefix, body, found := strings.Cut(line, "|")
-		if !found {
-			return line
-		}
-		cells := strings.Split(body, "\t")
-		if idx := statusCellIndex(cells, statusField, want); idx >= 0 {
-			cells[idx] = spliceCellValue(cells[idx], newStatus)
-			return prefix + "|" + strings.Join(cells, "\t")
-		}
-		return line
-	}
-
-	// Pure pipe format. strings.Split keeps the segments between pipes; content
-	// cell N is segment N+1 (segment 0 is the empty text before the leading
-	// pipe), so the Status field maps to segment statusField+1.
-	segments := strings.Split(line, "|")
-	if idx := statusCellIndex(segments, statusField+1, want); idx >= 0 {
-		segments[idx] = spliceCellValue(segments[idx], newStatus)
-		return strings.Join(segments, "|")
-	}
-	return line
-}
-
-// statusCellIndex returns the index of the Status cell. It prefers the canonical
-// column (canonicalIdx, matching ParseApplications) and verifies it by value; if
-// that doesn't match — e.g. a custom tracker layout — it falls back to the first
-// cell that equals want exactly. Matching is whole-cell and case-insensitive,
-// never a substring, so a status word inside an earlier cell is never hit.
-// Returns -1 when nothing matches, so the caller leaves the row untouched rather
-// than corrupt a guess.
-func statusCellIndex(cells []string, canonicalIdx int, want string) int {
-	if canonicalIdx < len(cells) && strings.EqualFold(strings.TrimSpace(cells[canonicalIdx]), want) {
-		return canonicalIdx
-	}
-	for i, c := range cells {
-		if strings.EqualFold(strings.TrimSpace(c), want) {
-			return i
-		}
-	}
-	return -1
-}
-
-// spliceCellValue swaps a cell's inner value while preserving its surrounding
-// whitespace, so "| Applied |" becomes "| Interview |" rather than "|Interview|".
-func spliceCellValue(cell, newVal string) string {
-	trimmed := strings.TrimSpace(cell)
-	if trimmed == "" {
-		if len(cell) >= 2 {
-			half := len(cell) / 2
-			return cell[:half] + newVal + cell[half:]
-		}
-		return " " + newVal + " "
-	}
-	start := strings.Index(cell, trimmed)
-	return cell[:start] + newVal + cell[start+len(trimmed):]
 }
 
 // cleanTableCell removes trailing pipes and whitespace from a table cell value.
@@ -892,80 +881,51 @@ func safePct(part, whole int) float64 {
 	return float64(part) / float64(whole) * 100
 }
 
-// UpdateApplicationStatusAndNotes updates both the status and notes of an application in applications.md.
+// UpdateApplicationStatusAndNotes delegates status and note mutation to
+// set-status.mjs. Progression outcomes are marked --external because the TUI is
+// a manual tracker surface, never the live-application receipt controller.
 func UpdateApplicationStatusAndNotes(careerOpsPath string, app model.CareerApplication, newStatus string, newNotes string) error {
-	filePath := filepath.Join(careerOpsPath, "applications.md")
-	content, err := os.ReadFile(filePath)
+	newStatus = strings.TrimSpace(newStatus)
+	if newStatus == "" {
+		return fmt.Errorf("a canonical tracker status is required")
+	}
+	if err := validateTrackerStatusTransition(app.Status, newStatus); err != nil {
+		return err
+	}
+
+	selector := ""
+	if app.Number > 0 {
+		selector = strconv.Itoa(app.Number)
+	} else if strings.TrimSpace(app.ReportNumber) != "" {
+		selector = strings.TrimSpace(app.ReportNumber)
+	} else if strings.TrimSpace(app.Company) != "" {
+		selector = strings.TrimSpace(app.Company)
+	}
+	if selector == "" {
+		return fmt.Errorf("application has no tracker number or company selector")
+	}
+
+	args := []string{selector, newStatus}
+	if app.Number <= 0 && strings.TrimSpace(app.ReportNumber) == "" && strings.TrimSpace(app.Role) != "" {
+		args = append(args, "--role", strings.TrimSpace(app.Role))
+	}
+	if note := strings.TrimSpace(newNotes); note != "" {
+		args = append(args, "--note", note)
+	}
+	if statusNeedsExternalProvenance(newStatus) {
+		args = append(args, "--external")
+	}
+	args = append(args, "--json")
+
+	out, err := canonicalStatusWriter(careerOpsPath, args...)
 	if err != nil {
-		filePath = filepath.Join(careerOpsPath, "data", "applications.md")
-		content, err = os.ReadFile(filePath)
-		if err != nil {
-			return err
+		detail := strings.TrimSpace(string(out))
+		if detail == "" {
+			detail = err.Error()
 		}
+		return fmt.Errorf("set-status.mjs rejected the tracker update: %s", detail)
 	}
-
-	lines := strings.Split(string(content), "\n")
-	found := false
-
-	colmap := resolveTrackerColumns(lines)
-	statusIdx, statusOk := colmap["status"]
-	if newStatus != "" && !statusOk {
-		return fmt.Errorf("status column not found in tracker")
-	}
-	notesIdx, notesOk := colmap["notes"]
-	if newNotes != "" && !notesOk {
-		return fmt.Errorf("notes column not found in tracker, cannot append notes")
-	}
-
-	for i, line := range lines {
-		if !strings.HasPrefix(strings.TrimSpace(line), "|") {
-			continue
-		}
-		if app.ReportNumber != "" && strings.Contains(line, fmt.Sprintf("[%s]", app.ReportNumber)) {
-			l := line
-			if newStatus != "" {
-				l = replaceStatusInLine(l, app.Status, newStatus, statusIdx)
-			}
-			if newNotes != "" {
-				l = replaceNotesInLine(l, app.Notes, newNotes, notesIdx)
-			}
-			lines[i] = l
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("application not found: report %s", app.ReportNumber)
-	}
-
-	return os.WriteFile(filePath, []byte(strings.Join(lines, "\n")), 0644)
-}
-
-func replaceNotesInLine(line, oldNotes, newNotes string, notesField int) string {
-	if notesField < 0 {
-		return line
-	}
-	if strings.Contains(line, "\t") {
-		prefix, body, found := strings.Cut(line, "|")
-		if !found {
-			return line
-		}
-		cells := strings.Split(body, "\t")
-		if notesField < len(cells) {
-			cells[notesField] = spliceCellValue(cells[notesField], newNotes)
-			return prefix + "|" + strings.Join(cells, "\t")
-		}
-		return line
-	}
-
-	segments := strings.Split(line, "|")
-	idx := notesField + 1
-	if idx < len(segments) {
-		segments[idx] = spliceCellValue(segments[idx], newNotes)
-		return strings.Join(segments, "|")
-	}
-	return line
+	return nil
 }
 
 // LoadReportDiscardReasons parses predicted discard reasons from a report file.

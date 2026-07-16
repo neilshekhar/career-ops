@@ -1,6 +1,9 @@
-# Mode: auto-pipeline — Full Automatic Pipeline
+# Mode: auto-pipeline — Verdict-First Evaluation
 
-When the user pastes a JD (text or URL) without an explicit sub-command, execute the ENTIRE pipeline in sequence:
+When the user pastes a JD (text or URL) without an explicit sub-command, evaluate it,
+persist the A-G report and `Evaluated` tracker row, show the verdict, and stop at the
+candidate-selection boundary. Tailored assets and application work are a later,
+explicitly authorized phase.
 
 ## Step 0 — Extract JD
 
@@ -8,9 +11,14 @@ If the input is a **URL** (not pasted JD text), follow this strategy to extract 
 
 **Priority order:**
 
-1. **Playwright (preferred):** Most job portals (Lever, Ashby, Greenhouse, Workday) are SPAs. Use `browser_navigate` + `browser_snapshot` to render and read the JD.
-2. **WebFetch (fallback):** For static pages (ZipRecruiter, WeLoveProduct, company career pages).
-3. **WebSearch (last resort):** Search for the role title + company in secondary portals that index the JD in static HTML.
+1. **Public ATS API or deterministic source first:** Reuse substantive JD text already
+   captured by the scanner/queue, or use the supported ATS provider's public posting
+   JSON/API. Accept it only when the company, role, requisition, and source URL match.
+2. **Playwright:** For unsupported ATSes, SPAs, custom portals, or incomplete API results,
+   use `browser_navigate` + `browser_snapshot` to render and read the JD.
+3. **WebFetch:** For static pages when no supported deterministic source is available.
+4. **WebSearch (last resort):** Search for the role title + company in secondary portals
+   that index the JD in static HTML. Treat it as extraction help, never liveness evidence.
 
 **If no method works:** Ask the candidate to paste the JD manually or share a screenshot.
 
@@ -18,78 +26,51 @@ If the input is a **URL** (not pasted JD text), follow this strategy to extract 
 
 ## Step 0.5 — Liveness gate
 
-Before running any evaluation, confirm the posting is still live. The Step 0 Playwright snapshot already holds the evidence — judge it now, before spending tokens on the A-G evaluation, the report, or a PDF. A 404/expired page silently served as a static fallback ("position filled", empty shell) otherwise scores a full evaluation against phantom content.
+Before running any evaluation, confirm the posting is still live through the canonical
+API-first ladder, before spending tokens on A-G, a report, or a PDF:
 
-1. From the Step 0 snapshot/fetched content, classify the posting:
-   - **active posting evidence:** title/role + a real job description or an application/apply path
-   - **closed posting evidence:** expired/closed/"no longer accepting applications", missing JD with only nav/footer, hard redirect to a generic careers/search page, or 404/410
-2. If the posting appears closed or the page is a dead/fallback shell, **stop here**: do not run Step 1–Step 4. Tell the candidate the link is dead, and if the entry came from `data/pipeline.md`, mark it `- [x] ~~Company | Role~~ — oferta nieaktywna`.
-3. If only JD text was pasted (no URL), there is no link to verify — skip the gate and proceed.
+1. For a URL, run `node check-liveness.mjs <url>`. A definitive public ATS/API
+   `expired` result is authoritative; **stop here**, do not run the evaluation, tell the
+   candidate, and resolve any matching pipeline entry as inactive.
+2. If the checker is inconclusive or the host has no supported public ATS endpoint,
+   classify the rendered Step 0 Playwright page/snapshot. Title + substantive JD or a
+   genuine application path is active evidence. Expired/closed text, 404/410, a generic
+   careers redirect, or nav/footer without a JD is closed evidence. WebFetch/WebSearch
+   snippets are extraction aids, never a liveness verdict.
+   Treat only those explicit page/API signals as closed posting evidence.
+3. If only JD text was pasted (no URL), there is no link to verify; note that limitation
+   and proceed.
 
 Do not continue to Step 1 until this gate is resolved.
 
-## Step 1 — A-G Evaluation
+## Step 1 — Execute the canonical A-G evaluation
 
-Execute the same as the `oferta` mode (read `modes/oferta.md` for all A-F blocks + Block G Posting Legitimacy). Read `modes/_custom.md` → Evaluation Rules, if it exists, and apply its override here. Default (if absent or silent): standard A-G evaluation.
+Read and execute `modes/oferta.md` once, in full. It owns the bounded research, A-G
+analysis, atomic report-number reservation, report persistence, and exactly one
+`Evaluated` tracker addition. Do not repeat those writes in this wrapper.
 
-**Agency-mediated postings (#1596):** if the JD smells like a recruiter/agency listing ("our client", agency domain, no employer named), ask the user which agency it came through BEFORE writing the tracker row. Record the end employer as `?` (never "Confidential"), the agency in the Via field / `via=` TSV tag, and a distinguishing descriptor in Notes — see `modes/oferta.md` and `modes/tracker.md` for the full convention and reveal workflow.
+For agency-mediated postings, follow `modes/oferta.md` and `modes/tracker.md`: identify
+the agency before the tracker write, use `?` for an unknown end employer, and preserve
+the Via/notes evidence.
 
-**Agency-mediated postings (#1596):** if the JD smells like a recruiter/agency listing ("our client", agency domain, no employer named), ask the user which agency it came through BEFORE writing the tracker row. Record the end employer as `?` (never "Confidential"), the agency in the Via field / `via=` TSV tag, and a distinguishing descriptor in Notes — see `modes/oferta.md` and `modes/tracker.md` for the full convention and reveal workflow.
+## Step 2 — Present the verdict and stop
 
-The evaluation inherits `oferta`'s bounded research budget. Company, compensation, and hiring-signal lookup must not invoke `deep-research`, must not spawn subagents, and must stop at the shared query cap instead of escalating into open-ended research.
+Show the score, recommendation, legitimacy result, report path, and dashboard link.
+Do not generate a tailored CV, cover letter, form-answer draft, queue PREPARE asset,
+or live browser form from score alone. A score threshold is a recommendation/filter,
+never candidate selection.
 
-## Step 2 — Save Report .md
+## Step 3 — Continue only after explicit authorization
 
-Save the full evaluation in `reports/{###}-{company-slug}-{YYYY-MM-DD}.md` (see format in `modes/oferta.md`).
-Include Block G in the saved report. Add **URL:** {url} and **Legitimacy:** {tier} to the report header.
+After the candidate explicitly continues with this exact role or selects it in the
+dashboard:
 
-## Step 3 — Generate PDF
+1. Ensure the role has a queue record and stable role ID.
+2. Run the canonical Queue PREPARE flow to create the fresh tailored CV and cover letter,
+   persist provenance, and pass `verify-userdata.mjs`.
+3. For a live application, require the dashboard's durable `application_request`, then
+   execute `modes/apply.md` and its per-page lookup/L3/teach/receipt loop.
+4. If the candidate requested only a standalone PDF, cover letter, or LaTeX export, run
+   that explicit mode without implying that an application was selected or filled.
 
-Read `config/profile.yml`. Check `cv.output_format`:
-
-- If `"latex"`, execute the full pipeline from `modes/latex.md`
-- Otherwise (default), execute the full pipeline from `modes/pdf.md`
-
-## Step 4 — Draft Application Answers (only if score >= 4.5)
-
-If the final score is >= 4.5, generate a draft of responses for the application form:
-
-1. **Extract form questions**: Use Playwright to navigate to the form and take a snapshot. If they cannot be extracted, use the generic questions.
-2. **Generate responses** following the tone (see below).
-3. **Save in the report** as section `## H) Draft Application Answers`.
-
-### Generic questions (use if they cannot be extracted from the form)
-
-- Why are you interested in this role?
-- Why do you want to work at [Company]?
-- Tell us about a relevant project or achievement
-- What makes you a good fit for this position?
-- How did you hear about this role?
-- Work authorization / sponsorship, if asked
-
-### Tone for Form Answers
-
-**Position: "I'm choosing you."** The candidate has options and is choosing this company for specific reasons.
-
-**Tone rules:**
-- **Confident without arrogance**: "I've spent the past year building production AI agent systems — your role is where I want to apply that experience next"
-- **Selective without arrogance**: "I've been intentional about finding a team where I can contribute meaningfully from day one"
-- **Specific and concrete**: Always reference something REAL from the JD or the company, and something REAL from the candidate's experience
-- **Direct, without fluff**: 2-4 sentences per response. No "I'm passionate about..." or "I would love the opportunity to..."
-- **The hook is the proof, not the statement**: Instead of "I'm great at X", say "I built X that does Y"
-
-**Framework per question:**
-- **Why this role?** → "Your [specific thing] maps directly to [specific thing I built]."
-- **Why this company?** → Mention something specific about the company. "I've been using [product] for [time/purpose]."
-- **Relevant experience?** → A quantified proof point. "Built [X] that [metric]. Sold the company in 2025."
-- **Good fit?** → "I sit at the intersection of [A] and [B], which is exactly where this role lives."
-- **How did you hear?** → Honest: "Found through [portal/scan], evaluated against my criteria, and it scored highest."
-- **Sponsorship / work authorization?** → Read `config/profile.yml`. If unchanged, answer "No sponsorship required" and describe work rights using the profile's exact timing. Never claim citizenship, PR, or clearance.
-
-**Language**: Always in the language of the JD (EN default). Apply `/tech-translate`.
-
-## Step 5 — Update Tracker
-
-Record it in `data/applications.md` with all columns including Report and PDF as ✅.
-
-**If any step fails**, continue with the next ones and mark the failed step as pending in the tracker.
+The candidate alone performs final job submission.

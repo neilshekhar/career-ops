@@ -42,6 +42,8 @@ function runSetStatus(args, sandbox, extraEnv = {}) {
     ...process.env,
     CAREER_OPS_TRACKER: sandbox.tracker,
     CAREER_OPS_TRACKER_LOCK: sandbox.lock,
+    CAREER_OPS_DATA_DIR: sandbox.dataDir,
+    CAREER_OPS_QUEUE_BACKEND: 'local',
     ...extraEnv,
   };
   try {
@@ -58,16 +60,25 @@ function runSetStatus(args, sandbox, extraEnv = {}) {
 function makeSandbox(trackerContent) {
   const dir = mkdtempSync(join(tmpdir(), 'co-setstatus-'));
   const tracker = join(dir, 'applications.md');
+  const dataDir = join(dir, 'data');
+  mkdirSync(dataDir, { recursive: true });
   writeFileSync(tracker, trackerContent);
   // The lock env value must live under tmpdir and use the career-ops prefix
   // (see trackerLockDirFor) or it is ignored — which would still be safe,
   // just contending on the real default lock.
   const lock = join(dir, 'career-ops-merge-tracker-test.lock');
-  return { dir, tracker, lock };
+  return { dir, tracker, lock, dataDir };
 }
 
 function readTracker(sandbox) {
   return readFileSync(sandbox.tracker, 'utf-8');
+}
+
+function writeQueue(sandbox, roles) {
+  writeFileSync(
+    join(sandbox.dataDir, 'apply-queue.json'),
+    JSON.stringify({ version: 1, settings: {}, roles }, null, 2) + '\n',
+  );
 }
 
 const TRACKER_9 = `# Applications Tracker
@@ -86,10 +97,25 @@ const TRACKER_10 = `# Applications Tracker
 | 1 | 2026-06-01 | Initech | AI Engineer | Remote | 4.5/5 | Evaluated | ✅ | [1](../reports/001-initech-2026-06-01.md) | — |
 `;
 
+const TRACKER_URL = `# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | PDF | Report | Notes |
+|---|------|---------|------|-------|--------|-----|--------|-------|
+| 1 | 2026-06-01 | Acme | Data Engineer | 4.2/5 | Evaluated | ✅ | [job](https://jobs.acme.test/roles/one) | first requisition |
+| 2 | 2026-06-02 | Acme | Data Engineer | 4.1/5 | Evaluated | ✅ | [job](https://jobs.acme.test/roles/two) | second requisition |
+`;
+
+const TRACKER_REVEAL = `# Applications Tracker
+
+| # | Date | Company | Via | Role | Score | Status | PDF | Report | Notes |
+|---|------|---------|-----|------|-------|--------|-----|--------|-------|
+| 7 | 2026-06-07 | ? | Hays | Solutions Analyst | 4.3/5 | Applied | ❌ | [7](../reports/007-confidential-2026-06-07.md) | fintech; [application-receipt:receipt-7] |
+`;
+
 // ── 1. Update by report number ──────────────────────────────────
 {
   const sb = makeSandbox(TRACKER_9);
-  const r = runSetStatus(['2', 'Applied'], sb);
+  const r = runSetStatus(['2', 'Applied', '--external'], sb);
   const content = readTracker(sb);
   if (r.code === 0 && /\| 2 \| 2026-06-02 \| Globex \| Platform Engineer \| 4.0\/5 \| Applied \|/.test(content)) {
     pass('by-num: status updated to Applied');
@@ -107,7 +133,7 @@ const TRACKER_10 = `# Applications Tracker
 // ── 2. Update by company name (single match) ────────────────────
 {
   const sb = makeSandbox(TRACKER_9);
-  const r = runSetStatus(['globex', 'Responded'], sb);
+  const r = runSetStatus(['globex', 'Responded', '--external'], sb);
   if (r.code === 0 && /\| Globex \| Platform Engineer \| 4.0\/5 \| Responded \|/.test(readTracker(sb))) {
     pass('by-company: fuzzy company resolves single match');
   } else {
@@ -119,7 +145,7 @@ const TRACKER_10 = `# Applications Tracker
 // ── 3. State aliases resolve to canonical labels ────────────────
 {
   const sb = makeSandbox(TRACKER_9);
-  const r = runSetStatus(['2', 'aplicado'], sb);
+  const r = runSetStatus(['2', 'aplicado', '--external'], sb);
   if (r.code === 0 && /\| Globex \| Platform Engineer \| 4.0\/5 \| Applied \|/.test(readTracker(sb))) {
     pass('alias: "aplicado" resolves to canonical "Applied"');
   } else {
@@ -137,6 +163,281 @@ const TRACKER_10 = `# Applications Tracker
     pass('bad-state: exit 1, valid states listed, tracker untouched');
   } else {
     fail(`bad-state: code=${r.code} (want 1)\n${r.stdout}${r.stderr}`);
+  }
+  rmSync(sb.dir, { recursive: true, force: true });
+}
+
+// ── 4b. Queue-only states are not tracker statuses ──────────────
+{
+  const sb = makeSandbox(TRACKER_9);
+  const before = readTracker(sb);
+  const r = runSetStatus(['2', 'Filled'], sb);
+  if (r.code === 1 && readTracker(sb) === before && !/\bFilled\b/.test(r.stderr.match(/Valid states:[\s\S]*/)?.[0] ?? '')) {
+    pass('scope: queue-only Filled is rejected for applications.md');
+  } else {
+    fail(`scope: queue-only Filled leaked into tracker states\n${r.stdout}${r.stderr}`);
+  }
+  rmSync(sb.dir, { recursive: true, force: true });
+}
+
+// ── 4c. Canonical submission is receipt-gated; external is explicit ─
+{
+  const sb = makeSandbox(TRACKER_9);
+  const before = readTracker(sb);
+  const blocked = runSetStatus(['2', 'Applied', '--json'], sb);
+  let payload = null;
+  try { payload = JSON.parse(blocked.stdout); } catch {}
+  if (blocked.code === 1 && payload?.code === 'external-confirmation-required' && readTracker(sb) === before) {
+    pass('submission: bare Evaluated → Applied is rejected without canonical receipt or --external provenance');
+  } else {
+    fail(`submission: ungated Applied transition was not rejected\n${blocked.stdout}${blocked.stderr}`);
+  }
+  const allowed = runSetStatus(['2', 'Applied', '--external', '--json'], sb);
+  let allowedPayload = null;
+  try { allowedPayload = JSON.parse(allowed.stdout); } catch {}
+  if (
+    allowed.code === 0 &&
+    allowedPayload?.provenance === 'external-confirmed' &&
+    readTracker(sb).includes('[external-status]')
+  ) {
+    pass('submission: explicit external/historical provenance is recorded');
+  } else {
+    fail(`submission: --external transition failed\n${allowed.stdout}${allowed.stderr}`);
+  }
+  rmSync(sb.dir, { recursive: true, force: true });
+}
+
+// ── 4d. --receipt is exact, Applied-only, and never trusts caller text ─
+{
+  const sb = makeSandbox(TRACKER_9);
+  const receiptId = 'application:run-123:receipt-456';
+  const before = readTracker(sb);
+
+  const unbound = runSetStatus(['2', 'Applied', '--receipt', receiptId, '--json'], sb);
+  let unboundPayload = null;
+  try { unboundPayload = JSON.parse(unbound.stdout); } catch {}
+  if (unbound.code === 1 && unboundPayload?.code === 'usage' && readTracker(sb) === before) {
+    pass('submission: --receipt requires exact --role and --report bindings');
+  } else {
+    fail(`submission: unbound receipt was accepted\n${unbound.stdout}${unbound.stderr}`);
+  }
+
+  const forged = runSetStatus([
+    '2', 'Applied', '--role', 'Platform Engineer',
+    '--report', 'reports/002-globex-2026-06-02.md',
+    '--receipt', receiptId, '--json',
+  ], sb);
+  let forgedPayload = null;
+  try { forgedPayload = JSON.parse(forged.stdout); } catch {}
+  if (forged.code === 1 && forgedPayload?.code === 'receipt-not-found' && readTracker(sb) === before) {
+    pass('submission: forged receipt ID absent from the isolated queue is rejected');
+  } else {
+    fail(`submission: forged receipt was accepted\n${forged.stdout}${forged.stderr}`);
+  }
+
+  const wrongState = runSetStatus([
+    '2', 'Offer', '--role', 'Platform Engineer',
+    '--report', 'reports/002-globex-2026-06-02.md',
+    '--receipt', receiptId, '--json',
+  ], sb);
+  if (wrongState.code === 1 && /Applied transition/.test(wrongState.stdout + wrongState.stderr) && readTracker(sb) === before) {
+    pass('submission: --receipt cannot authorize Offer or another non-Applied state');
+  } else {
+    fail(`submission: receipt authorized a non-Applied state\n${wrongState.stdout}${wrongState.stderr}`);
+  }
+
+  const conflict = runSetStatus([
+    '1', 'Applied', '--role', 'Backend Engineer',
+    '--report', 'reports/001-acme-2026-06-01.md',
+    '--receipt', receiptId, '--external', '--json',
+  ], sb);
+  if (conflict.code === 1 && readTracker(sb) === before) {
+    pass('submission: receipt and external provenance cannot be mixed');
+  } else {
+    fail(`submission: conflicting provenance was accepted\n${conflict.stdout}${conflict.stderr}`);
+  }
+  rmSync(sb.dir, { recursive: true, force: true });
+}
+
+// ── 4e. Report identity disambiguates identical company/title rows ─
+{
+  const sb = makeSandbox(TRACKER_URL);
+  const result = runSetStatus([
+    'acme', 'Applied', '--role', 'Data Engineer',
+    '--report', 'https://JOBS.acme.test/roles/two#review',
+    '--external',
+  ], sb);
+  const tracker = readTracker(sb);
+  if (
+    result.code === 0 &&
+    /\| 1 \|[^\n]+\| Evaluated \|/.test(tracker) &&
+    /\| 2 \|[^\n]+\| Applied \|/.test(tracker)
+  ) {
+    pass('resolution: --report selects the exact requisition when company and role are identical');
+  } else {
+    fail(`resolution: --report did not disambiguate exact requisition\n${result.stdout}${result.stderr}\n${tracker}`);
+  }
+  rmSync(sb.dir, { recursive: true, force: true });
+}
+
+// ── 4f. Receipt identity and submitted readiness are revalidated ─
+// Receipt identity checks intentionally use URL reports here so the test can
+// fail before touching the real reports/ or handover.md user surfaces.
+{
+  const sb = makeSandbox(TRACKER_URL);
+  const receiptId = 'application-receipt:acme:data-role:run-1';
+  const baseRole = {
+    id: 'data-role',
+    company: 'Acme',
+    title: 'Data Engineer',
+    status: 'filled',
+    application_request: { receipt_id: receiptId },
+    application_progress: {
+      receipt_id: receiptId,
+      handover_receipt_id: receiptId,
+      review_ready: true,
+      finalized_at: '2026-06-02T00:00:00.000Z',
+      application_answers_report: 'https://jobs.acme.test/roles/two',
+    },
+  };
+  const args = [
+    '2', 'Applied', '--role', 'Data Engineer',
+    '--report', 'https://jobs.acme.test/roles/two',
+    '--receipt', receiptId, '--json',
+  ];
+  const before = readTracker(sb);
+
+  for (const [label, patch] of [
+    ['company', { company: 'Wrong Company' }],
+    ['role', { title: 'Wrong Role' }],
+    ['report', {
+      application_progress: {
+        ...baseRole.application_progress,
+        application_answers_report: 'https://jobs.acme.test/roles/one',
+      },
+    }],
+  ]) {
+    writeQueue(sb, [{ ...baseRole, ...patch }]);
+    const result = runSetStatus(args, sb);
+    let payload = null;
+    try { payload = JSON.parse(result.stdout); } catch {}
+    if (result.code === 1 && payload?.code === 'receipt-mismatch' && readTracker(sb) === before) {
+      pass(`submission: receipt ${label} mismatch is rejected without writing`);
+    } else {
+      fail(`submission: receipt ${label} mismatch was accepted\n${result.stdout}${result.stderr}`);
+    }
+  }
+
+  writeQueue(sb, [baseRole, { ...baseRole, id: 'duplicate-role' }]);
+  const duplicate = runSetStatus(args, sb);
+  let duplicatePayload = null;
+  try { duplicatePayload = JSON.parse(duplicate.stdout); } catch {}
+  if (duplicate.code === 1 && duplicatePayload?.code === 'receipt-ambiguous' && readTracker(sb) === before) {
+    pass('submission: duplicated queue receipt ID is rejected as ambiguous');
+  } else {
+    fail(`submission: duplicated receipt was accepted\n${duplicate.stdout}${duplicate.stderr}`);
+  }
+
+  writeQueue(sb, [baseRole]);
+  const notReady = runSetStatus(args, sb);
+  let notReadyPayload = null;
+  try { notReadyPayload = JSON.parse(notReady.stdout); } catch {}
+  if (notReady.code === 1 && notReadyPayload?.code === 'receipt-not-ready' && readTracker(sb) === before) {
+    pass('submission: matching receipt still fails unless submitted report readiness revalidates');
+  } else {
+    fail(`submission: non-ready matching receipt was accepted\n${notReady.stdout}${notReady.stderr}`);
+  }
+  rmSync(sb.dir, { recursive: true, force: true });
+}
+
+// ── 4g. Exact-row company reveal preserves lifecycle provenance ─
+{
+  const sb = makeSandbox(TRACKER_REVEAL);
+  const result = runSetStatus(['7', '--company', 'Barclays', '--json'], sb);
+  let payload = null;
+  try { payload = JSON.parse(result.stdout); } catch {}
+  const tracker = readTracker(sb);
+  if (
+    result.code === 0 &&
+    payload?.oldCompany === '?' &&
+    payload?.newCompany === 'Barclays' &&
+    /\| 7 \| 2026-06-07 \| Barclays \| Hays \| Solutions Analyst \| 4\.3\/5 \| Applied \| ❌ \|/.test(tracker) &&
+    tracker.includes('fintech; [application-receipt:receipt-7]')
+  ) {
+    pass('metadata: exact-row company reveal preserves status, Via, PDF, and receipt provenance');
+  } else {
+    fail(`metadata: company reveal failed\n${result.stdout}${result.stderr}\n${tracker}`);
+  }
+
+  const beforeRetry = readTracker(sb);
+  const retry = runSetStatus(['7', '--company', 'Barclays', '--json'], sb);
+  let retryPayload = null;
+  try { retryPayload = JSON.parse(retry.stdout); } catch {}
+  if (retry.code === 0 && retryPayload?.changed === false && readTracker(sb) === beforeRetry) {
+    pass('metadata: company reveal is idempotent');
+  } else {
+    fail(`metadata: company reveal retry was not a no-op\n${retry.stdout}${retry.stderr}`);
+  }
+
+  const conflict = runSetStatus(['7', '--company', 'Lloyds', '--json'], sb);
+  let conflictPayload = null;
+  try { conflictPayload = JSON.parse(conflict.stdout); } catch {}
+  if (
+    conflict.code === 1 &&
+    conflictPayload?.code === 'company-reveal-conflict' &&
+    readTracker(sb) === beforeRetry
+  ) {
+    pass('metadata: one-way reveal rejects a second company rename without writing');
+  } else {
+    fail(`metadata: conflicting company rename was accepted\n${conflict.stdout}${conflict.stderr}`);
+  }
+  rmSync(sb.dir, { recursive: true, force: true });
+}
+
+// ── 4g. Exact-row PDF-ready upgrade preserves lifecycle provenance ─
+{
+  const sb = makeSandbox(TRACKER_REVEAL);
+  const result = runSetStatus(['7', '--pdf-ready', '--json'], sb);
+  let payload = null;
+  try { payload = JSON.parse(result.stdout); } catch {}
+  const tracker = readTracker(sb);
+  if (
+    result.code === 0 &&
+    payload?.oldPdf === '❌' &&
+    payload?.newPdf === '✅' &&
+    /\| 4\.3\/5 \| Applied \| ✅ \|/.test(tracker) &&
+    tracker.includes('fintech; [application-receipt:receipt-7]')
+  ) {
+    pass('metadata: PDF-ready upgrade preserves status and receipt provenance');
+  } else {
+    fail(`metadata: PDF-ready upgrade failed\n${result.stdout}${result.stderr}\n${tracker}`);
+  }
+  const beforeRetry = readTracker(sb);
+  const retry = runSetStatus(['7', '--pdf-ready', '--json'], sb);
+  let retryPayload = null;
+  try { retryPayload = JSON.parse(retry.stdout); } catch {}
+  if (retry.code === 0 && retryPayload?.changed === false && readTracker(sb) === beforeRetry) {
+    pass('metadata: PDF-ready upgrade is monotonic and idempotent');
+  } else {
+    fail(`metadata: PDF-ready retry was not a no-op\n${retry.stdout}${retry.stderr}`);
+  }
+  rmSync(sb.dir, { recursive: true, force: true });
+}
+
+// ── 4h. Metadata mutations require an exact tracker-number selector ─
+{
+  const sb = makeSandbox(TRACKER_REVEAL);
+  const before = readTracker(sb);
+  const company = runSetStatus(['?', '--company', 'Barclays', '--json'], sb);
+  const pdf = runSetStatus(['?', '--pdf-ready', '--json'], sb);
+  if (
+    company.code === 1 && pdf.code === 1 &&
+    /exact numeric tracker #/.test(company.stdout + company.stderr + pdf.stdout + pdf.stderr) &&
+    readTracker(sb) === before
+  ) {
+    pass('metadata: non-numeric selectors are rejected before any tracker write');
+  } else {
+    fail(`metadata: inexact selector was accepted\n${company.stdout}${company.stderr}${pdf.stdout}${pdf.stderr}`);
   }
   rmSync(sb.dir, { recursive: true, force: true });
 }
@@ -168,7 +469,7 @@ const TRACKER_10 = `# Applications Tracker
   } else {
     fail(`ambiguous: code=${r.code} (want 3)\n${r.stdout}${r.stderr}`);
   }
-  const r2 = runSetStatus(['acme', 'Applied', '--role', 'Data Engineer'], sb);
+  const r2 = runSetStatus(['acme', 'Applied', '--role', 'Data Engineer', '--external'], sb);
   if (r2.code === 0 && /\| 3 \| 2026-06-03 \| Acme \| Data Engineer \| 3.9\/5 \| Applied \|/.test(readTracker(sb))) {
     pass('ambiguous: --role disambiguates to the right row');
   } else {
@@ -180,9 +481,9 @@ const TRACKER_10 = `# Applications Tracker
 // ── 7. Note append: idempotent, separator, pipe-sanitized ───────
 {
   const sb = makeSandbox(TRACKER_9);
-  runSetStatus(['1', 'Applied', '--note', 'sent via referral'], sb);
+  runSetStatus(['1', 'Applied', '--note', 'sent via referral', '--external'], sb);
   const after1 = readTracker(sb);
-  if (/\| strong infra fit; sent via referral \|/.test(after1)) {
+  if (/\| strong infra fit; sent via referral; \[external-status\] \|/.test(after1)) {
     pass('note: appended to existing notes with "; "');
   } else {
     fail(`note: append missing\n${after1}`);
@@ -196,7 +497,7 @@ const TRACKER_10 = `# Applications Tracker
     fail('note: retry duplicated the note');
   }
   // A note that itself contains "; " must also stay idempotent.
-  runSetStatus(['3', 'Responded', '--note', 'Called; left voicemail'], sb);
+  runSetStatus(['3', 'Responded', '--note', 'Called; left voicemail', '--external'], sb);
   runSetStatus(['3', 'Responded', '--note', 'Called; left voicemail'], sb);
   if ((readTracker(sb).match(/left voicemail/g) || []).length === 1) {
     pass('note: retry with semicolon-bearing note does not duplicate');
@@ -204,7 +505,7 @@ const TRACKER_10 = `# Applications Tracker
     fail('note: semicolon-bearing note duplicated on retry');
   }
   // Pipes/newlines in a note would corrupt the table — must be sanitized.
-  runSetStatus(['2', 'Applied', '--note', 'weird | note'], sb);
+  runSetStatus(['2', 'Applied', '--note', 'weird | note', '--external'], sb);
   const after3 = readTracker(sb);
   if (!/weird \| note/.test(after3) && /weird \/ note/.test(after3)) {
     pass('note: literal pipe sanitized');
@@ -213,7 +514,7 @@ const TRACKER_10 = `# Applications Tracker
   }
   // A literal newline would split the row into two lines and break the table:
   // the stored row must stay a single line with the newline collapsed.
-  runSetStatus(['2', 'Applied', '--note', 'first line\nsecond line'], sb);
+  runSetStatus(['2', 'Applied', '--note', 'first line\nsecond line', '--external'], sb);
   const after4 = readTracker(sb);
   const row2 = after4.split('\n').filter(l => /^\| 2 \|/.test(l));
   if (row2.length === 1 && row2[0].includes('first line second line')) {
@@ -230,8 +531,8 @@ const TRACKER_10 = `# Applications Tracker
   // Row 1 notes: "strong infra fit". A note that is a mere substring of an
   // existing entry is NOT a duplicate — only whole "; "-delimited entries
   // (or the entire field) count.
-  const r = runSetStatus(['1', 'Applied', '--note', 'infra'], sb);
-  if (r.code === 0 && /\| strong infra fit; infra \|/.test(readTracker(sb))) {
+  const r = runSetStatus(['1', 'Applied', '--note', 'infra', '--external'], sb);
+  if (r.code === 0 && /\| strong infra fit; infra; \[external-status\] \|/.test(readTracker(sb))) {
     pass('note-dedup: substring of an existing entry still appends');
   } else {
     fail(`note-dedup: substring wrongly suppressed\n${readTracker(sb)}`);
@@ -251,7 +552,7 @@ const TRACKER_10 = `# Applications Tracker
 // ── 8. No-op re-run: exit 0, file byte-identical ────────────────
 {
   const sb = makeSandbox(TRACKER_9);
-  runSetStatus(['2', 'Applied'], sb);
+  runSetStatus(['2', 'Applied', '--external'], sb);
   const before = readTracker(sb);
   const r = runSetStatus(['2', 'Applied', '--json'], sb);
   let parsed = null;
@@ -275,7 +576,7 @@ const TRACKER_10 = `# Applications Tracker
 {
   const sb = makeSandbox(TRACKER_9);
   const before = readTracker(sb);
-  const r = runSetStatus(['2', 'Applied', '--dry-run', '--json'], sb);
+  const r = runSetStatus(['2', 'Applied', '--external', '--dry-run', '--json'], sb);
   let parsed = null;
   try { parsed = JSON.parse(r.stdout); } catch {}
   if (r.code === 0 && readTracker(sb) === before && parsed && parsed.changed === true && parsed.dryRun === true) {
@@ -289,7 +590,7 @@ const TRACKER_10 = `# Applications Tracker
 // ── 10. JSON output shape + #1430 follow-up hook ────────────────
 {
   const sb = makeSandbox(TRACKER_9);
-  const r = runSetStatus(['2', 'Applied', '--json'], sb);
+  const r = runSetStatus(['2', 'Applied', '--external', '--json'], sb);
   let parsed = null;
   try { parsed = JSON.parse(r.stdout); } catch {}
   if (parsed && parsed.num === 2 && parsed.company === 'Globex' && parsed.oldStatus === 'Evaluated'
@@ -298,7 +599,7 @@ const TRACKER_10 = `# Applications Tracker
   } else {
     fail(`json: bad shape\n${r.stdout}${r.stderr}`);
   }
-  const r2 = runSetStatus(['1', 'Rejected', '--json'], sb);
+  const r2 = runSetStatus(['1', 'Rejected', '--external', '--json'], sb);
   let parsed2 = null;
   try { parsed2 = JSON.parse(r2.stdout); } catch {}
   if (parsed2 && parsed2.followupSeedCandidate === undefined) {
@@ -327,7 +628,7 @@ const TRACKER_10 = `# Applications Tracker
 // ── 12. 10-column Location layout ───────────────────────────────
 {
   const sb = makeSandbox(TRACKER_10);
-  const r = runSetStatus(['1', 'Interview', '--note', 'onsite loop scheduled'], sb);
+  const r = runSetStatus(['1', 'Interview', '--note', 'onsite loop scheduled', '--external'], sb);
   const content = readTracker(sb);
   if (r.code === 0 && /\| Initech \| AI Engineer \| Remote \| 4.5\/5 \| Interview \|/.test(content)
       && /onsite loop scheduled/.test(content)) {
@@ -485,7 +786,7 @@ const TRACKER_10 = `# Applications Tracker
       : chmodSync(roDir, 0o755);
     denyWrite();
     try {
-      const r = runSetStatus(['2', 'Applied', '--json'], { tracker, lock });
+      const r = runSetStatus(['2', 'Applied', '--external', '--json'], { tracker, lock });
       let parsed = null;
       try { parsed = JSON.parse(r.stdout); } catch {}
       if (r.code === 1 && parsed && parsed.code === 'write-failure') {

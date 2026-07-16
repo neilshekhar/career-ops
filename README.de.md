@@ -73,7 +73,7 @@
 
 Career-Ops ([career-ops.org](https://career-ops.org), auch **careerops**) macht jede KI-Coding-CLI zu einer Kommandozentrale für die Jobsuche. Statt Bewerbungen manuell in einer Tabelle zu verfolgen, bekommst du eine KI-gestützte Pipeline, die:
 
-- **Stellenanzeigen bewertet** mit einem strukturierten A-F-Scoring-System (10 gewichtete Dimensionen)
+- **Stellenanzeigen bewertet** mit einem strukturierten A-G-System (10 gewichtete Score-Dimensionen plus Legitimitätsanalyse)
 - **maßgeschneiderte PDFs generiert** -- ATS-optimierte Lebensläufe, angepasst an jede Stellenanzeige
 - **Portale automatisch scannt** (Greenhouse, Ashby, Lever, Unternehmensseiten)
 - **Batch-Verarbeitung** ermöglicht -- 10+ Stellenanzeigen parallel mit Sub-Agents bewerten
@@ -91,15 +91,15 @@ Ursprünglich entwickelt von [santifer](https://santifer.io), der damit 740+ Ste
 
 | Feature | Beschreibung |
 | ------- | ------------ |
-| **Auto-Pipeline** | URL einfügen, vollständige Bewertung + PDF + Tracker-Eintrag erhalten |
-| **6-Block-Bewertung** | Rollen-Zusammenfassung, Lebenslauf-Match, Level-Strategie, Vergütungsrecherche, Personalisierung, Interview-Vorbereitung (STAR+R) -- plus Block G zur Legitimitätsprüfung gegen Scams und Ghost Jobs |
+| **Auto-Pipeline** | URL einfügen, zuerst bewerten/scoren und das Urteil anzeigen; maßgeschneiderte Assets und Bewerbungsarbeit erfordern ausdrückliches Fortsetzen oder eine Dashboard-Auswahl |
+| **A-G-Bewertung** | Rollen-Zusammenfassung, Lebenslauf-Match, Level-Strategie, Vergütungsrecherche, Personalisierung, Interview-Vorbereitung (STAR+R) und Block G zur Legitimitätsprüfung |
 | **Interview Story Bank** | Sammelt STAR+Reflection-Geschichten über Bewertungen hinweg -- 5-10 Master-Stories für Behavioral Questions |
 | **Verhandlungsskripte** | Frameworks für Gehaltsverhandlungen, Pushback gegen geografische Abschläge, Hebel durch konkurrierende Angebote |
 | **ATS-PDF-Generierung** | Lebensläufe mit Keyword-Injektion im Space-Grotesk- und DM-Sans-Design |
 | **Anschreiben-Generator** | Recherchegestützte Anschreiben mit Keyword-Mirroring, interaktiven Angle-Prompts, Freigabe im Chat und A4-PDF über dieselbe HTML- und Playwright-Pipeline wie Lebensläufe |
 | **Portal-Scanner** | 45+ vorkonfigurierte Unternehmen (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) plus eigene Queries über Ashby, Greenhouse, Lever und Wellfound |
 | **Batch Processing** | Parallele Bewertung mit headless CLI-Workern (`claude -p` / `opencode run`) |
-| **Lokales Kanban-Dashboard** | Browser-Dashboard zum Prüfen, Priorisieren, Vorbereiten und Ausfüllen von Bewerbungen |
+| **Lokales Kanban-Dashboard** | Browser-Dashboard zum Prüfen und Vorbereiten von Rollen, Einreihen von Bewerbungsanfragen für den aktiven Agenten und Kontrollieren review-bereiter Arbeit |
 | **Human-in-the-Loop** | KI bewertet und empfiehlt, du entscheidest. Das System sendet niemals automatisch Bewerbungen ab |
 | **Pipeline-Integrität** | Automatisches Mergen, Deduplizieren, Status-Normalisierung und Health Checks |
 
@@ -128,7 +128,7 @@ claude   # oder gemini / codex / qwen / opencode / agy / grok -- öffne deine KI
 ```bash
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
-npx playwright install chromium   # nur für PDF-Generierung nötig
+npx playwright install chromium   # nötig für PDFs und Playwright-Browser-/Liveness-Prüfung
 
 # 2. Setup prüfen
 npm run doctor                     # validiert alle Voraussetzungen
@@ -156,7 +156,7 @@ Career-ops verwendet einen gemeinsamen Command-Router. In CLIs mit Slash-Command
 
 ```text
 /career-ops                → alle verfügbaren Befehle anzeigen
-/career-ops {JD einfügen}  → vollständige Auto-Pipeline (Bewertung + PDF + Tracker)
+/career-ops {JD einfügen}  → Bewertung/Score und Urteil zuerst; auf ausdrückliches Fortsetzen oder Dashboard-Auswahl warten
 /career-ops scan           → Portale nach neuen Angeboten scannen
 /career-ops pdf            → ATS-optimierten Lebenslauf generieren
 /career-ops cover          → Anschreiben-Generator (JD einfügen oder /career-ops cover {slug})
@@ -170,7 +170,7 @@ Career-ops verwendet einen gemeinsamen Command-Router. In CLIs mit Slash-Command
 /career-ops project        → Portfolio-Projekt bewerten
 ```
 
-Oder füge einfach eine Stellenanzeigen-URL oder Stellenbeschreibung ein -- career-ops erkennt sie automatisch und startet die komplette Pipeline.
+Oder füge einfach eine Stellenanzeigen-URL oder Stellenbeschreibung ein -- career-ops erkennt sie, bewertet/scort sie und zeigt zuerst das Urteil. Gemäß `modes/_custom.md` erzeugt es keine maßgeschneiderten Assets, setzt den Bewerbungsstatus im Tracker nicht fort, wählt keine Rolle aus, öffnet keinen Browser und füllt kein Live-Formular, bevor du ausdrücklich fortfährst oder die Rolle im Dashboard auswählst.
 
 In Codex sind Slash Commands nicht garantiert. Nutze stattdessen dieselben Modusnamen in einem normalen Prompt oder über `codex exec`.
 
@@ -183,11 +183,16 @@ Du fügst eine Stellenanzeigen-URL oder Stellenbeschreibung ein
 Archetyp-Erkennung
         |
         v
-A-F-Bewertung (liest cv.md)
+A-G-Bewertung (liest cv.md)
         |
-        +-- Report
-        +-- PDF
-        +-- Tracker
+        v
+Score/Urteil + Report + Tracker-Status: Evaluated
+        |
+        v
+Ausdrücklich fortsetzen oder im Dashboard auswählen
+        |
+        v
+Maßgeschneiderte Assets -> Browser/Live-Ausfüllen -> Kandidat prüft und sendet ab
 ```
 
 ## Vorkonfigurierte Portale
@@ -219,7 +224,7 @@ Das lokale Kanban-Dashboard ist die primäre Review-Oberfläche von career-ops. 
 npm run launch   # öffnet http://127.0.0.1:7777
 ```
 
-Nutze es, um Fit-Scores zu prüfen, Rollen zur Vorbereitung auszuwählen, Form-Fill zu starten, Entwürfe/Assets zu kontrollieren und die menschliche Prüfung vor dem Absenden zu behalten. Das Dashboard sendet nie Bewerbungen für dich ab.
+Nutze es, um Fit-Scores zu prüfen, Rollen zur Vorbereitung auszuwählen, dauerhafte Bewerbungsanfragen für den aktiven Agenten einzureihen, Entwürfe/Assets zu kontrollieren und die menschliche Prüfung vor dem Absenden zu behalten. Das Dashboard startet keine Browser-Automation und füllt oder sendet Bewerbungen nicht selbst.
 
 ### Terminal Tracker TUI
 
@@ -263,7 +268,7 @@ career-ops/
 ![Bubble Tea](https://img.shields.io/badge/Bubble_Tea-FF75B5?style=flat&logo=go&logoColor=white)
 
 - **Agent:** KI-Coding-CLI mit gemeinsamen Skills und Modi (`AGENTS.md` + CLI-Wrapper)
-- **PDF:** Playwright/Puppeteer + HTML-Template
+- **PDF:** Playwright + HTML-Template
 - **Anschreiben:** HTML-Template + Playwright (A4-PDF, gleiche Pipeline wie Lebensläufe)
 - **Scanner:** Playwright + Greenhouse API + WebSearch
 - **Dashboard:** Go + Bubble Tea + Lipgloss (Catppuccin-Mocha-Theme)

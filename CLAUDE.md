@@ -44,7 +44,7 @@ Anything not in this list is **out of scope for content generation**, including:
 - Cross-session inferences about the user's work that have not been written into one of the in-scope files
 - Knowledge from other Claude Code projects on the same machine
 
-**Rule from the original design (santifer's case study):** *"Keywords get reformulated, never fabricated."* Reorder, reframe, emphasise — but never invent. If a claim isn't backed by an in-scope file, ask the user. If they cannot or do not want to add it, the output goes without it. Silence on a topic is fine; manufactured detail is not.
+**Rule from the original design (santifer's case study):** *"Keywords get reformulated, never fabricated."* Reorder, reframe, emphasise — but never invent. If a prose claim isn't backed by an in-scope file, ask the user. If they cannot or do not want to add it, the prose goes without that claim. During an authorized live application, a mandatory form control is not prose that may simply be omitted: follow `modes/apply.md` plus `modes/_custom.md`, choose the most conservative source-supported/non-claiming response, flag it for final review, and never fabricate a factual status.
 
 **Authorship claims are non-negotiable.** Never claim the user authored a project, repo, library, tool, framework, or open-source artefact unless explicitly attributed to them in `cv.md` or `article-digest.md`. Tool-of-trade conflation (the user uses X → the user built X) is the most common fabrication pattern and is explicitly forbidden.
 
@@ -114,7 +114,7 @@ AI-powered, CLI-agnostic job search automation: pipeline tracking, offer evaluat
 | `data/scan-runs.tsv` | Per-run scan counters (appended by `scan.mjs`, read by `stats.mjs`) |
 | `followup-cadence.mjs` | Follow-up cadence calculator (JSON output) |
 | `followup-seed.mjs` | Seeds `data/follow-ups.md` with a pinned first follow-up date when a row turns Applied (JSON output) |
-| `set-status.mjs` | Canonical CLI to update a tracker row: `node set-status.mjs <report#\|company> <State> [--note]` — strict states.yml validation, shared tracker lock, atomic write |
+| `set-status.mjs` | Canonical CLI to update an existing tracker row: `node set-status.mjs <tracker#\|company> [<State>] [--note] [--company <name>] [--pdf-ready] [--report <path-or-url>] [--receipt <id> \| --external]` — status/note writes plus exact-`#` company reveal and PDF-ready metadata, all under the shared lock with atomic replacement; `--receipt` independently revalidates one exact queue role and its submitted Application Answers report, while external/historical jumps require explicit `--external` provenance |
 | `invite-match.mjs` | Fuzzy-matches a pasted interview-invite email (company name, date, req ID) against `data/applications.md`, ranking candidates when a company has multiple tracker entries (JSON or `--summary` table output) |
 | `detect-reposts.mjs` | Repost detector — flags roles re-listed 2+ times in 90 days from scan-history.tsv (JSON or `--summary` table output) |
 | `process-quality.mjs` | Recruiting-process friction aggregator — parses `[process-friction]` tags candidates add to `data/active-interviews.md` Notes and reports per-company friction rate (JSON or `--summary` table output) |
@@ -247,7 +247,9 @@ scans, zero accounts. After portals are set up, mention once:
 
 If the user asks for it, follow `docs/TIERS.md` step by step with them (create
 project → run the SQL migration → .env keys → pin `queue.backend: supabase` →
-migrate → fork secrets). Never create accounts on their behalf; guide them.
+migrate → fork secrets). Never create these infrastructure/provider accounts on
+their behalf; guide them. This restriction does not apply to authorized exact-host
+job-portal registration under the Live Application Execution Contract below.
 
 #### Step 4: Tracker
 If `data/applications.md` doesn't exist, create it:
@@ -315,16 +317,33 @@ Default modes are in `modes/` (English). Language-specific modes live in `modes/
 | Japanese | `modes/ja/` | Japan |
 | Turkish | `modes/tr/` | Turkey |
 | Hindi | `modes/hi/` | India |
+| Danish | `modes/da/` | Denmark |
+| Spanish | `modes/es/` | Spain and Spanish-speaking markets |
+| Indonesian | `modes/id/` | Indonesia |
+| Italian | `modes/it/` | Italy |
+| Korean | `modes/ko/` | South Korea |
+| Polish | `modes/pl/` | Poland |
+| Portuguese | `modes/pt/` | Portugal and Brazil |
+| Russian | `modes/ru/` | Russian-language markets |
+| Ukrainian | `modes/ua/` | Ukraine and Ukrainian-language markets |
+| Chinese | `modes/zh/` | Chinese-language markets |
 
-**When to use a `{lang}` mode** — if any holds: the user says "use {lang} modes"; `config/profile.yml` sets `language.modes_dir: modes/{lang}`; or you detect a {lang} JD (then suggest switching). Read from `modes/{lang}/` instead of `modes/`.
+**When to use a `{lang}` mode** — if any holds: the user says "use {lang} modes"; `config/profile.yml` sets `language.modes_dir: modes/{lang}`; or you detect a {lang} JD (then suggest switching). Load `modes/{lang}/` as the language/market overlay and execute the canonical root mode it wraps; never substitute the locale file for the root contract.
 
-**When NOT to:** if the user applies to English-language roles — even at French, German, Arabic, Japanese, Turkish, or Indian companies — use the default English modes, unless the user explicitly requests another mode or `language.modes_dir` is set in `config/profile.yml`.
+Localized `_shared.md` files are language/market overlays. Localized evaluation, apply,
+and pipeline files are wrappers over root `modes/oferta.md`, `modes/apply.md`, and
+`modes/pipeline.md`; they may change output language and regional vocabulary, never
+execution behavior.
+
+**When NOT to:** if the user applies to an English-language role, use the default English
+modes regardless of company country, unless the user explicitly requests another mode or
+`language.modes_dir` is set in `config/profile.yml`.
 
 ### Skill Modes
 
 | If the user... | Mode |
 |----------------|------|
-| Pastes JD or URL | auto-pipeline (evaluate + report + PDF + tracker) |
+| Pastes JD or URL | `auto-pipeline`: evaluate/score and show the verdict first; wait for explicit continue/dashboard selection before tailored assets or application work |
 | Asks to evaluate offer | `oferta` |
 | Asks to compare offers | `ofertas` |
 | Wants LinkedIn outreach | `contacto` |
@@ -365,7 +384,7 @@ Default modes are in `modes/` (English). Language-specific modes live in `modes/
 
 **Never open, read, or inspect** `.env`, `.env.*`, API-key files, signing keys, service-role keys, token files, or any file whose name or path suggests it contains API keys, tokens, passwords, or secrets — not even to confirm a variable name exists. Do not request permission to read these files.
 
-**Narrow exception: `data/portal-credentials.json` is allowed ONLY for portal login/password handling in the application flow.** Agents may read or update this one file when the task is specifically to create, retrieve, or use a job-portal password for the current application portal. Prefer `credentials-store.mjs` helpers (`getCredentials`, `upsertCredentials`, `getOrCreateCredentials`) when possible. If direct inspection is needed, inspect only the target portal host entry; do not browse unrelated entries, do not print or paste passwords into chat, reports, tracker rows, or `handover.md`, and do not use this exception for any other secret file.
+**Narrow exception: `data/portal-credentials.json` is allowed ONLY for portal login/password handling in the application flow.** Agents may read or update this one file when the task is specifically to create, retrieve, or use a job-portal password for the current application portal. Prefer the exact-host `credentials-store.mjs` helpers (`getCredentials`, policy-aware `generatePassword`, secret-free `--bind-registration`, `commitAcceptedRegistrationCredentials`); inspect displayed/DOM password constraints before generation and stage a new password in memory. After acceptance, evidence v2 must identify the active queued role/request/run/controller/tab and the Playwright URL/timestamp/snapshot/control/signal; bind it durably with `credentials-store.mjs --bind-registration` before commit. This may occur before receipt `--begin` while the request is queued; an in-progress request must also match `application_progress.tab`. A caller-authored evidence shape/digest alone is invalid, and an existing exact-host credential is never overwritten. If direct inspection is needed, inspect only the target portal host entry; do not browse unrelated entries, do not print or paste passwords into chat, reports, tracker rows, or `handover.md`, and do not use this exception for any other secret file.
 
 If a task requires knowing whether a key is configured:
 
@@ -380,7 +399,7 @@ If a script reads from `process.env` at runtime, that is sufficient; run the scr
 
 **This system is designed for quality, not quantity.** The goal is to help the user find and apply to roles where there is a genuine match -- not to spam companies with mass applications.
 
-- **NEVER submit an application without the user reviewing it first.** Fill forms, draft answers, generate PDFs -- but always STOP before clicking Submit/Send/Apply. The user makes the final call.
+- **NEVER submit an application without the user reviewing it first.** Fill forms, draft answers, generate PDFs, and follow an initial Apply/Start-application link when it only opens the form, but always STOP before the final application submission control. The user makes the final call.
 - **Strongly discourage low-fit applications.** If a score is below 4.0/5, explicitly recommend against applying. The user's time and the recruiter's time are both valuable. Only proceed if the user has a specific reason to override the score.
 - **Quality over speed.** A well-targeted application to 5 companies beats a generic blast to 50. Guide the user toward fewer, better applications.
 - **Respect recruiters' time.** Every application a human reads costs someone's attention. Only send what's worth reading.
@@ -400,6 +419,46 @@ Verify a posting is still live before applying — using the cheapest check that
 
 ---
 
+## Live Application Execution Contract (CRITICAL)
+
+Before starting or resuming any live application, the browser controller must itself
+read all five current contracts: `modes/_shared.md`, `modes/apply.md`,
+`modes/_custom.md` (when present), `queue-resolve.mjs`, and
+`application-receipt.mjs`. A copied excerpt or prior-agent summary is not a substitute.
+Use `application-receipt.mjs` as the executable per-page and review-readiness gate.
+These are the canonical cross-agent instructions; localized application modes are
+language wrappers only. Every role must have a queue record and stable role ID before
+the form is filled. On every wizard page run the complete extract → `--lookup` → fill
+resolved → L3 all novel → fill → `--teach` (including `[]`) → verify loop before Next.
+Each `--page` payload must also carry the Playwright-extracted
+`upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]` manifest,
+including `[]` when none exist. Attachment evidence is bound to an observed
+`control_id`, the exact current-role local asset path and content SHA-256, and the
+matching portal-displayed basename. Every enabled `cv` control requires the verified CV,
+and every enabled `cover` or `supporting` control requires the verified tailored cover
+letter. `attachments_not_applicable_reason` is valid only when the complete page ledger
+proves that no enabled upload control accepts an attachment.
+Populate every visible application question; a conservative inference is filled,
+stored role-locally, and flagged for the final combined review rather than left blank.
+Account registration and one exact-host stored-credential login attempt follow the
+state machine in `modes/apply.md`; accepted registrations persist staged credentials only
+after `credentials-store.mjs --bind-registration` durably binds evidence v2 to the active
+dashboard role/request/run/controller/tab and
+`commitAcceptedRegistrationCredentials(host, email, password, acceptanceEvidence)`
+independently revalidates that binding.
+Registration confirmation is permitted, but final
+application submission is never permitted. After preflight, start
+`application-receipt.mjs --begin`, record `--page` evidence before every Next, and run
+`--finalize` only after the final summary, the complete upload-control ledger,
+control-bound/hash-bound attachment evidence, and
+`## Application Answers` persistence pass. Dashboard Fill/Run actions only enqueue a
+durable `application_request` for the active agent; the dashboard never launches a
+browser or fills a form. `form-fill.mjs` is an offline planning helper only and may not
+touch the browser, queue, or status. New runs stay `prepared` while the active agent
+fills them; only the receipt finalizer may set review-ready `filled`. Existing
+`prefilled` records are legacy non-review-ready checkpoints, not a state any new
+dashboard or planner path may create.
+
 ## Form Fill — Tab Management (CRITICAL)
 
 When filling multiple applications in one session (Stage 4 FILL or any apply run):
@@ -412,8 +471,10 @@ When filling multiple applications in one session (Stage 4 FILL or any apply run
 3. **Present a summary** of all open tabs (role · company · URL · fill status) when done.
 4. **The candidate submits everything manually at the end** — after reviewing all tabs together.
 5. **Never close a tab** — closing is the candidate's job, not the agent's.
-6. **Never click Submit / Submit application / Send application / Confirm and submit /
-   Apply now / Submit my application / Submit now** — these are unconditional denylists.
+6. **Never click a final application control labelled Submit / Submit application /
+   Send application / Confirm and submit / Apply now / Submit my application / Submit
+   now** (or an equivalent final control). An initial Apply link that only opens the
+   application form is navigation and may be followed after the role/liveness preflight.
 
 Full apply-flow details: `modes/apply.md` (custom ATS / MCP Playwright path).
 
@@ -422,7 +483,7 @@ Full apply-flow details: `modes/apply.md` (custom ATS / MCP Playwright path).
 ## CI/CD and Quality
 
 - **GitHub Actions** run on every PR: `test-all.mjs` (63+ checks), auto-labeler (risk-based: 🔴 core-architecture, ⚠️ agent-behavior, 📄 docs), welcome bot for first-time contributors
-- **Run the final full `node test-all.mjs` gate outside restricted sandboxes.** The live Supabase RLS boundary tests (`test-cron-rls-negative.mjs` and `test-cron-evict.mjs`) require network access; sandbox failures are diagnostic and are not the final suite verdict.
+- **The default full `node test-all.mjs` gate is local and non-mutating.** It never loads `.env`, always runs the pure eviction guard, and cleanly skips the live Supabase mutation portions of `test-cron-rls-negative.mjs` and `test-cron-evict.mjs`. Run those proofs only as a separately authorized maintenance check with `CAREER_OPS_RUN_LIVE_SUPABASE_TESTS=1`; supply all required Supabase credentials through `process.env` (never by reading `.env`). A default skip is not evidence that the live RLS boundary ran.
 - **Branch protection** on `main`: status checks must pass before merge. No direct pushes to main (except admin bypass).
 - **Dependabot** monitors npm, Go modules, and GitHub Actions for security updates
 - **Contributing process**: issue first → discussion → PR with linked issue → CI passes → maintainer review → merge
@@ -476,7 +537,7 @@ When spawning headless workers for batch processing, use the appropriate command
 - Batch in `batch/` (gitignored except scripts and prompt)
 - Report numbering: sequential 3-digit zero-padded, max existing + 1
 - **RULE: After each batch of evaluations, run `node merge-tracker.mjs`** to merge tracker additions and avoid duplications.
-- **RULE: NEVER create new entries in applications.md if company+role already exists.** Update the existing entry.
+- **RULE: NEVER create a second tracker row when company+role/report identifies an existing entry.** New evaluations enter through an `Evaluated` TSV and `merge-tracker.mjs`; direct changes to an existing exact row use `set-status.mjs`, including `--company` for a one-way confidential-company reveal and `--pdf-ready` for a monotonic PDF ❌ → ✅ upgrade. Both writers share the tracker lock; never hand-edit `applications.md`. `merge-tracker.mjs` may coalesce the same PDF upgrade only when it arrives as part of an exact duplicate TSV import, while preserving lifecycle status and unrelated metadata.
 
 ### TSV Format for Tracker Additions
 
@@ -499,6 +560,14 @@ Write one TSV file per evaluation to `batch/tracker-additions/{num}-{company-slu
 
 **Note:** In applications.md, score comes BEFORE status. The merge script handles this column swap automatically.
 
+**Evaluation-addition boundary:** normal TSV producers always write `Evaluated`.
+`Applied`, `Responded`, `Interview`, `Offer`, `Hired`, and `Rejected` are event
+claims, not evaluation metadata. A legitimate legacy/external migration must run
+`node merge-tracker.mjs --historical-import` or `--external-import`; the merge
+stages the row as `Evaluated`, then delegates the requested lifecycle state to
+`set-status.mjs --external`, which records durable provenance. Never use either
+flag for a live application controlled by the dashboard receipt flow.
+
 **Optional Via field (#1596):** when the application goes through an agency/recruiter, append a **tagged** extra field `via={Agency}` (e.g. `via=Hays`) after notes — never a positional slot; the tag is mandatory. A single untagged extra field keeps its legacy meaning (location). Unknown end employer → write `?` as company (locale-invariant structural marker — never the word "Confidential") plus a distinguishing descriptor in notes. `merge-tracker.mjs` rejects ambiguous extras loudly, and `--migrate-via` adds the Via column to an existing tracker.
 
 **Report link normalization:** The TSV always carries a **root-relative** `[num](reports/...)` link. `merge-tracker.mjs` rewrites it so the link is relative to the tracker file's own directory before writing it into the tracker — `../reports/...` when the tracker is at `data/applications.md`, or `reports/...` at the root layout. This keeps links clickable from the tracker (markdown links resolve relative to the file that contains them). Normalization is idempotent. To fix links in an existing tracker, run `node merge-tracker.mjs --migrate` (see #760).
@@ -506,7 +575,7 @@ Write one TSV file per evaluation to `batch/tracker-additions/{num}-{company-slu
 ### Pipeline Integrity
 
 1. **NEVER edit applications.md to ADD new entries** -- Write TSV in `batch/tracker-additions/` and `merge-tracker.mjs` handles the merge.
-2. **UPDATE status/notes of existing entries via `node set-status.mjs <report#|company> <State> [--note]`** — the canonical (locked, validated, atomic) write path. Do not hand-edit the table.
+2. **UPDATE an existing entry via `node set-status.mjs <tracker#|company> [<State>] [--note] [--report <path-or-url>]`; exact metadata writes use `node set-status.mjs <tracker#> --company <name>` or `--pdf-ready`.** This is the canonical locked/validated/atomic direct-update path. Canonical live submissions use the receipt-gated dashboard decision, which supplies `--receipt`, `--role`, and `--report`; the writer independently locates one matching queue role and revalidates its submitted report before recording `Applied`. Use `--external` only to record a genuinely external/historical application or progression jump. Do not hand-edit the table.
 3. All reports MUST include `**URL:**` in the header (between Score and PDF). Include `**Legitimacy:** {tier}` (see Block G in `modes/oferta.md`).
 4. All statuses MUST be canonical (see `templates/states.yml`).
 5. Health check: `node verify-pipeline.mjs`
@@ -515,7 +584,7 @@ Write one TSV file per evaluation to `batch/tracker-additions/{num}-{company-slu
 
 ### Canonical States (applications.md)
 
-**Source of truth (full descriptions + aliases):** `templates/states.yml`. The 8 canonical states (use exactly one): `Evaluated` · `Applied` · `Responded` · `Interview` · `Offer` · `Rejected` · `Discarded` · `SKIP`.
+**Source of truth (full descriptions + aliases):** `templates/states.yml`. The 9 canonical states (use exactly one): `Evaluated` · `Applied` · `Responded` · `Interview` · `Offer` · `Hired` · `Rejected` · `Discarded` · `SKIP`.
 
 | State | When to use |
 |-------|-------------|
@@ -524,6 +593,7 @@ Write one TSV file per evaluation to `batch/tracker-additions/{num}-{company-slu
 | `Responded` | Company responded |
 | `Interview` | In interview process |
 | `Offer` | Offer received |
+| `Hired` | Offer accepted / job landed |
 | `Rejected` | Rejected by company |
 | `Discarded` | Discarded by candidate or offer closed |
 | `SKIP` | Doesn't fit, don't apply |

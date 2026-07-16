@@ -596,7 +596,7 @@ body {
   text-align: center;
 }
 
-/* ── Manual fields highlight ─────────────────────────────────────────────── */
+/* ── Agent-L3 fields highlight (legacy class name retained for compatibility) */
 
 .manual-field-item {
   background: var(--base);

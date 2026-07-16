@@ -17,7 +17,7 @@ When interview sessions are available, it also reads *what the candidate actuall
 
 ## Minimum Threshold
 
-Before running analysis, check: does `data/applications.md` have at least 5 entries with status beyond "Evaluated" (i.e., Applied, Responded, Interview, Offer, Rejected, Discarded, SKIP)?
+Before running analysis, check: does `data/applications.md` have at least 5 entries with status beyond "Evaluated" (i.e., Applied, Responded, Interview, Offer, Hired, Rejected, Discarded, SKIP)?
 
 If not, tell the user:
 > "Not enough data yet -- {N}/5 applications have progressed beyond evaluation. Keep applying and come back when you have more outcomes to analyze."
@@ -216,7 +216,7 @@ Ask the user if they want to act on any recommendations:
 
 > "Want me to apply any of these recommendations? I can:
 > - Update `portals.yml` to filter out geo-restricted roles
-> - Set a score threshold in `_profile.md` for PDF generation
+> - Set the opt-in batch/pipeline draft-PDF threshold in `config/profile.yml`
 > - Adjust archetype targeting based on what's converting
 > - Realign targeting from the session signal — add the under-targeted archetype X to `modes/_profile.md` and reweight `portals.yml` `title_filter.positive` (if Step 1b ran)
 >
@@ -225,7 +225,10 @@ Ask the user if they want to act on any recommendations:
 If the user agrees:
 - For portal filter changes: edit `portals.yml`
 - For profile/archetype changes: edit `modes/_profile.md` (NEVER `_shared.md`)
-- For score threshold: add to `config/profile.yml` under a `patterns` key
+- For the draft-PDF threshold: set the top-level
+  `auto_pdf_score_threshold` key in `config/profile.yml`. This threshold is consulted
+  only after a run explicitly enables non-release draft PDFs; it never selects roles or
+  enables PDF generation by itself.
 
 ## Outcome Classification
 

@@ -11,7 +11,7 @@ export const maxDuration = 800; // a real oferta evaluation / pdf-mode CV tailor
 
 // The web ORCHESTRATES the real career-ops engine — it does NOT reimplement it.
 // kind "evaluate" runs the REAL modes/oferta.md and persists the canonical
-// artifacts (A–F report + tracker row) via the SAME scripts the CLI uses
+// artifacts (A–G report + tracker row) via the SAME scripts the CLI uses
 // (reserve-report-num.mjs → reports/ → batch/tracker-additions/ → merge-tracker.mjs),
 // so a web evaluation is byte-identical to a CLI one (single source of truth, no
 // drift). kind "research" stays read-only. Streams progress as NDJSON events.
@@ -25,12 +25,12 @@ End with EXACTLY one final line: VERDICT: {0-5 signal strength}/5 — {why it he
 Target: ${input}`;
   }
   if (kind === "pdf") {
-    return `You are generating the user's ATS-optimized, TAILORED CV PDF for application #${input}, headless, on their machine. Run the REAL career-ops "pdf" mode — follow modes/pdf.md EXACTLY (do not improvise a format).
-1. Read modes/pdf.md, cv.md, config/profile.yml, and the evaluation report at reports/${input}-*.md (for the JD keywords + analysis).
-2. Tailor the CV per modes/pdf.md: inject the JD's keywords into the summary + first bullets, reorder experience by relevance, build the competency grid, pick the top 3–4 projects. NEVER invent skills — only reword REAL experience using the JD's vocabulary.
-3. Fill templates/cv-template.html's {{...}} placeholders with the tailored content; write the HTML to /tmp/cv-{candidate}-{company}.html (candidate = the profile name in kebab-case).
-4. Render the PDF: \`node generate-pdf.mjs /tmp/cv-{candidate}-{company}.html output/cv-{candidate}-{company}-${today}.pdf --format={letter for US/Canada companies, else a4}\`.
-5. Update the tracker: in data/applications.md, change the PDF column for row #${input} from ❌ to ✅.
+    return `You are generating an explicit user-requested ATS-tailored CV PDF for tracker application #${input}, headless, on their machine. Follow modes/pdf.md exactly. Because this is headless, the asset is a non-release draft: it must never mark a queue role prepared or bypass interactive PREPARE before a live application.
+1. Run \`node find.mjs ${input}\` to resolve the exact tracker row, report path/number, company, role, and JD context. Tracker # and report # are not interchangeable.
+2. Read modes/pdf.md, modes/_custom.md when present, cv.md, article-digest.md when present, config/profile.yml, modes/_profile.md, and the resolved evaluation report. Tailor only from approved sources.
+3. Fill templates/cv-template.html's {{...}} placeholders and retain the source beside the PDF as \`output/cv-{candidate}-{company}-${today}.html\`.
+4. Render \`output/cv-{candidate}-{company}-${today}.pdf\` with the matching HTML, the role-appropriate \`--style=standard|conservative\`, correct paper format, and \`--report={resolved report number}\`.
+5. Update only the resolved existing tracker row through the locked metadata writer: run \`node set-status.mjs ${input} --pdf-ready --json\`. Never edit data/applications.md by hand.
 Do not submit anything anywhere.
 
 End with EXACTLY one final line: VERDICT: {5 if the PDF was written, else 1}/5 — {the output/ path, ≤12 words}`;
@@ -47,13 +47,13 @@ End with EXACTLY one final line: VERDICT: {5 if now live, else 1}/5 — {what yo
   // evaluate (default) — run the REAL oferta mode + persist canonically
   return `You are running the OFFICIAL career-ops job evaluation, HEADLESS, on the user's own machine. Today is ${today}. Run the REAL career-ops evaluation — do NOT improvise your own scoring.
 
-1. Read modes/oferta.md and follow it EXACTLY (blocks A–F, G posting-legitimacy, and the Machine Summary). Ground the fit in THIS person: read cv.md, config/profile.yml and modes/_profile.md. Use WebFetch to read the posting (you are headless — Playwright is unavailable, so use WebFetch and mark the report header "Verification: unconfirmed (batch mode)").
+1. Read modes/oferta.md and follow it EXACTLY (the complete A–G evaluation and Machine Summary). Ground the fit in THIS person: read cv.md, config/profile.yml and modes/_profile.md. Use WebFetch to read the posting (you are headless — Playwright is unavailable, so use WebFetch and mark the report header "Verification: unconfirmed (batch mode)").
 
 2. Persist the result CANONICALLY so the web and the CLI share ONE source of truth:
    a. Reserve a report number: run \`node reserve-report-num.mjs\` — its stdout is a 3-digit number (e.g. 035).
    b. Write the full report to reports/{num}-{company-slug}-${today}.md  (company-slug = company lowercased, non-alphanumerics → hyphens).
    c. Append ONE row of 9 TAB-separated columns to batch/tracker-additions/{num}-{company-slug}.tsv, in THIS exact order (real \\t tabs, status BEFORE score):
-      {num}\t${today}\t{Company}\t{Role}\t{CanonicalStatus e.g. Evaluated}\t{score}/5\t❌\t[{num}](reports/{num}-{company-slug}-${today}.md)\t{one-line note}
+      {num}\t${today}\t{Company}\t{Role}\tEvaluated\t{score}/5\t❌\t[{num}](reports/{num}-{company-slug}-${today}.md)\t{one-line note}
    d. Merge into the tracker: run \`node merge-tracker.mjs\` (it dedupes by company+role+report-num, validates the status, and writes data/applications.md — NEVER edit applications.md by hand).
 
 3. NEVER submit an application, fill no forms, contact no one. This is evaluation + persistence ONLY.${mem}
@@ -97,7 +97,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // An A–F score is meaningless without a CV to score against — the CLI would
+  // An A–G score is meaningless without a CV to score against — the CLI would
   // hallucinate a fit narrative and still emit a VERDICT. Require cv.md first.
   if ((kind === "evaluate" || kind === "pdf") && !fs.existsSync(path.join(careerOpsRoot(), "cv.md"))) {
     return new Response(

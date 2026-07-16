@@ -21,7 +21,7 @@ Katakan kepada Claude di awal sesi:
 
 > "Gunakan mode Bahasa Indonesia di `modes/id/`."
 
-Claude akan membaca file di folder ini alih-alih `modes/`.
+Agent memuat wrapper bahasa di folder ini bersama workflow kanonis di `modes/`; file lokal tidak menggantikan aturan root.
 
 ### Opsi 2 -- Permanen
 
@@ -42,9 +42,9 @@ Iterasi pertama ini mencakup empat mode berdampak tertinggi:
 | File | Diterjemahkan dari | Peran |
 |------|--------------------|-------|
 | `_shared.md` | `modes/_shared.md` (EN) | Konteks bersama, arketipe, aturan global, kekhususan pasar Indonesia |
-| `lowongan.md` | `modes/oferta.md` (ES) | Evaluasi lengkap sebuah lowongan (Blok A-F) |
-| `melamar.md` | `modes/apply.md` (EN) | Asisten live untuk mengisi formulir lamaran |
-| `pipeline.md` | `modes/pipeline.md` (ES) | Inbox URL / Second Brain untuk lowongan yang dikumpulkan |
+| `lowongan.md` | `modes/oferta.md` (EN) | Wrapper bahasa Indonesia; menjalankan evaluasi kanonis A-G tanpa mendefinisikannya ulang |
+| `melamar.md` | `modes/apply.md` (EN) | Wrapper bahasa Indonesia; workflow kanonis tetap di file root |
+| `pipeline.md` | `modes/pipeline.md` (EN) | Wrapper bahasa Indonesia; menjalankan pipeline kanonis tanpa mendefinisikannya ulang |
 
 Mode lain (`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`) tetap dalam EN/ES. Isinya sebagian besar tooling, path, dan perintah -- harus tetap independen dari bahasa.
 
@@ -54,7 +54,7 @@ Sengaja tidak diterjemahkan karena merupakan kosakata teknis standar:
 
 - `cv.md`, `pipeline`, `tracker`, `report`, `score`, `archetype`, `proof point`
 - Nama perkakas (`Playwright`, `WebSearch`, `WebFetch`, `Read`, `Write`, `Edit`, `Bash`)
-- Nilai status di tracker (`Evaluated`, `Applied`, `Interview`, `Offer`, `Rejected`)
+- Nilai status di tracker (`Evaluated`, `Applied`, `Responded`, `Interview`, `Offer`, `Hired`, `Rejected`, `Discarded`, `SKIP`)
 - Cuplikan kode, path, perintah
 
 Mode-mode ini memakai Bahasa Indonesia teknis yang natural, seperti yang dipakai tim engineering di Jakarta, Bandung, atau Surabaya: teks umum dalam Bahasa Indonesia, istilah teknis dalam Bahasa Inggris di tempat yang lazim. Tidak ada penerjemahan paksa "Pipeline" menjadi "Saluran" atau "Deploy" menjadi "Penggelaran aplikasi".
@@ -101,5 +101,5 @@ Untuk memperbaiki terjemahan atau menambahkan mode:
 1. Buka Issue dengan usulanmu (lihat `CONTRIBUTING.md`)
 2. Patuhi leksikon di atas agar nada tetap konsisten
 3. Terjemahkan secara idiomatik -- bukan kata per kata
-4. Pertahankan elemen struktural (Blok A-F, tabel, blok kode, instruksi perkakas) persis sama
+4. Ubah hanya bahasa dan kosakata regional; jangan menyalin atau mendefinisikan ulang workflow kanonis di file locale
 5. Uji dengan lowongan Indonesia yang nyata (Glints, Jobstreet, Kalibrr) sebelum mengirim PR

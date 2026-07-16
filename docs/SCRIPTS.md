@@ -11,7 +11,7 @@ All scripts live in the project root as `.mjs` modules and are exposed via `npm 
 | `npm run verify:userdata` | `verify-userdata.mjs` | Check queue consistency and generated application assets |
 | `npm run normalize` | `normalize-statuses.mjs` | Fix non-canonical statuses |
 | `npm run dedup` | `dedup-tracker.mjs` | Remove duplicate tracker entries |
-| `npm run merge` | `merge-tracker.mjs` | Merge batch TSVs into applications.md |
+| `npm run merge` | `merge-tracker.mjs` | Merge Evaluated batch TSVs into applications.md |
 | `npm run pdf` | `generate-pdf.mjs` | Convert HTML to ATS-optimized PDF |
 | `npm run build:latex` | `build-cv-latex.mjs` | Build .tex from structured JSON payload |
 | `npm run sync-check` | `cv-sync-check.mjs` | Validate CV/profile consistency |
@@ -105,17 +105,63 @@ Creates a `.bak` backup before writing.
 
 ## merge
 
-Merges batch tracker additions (`batch/tracker-additions/*.tsv`) into `applications.md`. Handles 9-column TSV, 8-column TSV, and pipe-delimited markdown formats. Detects duplicates by report number, entry number, and company+role fuzzy match. Higher-scored re-evaluations update existing entries in place.
+Merges batch tracker additions (`batch/tracker-additions/*.tsv`) into `applications.md`. Handles 9-column TSV, 8-column TSV, and pipe-delimited markdown formats. Detects duplicates by report number, entry number, and company+role fuzzy match. Higher-scored re-evaluations update existing entries in place; an equal-score `Evaluated` duplicate may also perform the monotonic PDF metadata upgrade from ❌ to ✅ while preserving lifecycle status and all unrelated fields.
 
 ```bash
 npm run merge                 # apply merge
 npm run merge -- --dry-run    # preview without writing
 npm run merge -- --verify     # merge then run verify-pipeline
+node merge-tracker.mjs --historical-import  # explicit legacy lifecycle import
+node merge-tracker.mjs --external-import    # explicit external lifecycle import
 ```
 
-Processed TSVs are moved to `batch/tracker-additions/merged/`.
+Ordinary additions create/update evaluation rows as `Evaluated`; a lifecycle
+label (`Applied`, `Responded`, `Interview`, `Offer`, `Hired`, `Rejected`) in an
+unflagged TSV is downgraded to `Evaluated` because TSV content is not event
+evidence. The two explicit import modes stage `Evaluated`, then call the
+canonical locked `set-status.mjs --external` path and append both
+`[external-status]` and a source-specific tracker-import marker. They are for
+confirmed migrations only, never for the receipt-gated live-application flow.
+Processed TSVs move to `batch/tracker-additions/merged/` only after any requested
+canonical promotions succeed.
 
 **Exit codes:** `0` success, `1` verification errors (with `--verify`).
+
+---
+
+## set-status
+
+The canonical locked, atomic writer for an existing tracker row. A numeric
+selector is the tracker `#` from the first column, not necessarily the NNN in a
+report filename.
+
+```bash
+# Status/event plus an idempotent note
+node set-status.mjs <tracker#|company> <State> --note "..." [--external]
+
+# One-way confidential-company reveal on one exact row
+node set-status.mjs <tracker#> --company "Real Company"
+
+# Monotonic PDF metadata upgrade on one exact row
+node set-status.mjs <tracker#> --pdf-ready
+```
+
+`--company` only accepts `?` → a real company name; a second rename fails.
+`--pdf-ready` only moves the PDF cell to `✅`. Both metadata-only forms are
+idempotent and preserve Status, Notes/provenance, and every unrelated tracker
+cell. Use `--receipt <id>` only for the receipt-gated dashboard submission path;
+it is Applied-only, requires `--role` and `--report`, locates exactly one queue
+role with that stable finalized receipt, matches Company/Role/Report, and reruns
+readiness against the submitted Application Answers report. Use `--external` for
+candidate-confirmed lifecycle events outside that path.
+`--dry-run` and `--json` are available for every form.
+
+`merge-tracker.mjs` remains responsible for new evaluation TSV imports and may
+coalesce the same PDF metadata upgrade when an exact duplicate TSV carries it;
+direct updates to an already-known row use `set-status.mjs`.
+
+**Exit codes:** `0` success/no-op, `1` usage/validation/write failure, `2` row
+not found, `3` ambiguous company selector, `4` tracker lock timeout.
 
 ---
 
@@ -321,7 +367,7 @@ node scan-ats-full.mjs --md-out notes/scans    # also write a dated markdown dig
 
 ## tracker
 
-SQLite **derived index** for the applications tracker (RFC #918, phase 1). `data/applications.md` stays the source of truth; `data/applications.db` is built from it by `sync` and is safe to delete at any time — it regenerates on the next sync. All writes keep going to the markdown exactly as today (`merge-tracker.mjs`, hand edits); the index is read-only infrastructure.
+SQLite **derived index** for the applications tracker (RFC #918, phase 1). `data/applications.md` stays the source of truth; `data/applications.db` is built from it by `sync` and is safe to delete at any time — it regenerates on the next sync. Writes go through the canonical locked writers (`merge-tracker.mjs` for additions and `set-status.mjs` for exact existing-row status, notes, company reveal, and PDF-ready metadata); agents must not hand-edit the table. The index is read-only infrastructure.
 
 Why: at hundreds of rows a markdown table degrades structurally (encoding corruption, column drift, `|` inside cells shifting columns), and agents grepping it get model-dependent results. The index normalizes on sync, so a query returns the same rows for every model on every CLI — and corruption is detected at sync time instead of propagating silently.
 

@@ -70,7 +70,7 @@ a rate-limit error; career-ops will pause and suggest retrying tomorrow.
 
 | Feature                 | Free tier | Notes                            |
 |-------------------------|-----------|----------------------------------|
-| Offer evaluation (A-F)  | ✅        | Full scoring pipeline            |
+| Offer evaluation (A-G)  | ✅        | Full evaluation and legitimacy   |
 | Report generation (.md) | ✅        | Markdown reports                 |
 | Portal scanning         | ✅        | Zero-token — hits APIs directly  |
 | PDF generation          | ✅        | Uses local Playwright, no tokens |

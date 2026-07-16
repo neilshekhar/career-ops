@@ -10,7 +10,7 @@ data — each tier adds automation, not features.
 
 | | What you get | Accounts needed | Cost |
 |---|---|---|---|
-| **Tier 1 — Local** (default) | The full pipeline: scanning, scoring, kanban dashboard, tailored CV/cover generation, form-fill | None | $0 |
+| **Tier 1 — Local** (default) | The full pipeline: scanning, scoring, kanban dashboard, tailored CV/cover generation, and active-agent application filling | None | $0 |
 | **Tier 2 — Cloud queue + scan cron** | Job discovery keeps running while your laptop is off; queue syncs across devices | Free Supabase project, your GitHub fork | $0 |
 | **Tier 3 — Job-board discovery** | SEEK / Indeed / Workday-ATS discovery via Apify actors in the same cron | Apify account | ~$5 free credit granted monthly; light use stays inside it |
 
@@ -24,7 +24,7 @@ it: *"set me up on Tier 2"*.
 ```bash
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
-npx playwright install chromium   # for PDF generation + form-fill
+npx playwright install chromium   # for PDF rendering and local browser support
 claude                            # or gemini / codex / qwen / opencode / agy / grok
 ```
 
@@ -147,8 +147,10 @@ replaced) never blocks the others.
 
 - **The AI does the expensive thinking, and you already pay for it** (or use a
   free-tier CLI — see [FREE_TIER.md](FREE_TIER.md)). career-ops is designed to
-  spend as few tokens as possible: scanning, liveness checks, field resolution,
-  and form-fill are deterministic scripts, not model calls.
+  spend as few tokens as possible: scanning, liveness checks, and L1/L1.5/L2
+  field resolution/prefill are deterministic. Tailored assets and every truly
+  novel live-form field use the capable interactive model at L3, then cross the
+  per-page teach and receipt gates before review.
 - **Supabase free tier** is far beyond what a job search needs (the queue is a
   few hundred small rows).
 - **GitHub Actions** is free for public repos.

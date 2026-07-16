@@ -12,10 +12,10 @@ If any check is red, **stop** and report the failure. Do not land the merge, do 
 branch; re-run the whole gate from the top.
 
 Run the gate on the merge branch **after** all conflicts are resolved and staged, with
-the merge **not yet committed** (or committed but not yet merged to `main`). Always run
-`node test-all.mjs` outside the sandbox (it needs `go` on PATH, `git init` rights, and
-network for the live Supabase RLS test — inside the sandbox those three show as false
-failures).
+the merge **not yet committed** (or committed but not yet merged to `main`). The default
+`node test-all.mjs` run is local and non-mutating: it never reads `.env`, always runs the
+pure eviction guard, and cleanly skips the separately authorized live Supabase proofs.
+Use an environment with `go` on PATH and `git init` rights for the other full-suite checks.
 
 ---
 
@@ -38,10 +38,11 @@ blocker, never a "merge it and patch later."
 
 ### 2. Test suite green
 ```bash
-node test-all.mjs   # must be: 0 failed (warnings OK)
+node test-all.mjs   # must be: 0 failed, 0 warnings
 ```
 Includes the Neil-specific baseline tests (§16–§24) and any new tests added by the
-work that motivated the pull. Run **outside the sandbox** (see note above).
+work that motivated the pull. Its clean live-test skip must not be reported as a live
+RLS proof.
 
 ### 3. Pipeline clean
 ```bash
@@ -50,11 +51,14 @@ node verify-pipeline.mjs   # must be: 0 errors, 0 warnings — "Pipeline is clea
 
 ### 4. Cron RLS boundary 6/6 (live Supabase)
 ```bash
-node test-cron-rls-negative.mjs   # must pass 6/6 against live Supabase
+CAREER_OPS_RUN_LIVE_SUPABASE_TESTS=1 node test-cron-rls-negative.mjs
+CAREER_OPS_RUN_LIVE_SUPABASE_TESTS=1 node test-cron-evict.mjs
 ```
 Proves the split-credential RLS boundary survived: the cron JWT can only
 INSERT/DELETE `status='new'`, and `sb_secret_` / privileged-role JWTs are rejected on
-the cron path. Needs network + the configured Supabase secrets.
+the cron path. This is a separate, explicitly authorized remote-mutation check. It needs
+network access and the configured Supabase credentials already exported in `process.env`;
+the scripts never load `.env`. Do not run it as part of an ordinary/default suite.
 
 ### 5. `jose` survived — cron JWT mints
 ```bash

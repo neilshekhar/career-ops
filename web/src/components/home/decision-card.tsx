@@ -8,16 +8,17 @@ import { CompanyLogo } from "@/components/company-logo";
 import { scoreNum, scoreTone } from "@/lib/format";
 import type { Application } from "@/lib/career-ops";
 
-// Awaiting-decision row: a scored role with no terminal status. One-tap Apply /
-// Skip writes back through the EXISTING /api/status (UPDATE-only, canonical states).
+// Awaiting-decision row: application work opens in the canonical localhost
+// dashboard; Skip remains a tracker-only decision. This view never writes
+// Applied directly because it cannot verify the live page receipt.
 export function DecisionCard({ app }: { app: Application }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"" | "Applied" | "Discarded">("");
+  const [busy, setBusy] = useState<"" | "Discarded">("");
   const [done, setDone] = useState<string | null>(null);
   const score = scoreNum(app.score);
   const tone = scoreTone(app.score);
 
-  const setStatus = async (status: "Applied" | "Discarded") => {
+  const setStatus = async (status: "Discarded") => {
     setBusy(status);
     try {
       await fetch("/api/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ n: app.n, status }) });
@@ -56,14 +57,14 @@ export function DecisionCard({ app }: { app: Application }) {
             affirmative primary — a queue of these reads as gentle brand, not 6
             solid shouts (P5), while staying visibly the positive action next to
             the neutral Skip even on touch (no hover). */}
-        <button
-          type="button"
-          disabled={!!busy}
-          onClick={() => setStatus("Applied")}
+        <a
+          href="http://127.0.0.1:7777"
+          target="_blank"
+          rel="noreferrer"
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-soft px-2.5 py-1.5 text-xs font-medium text-brand-text transition hover:bg-brand/15 disabled:opacity-60 max-sm:min-h-[44px]"
         >
-          {busy === "Applied" ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />} Mark applied
-        </button>
+          <Check className="size-3.5" /> Open apply queue
+        </a>
         <button
           type="button"
           disabled={!!busy}

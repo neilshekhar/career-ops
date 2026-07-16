@@ -15,7 +15,7 @@ export const AUTO_FIRE_MAX = 3; // fire ≤3 evaluations silently; confirm above
 export const BATCH_CAP = 12; // hard ceiling on a single fan-out
 
 // Canonical states (templates/states.yml) — the web validates against the same set.
-const CANON_STATUS = ["Evaluated", "Applied", "Responded", "Interview", "Offer", "Rejected", "Discarded", "SKIP"];
+const CANON_STATUS = ["Evaluated", "Applied", "Responded", "Interview", "Offer", "Hired", "Rejected", "Discarded", "SKIP"];
 
 const TAB_VALUES = [
   "INBOX", "ALL", "EVALUATED", "APPLIED", "RESPONDED", "INTERVIEW", "OFFER", "REJECTED", "DISCARDED", "SKIP",
@@ -40,8 +40,6 @@ export type ActionCtx = {
   jobForUrl: (url: string) => Job | undefined; // skip-if-done / retry logic
   rememberFact: (fact: string) => void;
   writeStatus: (n: string, status: string) => void; // UPDATE-only writeback via /api/status
-  setApplyField: (idOrLabel: string, value: string) => void; // edit an apply-proxy answer
-  startApply: (url: string) => void; // open the apply form-proxy for a posting URL
   applyExplore?: (patch: Record<string, unknown>, opts?: { merge?: boolean; run?: boolean }) => void; // build a FREE discovery search
   writeProfile?: (patch: Record<string, unknown>) => void; // merge-safe config/profile.yml write
   writePortals?: (roles: string[], location?: string[]) => void; // merge-safe portals.yml title_filter write
@@ -259,6 +257,15 @@ const ACTIONS: Record<string, ActionDef> = {
       const canon = CANON_STATUS.find((s) => s.toLowerCase() === status.toLowerCase());
       if (!n || !canon) return { status: "ignored", note: "need an application # and a canonical status" };
       const app = ctx.applications.find((a) => a.n === n);
+      if (canon === "Applied") {
+        return { status: "ignored", note: "Applied is receipt-gated. Use the localhost application dashboard after you submit; use set-status.mjs --external only for a historical/external application." };
+      }
+      const prior = String(app?.status ?? "").replace(/\*\*/g, "");
+      const postApplication = new Set(["Responded", "Interview", "Offer", "Hired", "Rejected"]);
+      const priorApplication = new Set(["Applied", "Responded", "Interview", "Offer", "Hired"]);
+      if (postApplication.has(canon) && !priorApplication.has(prior)) {
+        return { status: "ignored", note: `${prior || "Unknown"} → ${canon} needs prior application evidence; use set-status.mjs --external for a historical/external event.` };
+      }
       const label = app ? `${app.company} · ${app.role}` : `#${n}`;
       return {
         status: "confirm",
@@ -268,27 +275,6 @@ const ACTIONS: Record<string, ActionDef> = {
           return { note: `Marked #${n} as ${canon}.` };
         },
       };
-    },
-  },
-
-  apply: {
-    sideEffect: "none",
-    run: (raw, ctx) => {
-      const url = raw.url;
-      if (!isStr(url) || !/^https?:\/\//i.test(url)) return { status: "ignored", note: "need an application form URL" };
-      ctx.startApply(url);
-      return { status: "done", note: "Opening the application form…" };
-    },
-  },
-
-  setApplyField: {
-    sideEffect: "none",
-    run: (raw, ctx) => {
-      const field = (raw.field ?? raw.label) as unknown;
-      const value = raw.value;
-      if (!isStr(field) || typeof value !== "string") return { status: "ignored", note: "need a field and a value" };
-      ctx.setApplyField(String(field), value);
-      return { status: "done", note: `Updated "${field}".` };
     },
   },
 

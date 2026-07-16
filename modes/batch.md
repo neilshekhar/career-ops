@@ -11,10 +11,10 @@ Conductor (headed browser mode)
   │  Reads DOM directly — the user sees everything in real time
   │
   ├─ Job 1: reads JD from DOM + URL
-  │    └─► headless worker → report .md + provisional score + tracker-line
+  │    └─► headless worker → A-G report .md + provisional score + tracker-line
   │
   ├─ Job 2: click next, read JD + URL
-  │    └─► headless worker → report .md + provisional score + tracker-line
+  │    └─► headless worker → A-G report .md + provisional score + tracker-line
   │
   └─ End: merge tracker-additions → applications.md + summary
 ```
@@ -106,6 +106,8 @@ Options:
 - `--parallel N` — N workers in parallel
 - `--max-retries N` — attempts per job (default: 2)
 - `--rate-limit-sleep N` — seconds to wait before retrying a transient rate-limited worker (default: 300; use 0 to pause the batch immediately)
+- `--min-score N` — after evaluation, mark lower-scoring batch items triage-skipped;
+  their A-G report and Evaluated tracker row remain persisted (default: `0`, off)
 - `--skip-pdf` — evaluation-only mode (default)
 - `--draft-pdf` — generate non-release PDF drafts; requires an explicit `--model` and honors the optional personal batch-model allowlist
 - `--model NAME` — controls provisional scoring quality; cheaper models can save tokens but may bury or over-rank roles
@@ -136,10 +138,12 @@ Valid statuses include `pending`, `processing`, `completed`, `failed`, `skipped`
 Each worker receives `batch-prompt.md` as a system prompt. It is self-contained. Use your CLI's headless command — see the **Headless / Batch Mode** table in `AGENTS.md`.
 
 The worker produces:
-1. `.md` report in `reports/`
-2. PDF in `output/`
-3. Tracker line in `batch/tracker-additions/{id}.tsv`
-4. Result JSON via stdout
+1. Full A-G `.md` report in `reports/`
+2. Tracker line in `batch/tracker-additions/{id}.tsv` with Status exactly `Evaluated`
+3. Result JSON via stdout
+4. Only when the run explicitly uses `--draft-pdf` **and** the score meets the
+   configured `auto_pdf_score_threshold`: a non-release `batch-draft` PDF in
+   `output/`
 
 ## Error handling
 
@@ -151,4 +155,4 @@ The worker produces:
 | Worker crashes | Conductor marks `failed`, continues. Retry with `--retry-failed` |
 | Claude session/usage limit | Runner marks the current offer `paused_rate_limit`, stops scheduling new offers, preserves retries. Resume with `--resume-paused` after reset. |
 | Conductor crashes | Re-run → reads state → skip completed jobs |
-| PDF fails | .md report is saved. PDF remains pending |
+| Opt-in draft PDF fails | .md report and Evaluated tracker row are saved; the draft PDF remains pending |

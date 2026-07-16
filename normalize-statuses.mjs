@@ -5,29 +5,33 @@
  * Maps all non-canonical statuses to canonical ones per states.yml:
  *   Evaluada, Aplicado, Respondido, Entrevista, Oferta, Rechazado, Descartado, NO APLICAR
  *
- * Also strips markdown bold (**) and dates from the status field,
- * moving DUPLICADO info to the notes column.
+ * Also strips markdown bold (**) and dates from the status field, moving
+ * DUPLICADO info to the notes column. Real writes run under the canonical
+ * tracker lock, use an atomic replacement, and append migration provenance.
  *
  * Run: node career-ops/normalize-statuses.mjs [--dry-run]
  */
 
-import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, copyFileSync, existsSync } from 'fs';
+import { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { rebuildRow } from './tracker-utils.mjs';
+import { resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
+import {
+  rebuildRow,
+  resolveTrackerPath,
+  trackerLockDirFor,
+  acquireTrackerLock,
+  writeFileAtomic,
+  cell,
+} from './tracker-utils.mjs';
 
 const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
-// Support both layouts: data/applications.md (boilerplate) and applications.md (original)
-const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
-  ? join(CAREER_OPS, 'data/applications.md')
-  : join(CAREER_OPS, 'applications.md');
+const APPS_FILE = resolveTrackerPath(CAREER_OPS);
 const DRY_RUN = process.argv.includes('--dry-run');
-
-// Ensure required directories exist (fresh setup)
-mkdirSync(join(CAREER_OPS, 'data'), { recursive: true });
+const PROGRESSION_STATES = new Set(['Applied', 'Responded', 'Interview', 'Offer', 'Hired', 'Rejected']);
 
 // Canonical status mapping
-function normalizeStatus(raw) {
+export function normalizeStatus(raw) {
   // Strip markdown bold
   let s = raw.replace(/\*\*/g, '').trim();
   const lower = s.toLowerCase();
@@ -88,82 +92,117 @@ function normalizeStatus(raw) {
   return { status: null, unknown: true };
 }
 
-// Read applications.md
-if (!existsSync(APPS_FILE)) {
-  console.log('No applications.md found. Nothing to normalize.');
-  process.exit(0);
+function hasDelimitedNote(existing, entry) {
+  return existing === entry
+    || existing.startsWith(`${entry}; `)
+    || existing.endsWith(`; ${entry}`)
+    || existing.includes(`; ${entry}; `);
 }
-const content = readFileSync(APPS_FILE, 'utf-8');
-const lines = content.split('\n');
 
-let changes = 0;
-let unknowns = [];
+function appendNote(parts, notesIndex, entry) {
+  if (notesIndex == null) {
+    throw new Error('Tracker has no Notes column; refusing a status migration without audit provenance');
+  }
+  while (parts.length <= notesIndex) parts.push('');
+  const existing = parts[notesIndex] && !['—', '-'].includes(parts[notesIndex])
+    ? parts[notesIndex]
+    : '';
+  if (!hasDelimitedNote(existing, entry)) {
+    parts[notesIndex] = existing ? `${existing}; ${entry}` : entry;
+  }
+}
 
-for (let i = 0; i < lines.length; i++) {
-  const line = lines[i];
-  if (!line.startsWith('|')) continue;
+function migrationMarker(oldStatus, newStatus) {
+  const old = cell(oldStatus)
+    .replace(/[\[\]*]/g, '')
+    .slice(0, 80) || '(blank)';
+  return `[status-normalized:${old}->${newStatus}]`;
+}
 
-  const parts = line.split('|').map(s => s.trim());
-  // Format: ['', '#', 'fecha', 'empresa', 'rol', 'score', 'STATUS', 'pdf', 'report', 'notas', '']
-  if (parts.length < 9) continue;
-  if (parts[1] === '#' || parts[1] === '---' || parts[1] === '') continue;
-
-  const num = parseInt(parts[1]);
-  if (isNaN(num)) continue;
-
-  const rawStatus = parts[6];
-  const result = normalizeStatus(rawStatus);
-
-  if (result.unknown) {
-    unknowns.push({ num, rawStatus, line: i + 1 });
-    continue;
+async function main() {
+  if (!existsSync(APPS_FILE)) {
+    console.log('No applications.md found. Nothing to normalize.');
+    return;
   }
 
-  if (result.status === rawStatus) continue; // Already canonical
-
-  // Apply change
-  const oldStatus = rawStatus;
-  parts[6] = result.status;
-
-  // Move DUPLICADO info to notes if needed
-  if (result.moveToNotes && parts[9]) {
-    const existing = parts[9] || '';
-    if (!existing.includes(result.moveToNotes)) {
-      parts[9] = result.moveToNotes + (existing ? '. ' + existing : '');
+  let lock = null;
+  try {
+    if (!DRY_RUN) {
+      lock = await acquireTrackerLock(trackerLockDirFor(APPS_FILE), {
+        timeoutMs: Number(process.env.CAREER_OPS_TRACKER_LOCK_TIMEOUT_MS) || 60_000,
+        retryMs: Number(process.env.CAREER_OPS_TRACKER_LOCK_RETRY_MS) || 75,
+        staleMs: Number(process.env.CAREER_OPS_TRACKER_LOCK_STALE_MS) || 10 * 60_000,
+        tracker: APPS_FILE,
+      });
     }
-  } else if (result.moveToNotes && !parts[9]) {
-    parts[9] = result.moveToNotes;
+
+    const content = readFileSync(APPS_FILE, 'utf-8');
+    const lines = content.split('\n');
+    const colmap = resolveColumns(lines);
+    let changes = 0;
+    const unknowns = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const row = parseTrackerRow(lines[i], colmap);
+      if (!row) continue;
+
+      const parts = lines[i].split('|').map(s => s.trim());
+      const rawStatus = parts[colmap.status] ?? '';
+      const result = normalizeStatus(rawStatus);
+
+      if (result.unknown) {
+        unknowns.push({ num: row.num, rawStatus, line: i + 1 });
+        continue;
+      }
+      if (result.status === rawStatus) continue;
+
+      const oldStatus = rawStatus;
+      parts[colmap.status] = result.status;
+
+      if (result.moveToNotes) {
+        appendNote(parts, colmap.notes, cell(result.moveToNotes));
+      }
+      appendNote(parts, colmap.notes, migrationMarker(oldStatus, result.status));
+      const existingNotes = colmap.notes == null ? '' : (parts[colmap.notes] ?? '');
+      if (PROGRESSION_STATES.has(result.status) && !/\[application-receipt:[^\]]+\]/.test(existingNotes)) {
+        // Normalization is an import/migration of historical tracker state,
+        // not proof of a canonical live-application receipt.
+        appendNote(parts, colmap.notes, '[external-status]');
+      }
+
+      if (colmap.score != null && parts[colmap.score]) {
+        parts[colmap.score] = parts[colmap.score].replace(/\*\*/g, '');
+      }
+
+      lines[i] = rebuildRow(parts);
+      changes++;
+      console.log(`#${row.num}: "${oldStatus}" → "${result.status}"`);
+    }
+
+    if (unknowns.length > 0) {
+      console.log(`\n⚠️  ${unknowns.length} unknown statuses:`);
+      for (const item of unknowns) {
+        console.log(`  #${item.num} (line ${item.line}): "${item.rawStatus}"`);
+      }
+    }
+
+    console.log(`\n📊 ${changes} statuses normalized`);
+
+    if (!DRY_RUN && changes > 0) {
+      copyFileSync(APPS_FILE, `${APPS_FILE}.bak`);
+      writeFileAtomic(APPS_FILE, lines.join('\n'));
+      console.log('✅ Written atomically under the tracker lock (backup: applications.md.bak)');
+    } else if (DRY_RUN) {
+      console.log('(dry-run — no changes written)');
+    } else {
+      console.log('✅ No changes needed');
+    }
+  } finally {
+    lock?.release();
   }
-
-  // Also strip bold from score field
-  if (parts[5]) {
-    parts[5] = parts[5].replace(/\*\*/g, '');
-  }
-
-  // Reconstruct line
-  const newLine = rebuildRow(parts);
-  lines[i] = newLine;
-  changes++;
-
-  console.log(`#${num}: "${oldStatus}" → "${result.status}"`);
 }
 
-if (unknowns.length > 0) {
-  console.log(`\n⚠️  ${unknowns.length} unknown statuses:`);
-  for (const u of unknowns) {
-    console.log(`  #${u.num} (line ${u.line}): "${u.rawStatus}"`);
-  }
-}
-
-console.log(`\n📊 ${changes} statuses normalized`);
-
-if (!DRY_RUN && changes > 0) {
-  // Backup first
-  copyFileSync(APPS_FILE, APPS_FILE + '.bak');
-  writeFileSync(APPS_FILE, lines.join('\n'));
-  console.log('✅ Written to applications.md (backup: applications.md.bak)');
-} else if (DRY_RUN) {
-  console.log('(dry-run — no changes written)');
-} else {
-  console.log('✅ No changes needed');
-}
+main().catch((error) => {
+  console.error(`❌ Status normalization failed: ${error.message}`);
+  process.exitCode = 1;
+});

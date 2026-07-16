@@ -571,7 +571,7 @@ async function main() {
 
   if (argv.includes('--self-test')) return selfTest();
 
-  const { loadQueue, saveQueue, getById, queueBackend } = await import(pathToFileURL(join(ROOT, 'queue-store.mjs')).href);
+  const { loadQueue, mutateQueue, getById, queueBackend } = await import(pathToFileURL(join(ROOT, 'queue-store.mjs')).href);
 
   if (argv[0] === 'record') {
     const id = argv[1];
@@ -587,14 +587,11 @@ async function main() {
       console.error(`Invalid --class '${failureClass}' (deterministic|transient)`);
       process.exit(1);
     }
-    const queue = loadQueue();
-    const role = getById(queue, id);
-    if (!role) {
-      console.error(`Role '${id}' not found in queue`);
-      process.exit(1);
-    }
-    const meta = recordJdFetchFailure(role, { reason, failureClass });
-    saveQueue(queue);
+    const meta = mutateQueue((queue) => {
+      const role = getById(queue, id);
+      if (!role) throw new Error(`Role '${id}' not found in queue`);
+      return recordJdFetchFailure(role, { reason, failureClass });
+    });
     console.log(JSON.stringify({ id, ...meta }, null, 2));
     return;
   }
@@ -621,31 +618,31 @@ async function main() {
       console.error('Usage: node queue-sweep.mjs recover <role-id>');
       process.exit(1);
     }
-    const queue = loadQueue();
-    const role = getById(queue, id);
-    if (!role) {
-      console.error(`Role '${id}' not found in queue`);
-      process.exit(1);
-    }
-    const result = recordJdFetchSuccess(role);
-    if (!result.ok) {
-      console.error(`Cannot recover '${id}': ${result.why}`);
-      process.exit(1);
-    }
-    if (result.changed) saveQueue(queue);
+    const result = mutateQueue((queue) => {
+      const role = getById(queue, id);
+      if (!role) throw new Error(`Role '${id}' not found in queue`);
+      const recovery = recordJdFetchSuccess(role);
+      if (!recovery.ok) throw new Error(`Cannot recover '${id}': ${recovery.why}`);
+      return recovery;
+    });
     console.log(JSON.stringify({ id, ...result }, null, 2));
     return;
   }
 
   const dryRun = argv.includes('--dry-run');
   const summary = argv.includes('--summary');
-  const queue = loadQueue();
   // Moving a terminal row to Supabase seen_urls is currently one-way: the
   // store has no atomic revive operation. Preserve the active row until that
   // transaction exists; its retry verdict still prevents further auto-fetches.
-  const result = sweepQueue(queue, { allowClosure: queueBackend() !== 'supabase' });
-
-  if (!dryRun && (result.closed.length > 0 || result.recovered.length > 0)) saveQueue(queue);
+  const allowClosure = queueBackend() !== 'supabase';
+  const preview = sweepQueue(structuredClone(loadQueue()), { allowClosure });
+  const hasWrites = preview.closed.length > 0 || preview.recovered.length > 0;
+  // A Supabase sweep may legitimately produce only deferred closure notices.
+  // Do not turn that read-only report into a backend write: an unconfigured
+  // cloud backend must remain inspectable through its local shadow queue.
+  const result = dryRun || !hasWrites
+    ? preview
+    : mutateQueue((queue) => sweepQueue(queue, { allowClosure }));
 
   if (summary) {
     printSummary(result, dryRun);

@@ -775,8 +775,8 @@ function analyze() {
   // Score threshold recommendation
   if (minPositiveScore > 3.0) {
     recommendations.push({
-      action: `Set minimum score threshold at ${scoreThreshold.recommended}/5 before generating PDFs`,
-      reasoning: `No positive outcomes below ${minPositiveScore}/5. Scores below this are wasted effort.`,
+      action: `For explicitly enabled --draft-pdf runs only, set config/profile.yml auto_pdf_score_threshold to ${scoreThreshold.recommended}; this filters drafts and never enables PDF generation`,
+      reasoning: `No positive outcomes occurred below ${minPositiveScore}/5. Keep evaluation report-only unless draft PDFs were explicitly requested for the run.`,
       impact: 'medium',
     });
   }

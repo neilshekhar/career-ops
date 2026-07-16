@@ -3,10 +3,16 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { loadQueue } from './queue-store.mjs';
 
 export const APPLICATION_ANSWERS_HEADING = '## Application Answers';
 
-const VALID_STATES = new Set(['filled', 'submitted']);
+// Formatting helpers can render receipt-owned lifecycle states when they are
+// reading an existing snapshot, but this CLI may author only the pre-finalizer
+// checkpoint. `application-receipt.mjs` alone promotes it to `filled`, and the
+// candidate-confirmation path alone promotes it to `submitted`.
+const VALID_STATES = new Set(['prefilled', 'filled', 'submitted']);
+const CLI_AUTHORABLE_STATE = 'prefilled';
 
 function inline(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -34,7 +40,7 @@ function list(value) {
 }
 
 function normalizeState(state) {
-  const normalized = inline(state || 'filled').toLowerCase();
+  const normalized = inline(state || 'prefilled').toLowerCase();
   if (!VALID_STATES.has(normalized)) {
     throw new Error(`Application answer state must be one of: ${[...VALID_STATES].join(', ')}`);
   }
@@ -51,16 +57,51 @@ function quoteBlock(value) {
   return text.split('\n').map((line) => `> ${line}`).join('\n');
 }
 
+function metadataLines(entry) {
+  const page = inline(pick(entry, ['page', 'page_id', 'page_number', 'checkpoint']));
+  const pageIndex = entry?.page_index ?? entry?.pageIndex;
+  const controlId = inline(entry?.control_id ?? entry?.controlId);
+  const occurrence = entry?.occurrence;
+  const provenance = inline(pick(entry, ['provenance', 'source']));
+  const resolution = inline(entry?.resolution);
+  const taught = entry?.taught;
+  const reviewRequired = entry?.review_required === true;
+  const reviewNote = inline(pick(entry, ['review_note', 'review']));
+  const hasReviewMetadata = entry?.review_required === true ||
+    entry?.review_required === false ||
+    Object.prototype.hasOwnProperty.call(entry ?? {}, 'review_note') ||
+    Object.prototype.hasOwnProperty.call(entry ?? {}, 'review');
+  return [
+    page ? `- Page: ${page}` : '',
+    pageIndex !== undefined && pageIndex !== null && String(pageIndex).trim()
+      ? `- Page index: ${pageIndex}`
+      : '',
+    controlId ? `- Control ID: ${controlId}` : '',
+    occurrence !== undefined && occurrence !== null && String(occurrence).trim()
+      ? `- Occurrence: ${occurrence}`
+      : '',
+    provenance ? `- Provenance: ${provenance}` : '',
+    resolution ? `- Resolution: ${resolution}` : '',
+    (taught === true || taught === false) ? `- Taught: ${taught ? 'yes' : 'no'}` : '',
+    (entry?.review_required === true || entry?.review_required === false)
+      ? `- Review required: ${reviewRequired ? 'yes' : 'no'}`
+      : '',
+    hasReviewMetadata ? `- Review note: ${reviewNote || '(none)'}` : '',
+  ].filter(Boolean);
+}
+
 function qaLines(entries, { labelKeys, valueKeys, fallback }) {
   if (entries.length === 0) return ['- None captured.'];
 
   return entries.flatMap((entry, index) => {
     const label = inline(pick(entry, labelKeys)) || `${fallback} ${index + 1}`;
     const answer = pick(entry, valueKeys);
+    const metadata = metadataLines(entry);
     return [
       `${index + 1}. **${label}**`,
       '',
       quoteBlock(answer),
+      ...(metadata.length ? ['', ...metadata] : []),
       '',
     ];
   }).slice(0, -1);
@@ -69,10 +110,13 @@ function qaLines(entries, { labelKeys, valueKeys, fallback }) {
 function compactLines(entries, { labelKeys, valueKeys, fallback }) {
   if (entries.length === 0) return ['- None captured.'];
 
-  return entries.map((entry, index) => {
+  return entries.flatMap((entry, index) => {
     const label = inline(pick(entry, labelKeys)) || `${fallback} ${index + 1}`;
     const value = valueText(pick(entry, valueKeys)) || 'Not recorded';
-    return `${index + 1}. **${label}:** ${value}`;
+    return [
+      `${index + 1}. **${label}:** ${value}`,
+      ...metadataLines(entry).map((line) => `   ${line}`),
+    ];
   });
 }
 
@@ -83,7 +127,10 @@ function fileLines(entries) {
     const label = inline(pick(entry, ['field', 'name', 'label', 'type'])) || `File ${index + 1}`;
     const file = inline(pick(entry, ['path', 'file', 'filename', 'url'])) || 'Not recorded';
     const version = inline(pick(entry, ['version', 'variant']));
-    return `${index + 1}. **${label}:** ${version ? `${file} (${version})` : file}`;
+    const expected = inline(entry?.expected);
+    const verified = entry?.verified === true ? 'verified' : entry?.verified === false ? 'not verified' : '';
+    const details = [version, expected ? `expected ${expected}` : '', verified].filter(Boolean).join('; ');
+    return `${index + 1}. **${label}:** ${file}${details ? ` (${details})` : ''}`;
   });
 }
 
@@ -91,10 +138,74 @@ export function normalizeApplicationAnswersSnapshot(snapshot = {}) {
   return {
     date: normalizeDate(snapshot.date),
     state: normalizeState(snapshot.state),
+    runId: inline(snapshot.runId ?? snapshot.run_id),
+    pageCount: snapshot.pageCount ?? snapshot.page_count ?? null,
     freeText: list(snapshot.freeText ?? snapshot.freeTextAnswers ?? snapshot.answers),
     selections: list(snapshot.selections ?? snapshot.selectedOptions),
     fieldValues: list(snapshot.fieldValues ?? snapshot.otherFields ?? snapshot.fields),
     files: list(snapshot.files ?? snapshot.uploads ?? snapshot.filesUsed),
+  };
+}
+
+export function snapshotFromApplicationProgress(progress, options = {}) {
+  if (!progress || !Array.isArray(progress.pages) || progress.pages.length === 0) {
+    throw new Error('Application progress with at least one page receipt is required');
+  }
+  const freeText = [];
+  const selections = [];
+  const fieldValues = [];
+  const files = [];
+  const seenFiles = new Set();
+  const labelOccurrences = new Map();
+
+  const pages = [...progress.pages].sort((left, right) => left.page_index - right.page_index);
+  for (const page of pages) {
+    for (const field of page.fields ?? []) {
+      const occurrenceKey = normalizeApplicationAnswerLabel(field.label);
+      const occurrence = (labelOccurrences.get(occurrenceKey) ?? 0) + 1;
+      labelOccurrences.set(occurrenceKey, occurrence);
+      const entry = {
+        question: field.label,
+        field: field.label,
+        answer: field.answer,
+        value: field.answer,
+        selection: field.answer,
+        page: page.page_id,
+        page_index: page.page_index,
+        control_id: field.control_id,
+        occurrence,
+        provenance: field.provenance,
+        resolution: field.resolution,
+        taught: field.taught,
+        review_required: field.review_required,
+        review_note: field.review_note,
+      };
+      if (/textarea/i.test(field.type)) freeText.push(entry);
+      else if (/select|radio|checkbox/i.test(field.type)) selections.push(entry);
+      else fieldValues.push(entry);
+    }
+    for (const attachment of page.attachments ?? []) {
+      const key = `${attachment.kind}:${attachment.displayed}`;
+      if (seenFiles.has(key)) continue;
+      seenFiles.add(key);
+      files.push({
+        field: attachment.kind,
+        path: attachment.displayed,
+        expected: attachment.expected,
+        verified: attachment.verified,
+      });
+    }
+  }
+
+  return {
+    date: options.date,
+    state: options.state ?? 'prefilled',
+    runId: progress.run_id,
+    pageCount: pages.length,
+    freeText,
+    selections,
+    fieldValues,
+    files,
   };
 }
 
@@ -105,6 +216,8 @@ export function formatApplicationAnswersSection(snapshot = {}) {
     '',
     `**Date:** ${normalized.date}`,
     `**State:** ${normalized.state}`,
+    ...(normalized.runId ? [`**Run ID:** ${normalized.runId}`] : []),
+    ...(normalized.pageCount != null ? [`**Receipt pages:** ${normalized.pageCount}`] : []),
     '',
     '### Free-text answers',
     '',
@@ -157,6 +270,206 @@ export function upsertApplicationAnswersSection(reportText, snapshot = {}) {
   return [before, section, after].filter(Boolean).join('\n\n') + '\n';
 }
 
+/**
+ * Locate the one canonical additive Application Answers section. Returning
+ * offsets lets receipt-owned state transitions edit that section without
+ * accidentally matching similarly named metadata in an evaluation block.
+ */
+export function locateApplicationAnswersSection(reportText) {
+  const source = String(reportText ?? '').replace(/\r\n/g, '\n');
+  const headings = [...source.matchAll(/^## Application Answers[ \t]*$/gm)];
+  if (headings.length === 0) {
+    throw new Error('application_answers_report is missing the ## Application Answers section');
+  }
+  if (headings.length !== 1) {
+    throw new Error('application_answers_report must contain exactly one ## Application Answers section');
+  }
+  const start = headings[0].index;
+  const afterHeading = start + headings[0][0].length;
+  const nextHeading = /^##\s+.+$/m.exec(source.slice(afterHeading));
+  const end = nextHeading ? afterHeading + nextHeading.index : source.length;
+  return { source, start, end, section: source.slice(start, end).trimEnd() };
+}
+
+export function normalizeApplicationAnswerLabel(value) {
+  return inline(value);
+}
+
+export function normalizeApplicationAnswerValue(value) {
+  return String(value ?? '').replace(/\r\n/g, '\n').trim();
+}
+
+function uniqueSectionMetadata(section, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const matches = [...section.matchAll(new RegExp(
+    `^\\*\\*${escaped}:\\*\\*[ \\t]*([^\\n]+?)[ \\t]*$`,
+    'gmi',
+  ))];
+  if (matches.length > 1) throw new Error(`Application Answers ${label} metadata is duplicated`);
+  return matches[0]?.[1]?.trim() ?? null;
+}
+
+const FIELD_SECTION_NAMES = new Set([
+  'free-text answers',
+  'selections made',
+  'other field values',
+]);
+
+const ENTRY_METADATA_KEYS = new Map([
+  ['page', 'page'],
+  ['page index', 'page_index'],
+  ['control id', 'control_id'],
+  ['occurrence', 'occurrence'],
+  ['provenance', 'provenance'],
+  ['resolution', 'resolution'],
+  ['taught', 'taught'],
+  ['review required', 'review_required'],
+  ['review note', 'review_note'],
+]);
+
+function yesNo(value, name) {
+  const normalized = inline(value).toLowerCase();
+  if (normalized === 'yes') return true;
+  if (normalized === 'no') return false;
+  throw new Error(`Application Answers ${name} metadata must be yes or no`);
+}
+
+function integerMetadata(value, name, { positive = false } = {}) {
+  const normalized = inline(value);
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error(`Application Answers ${name} metadata must be an integer`);
+  }
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || (positive ? parsed < 1 : parsed < 0)) {
+    throw new Error(`Application Answers ${name} metadata is out of range`);
+  }
+  return parsed;
+}
+
+function parseEntryMetadata(lines, start, sectionName) {
+  const raw = {};
+  let cursor = start;
+  while (cursor < lines.length) {
+    if (!lines[cursor].trim()) {
+      cursor += 1;
+      continue;
+    }
+    if (/^###\s+/.test(lines[cursor]) || /^\d+\.\s+/.test(lines[cursor])) break;
+    const match = /^\s*-\s+([^:]+):[ \t]*(.*)$/.exec(lines[cursor]);
+    if (!match) break;
+    const canonical = ENTRY_METADATA_KEYS.get(inline(match[1]).toLowerCase());
+    if (!canonical) {
+      throw new Error(
+        `Application Answers contains unexpected ${sectionName} entry metadata: ${inline(match[1])}`,
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(raw, canonical)) {
+      throw new Error(`Application Answers entry metadata is duplicated: ${inline(match[1])}`);
+    }
+    raw[canonical] = match[2];
+    cursor += 1;
+  }
+
+  return {
+    cursor,
+    metadata: {
+      page: Object.prototype.hasOwnProperty.call(raw, 'page') ? inline(raw.page) : undefined,
+      page_index: Object.prototype.hasOwnProperty.call(raw, 'page_index')
+        ? integerMetadata(raw.page_index, 'Page index')
+        : undefined,
+      control_id: Object.prototype.hasOwnProperty.call(raw, 'control_id')
+        ? inline(raw.control_id)
+        : undefined,
+      occurrence: Object.prototype.hasOwnProperty.call(raw, 'occurrence')
+        ? integerMetadata(raw.occurrence, 'Occurrence', { positive: true })
+        : undefined,
+      provenance: Object.prototype.hasOwnProperty.call(raw, 'provenance')
+        ? inline(raw.provenance).toLowerCase()
+        : undefined,
+      resolution: Object.prototype.hasOwnProperty.call(raw, 'resolution')
+        ? inline(raw.resolution).toLowerCase()
+        : undefined,
+      taught: Object.prototype.hasOwnProperty.call(raw, 'taught')
+        ? yesNo(raw.taught, 'Taught')
+        : undefined,
+      review_required: Object.prototype.hasOwnProperty.call(raw, 'review_required')
+        ? yesNo(raw.review_required, 'Review required')
+        : undefined,
+      review_note: Object.prototype.hasOwnProperty.call(raw, 'review_note')
+        ? (inline(raw.review_note) === '(none)' ? null : inline(raw.review_note))
+        : undefined,
+    },
+  };
+}
+
+/**
+ * Parse the canonical receipt-bound field entries from the exact Application
+ * Answers section. Attachments remain a separate report subsection and are not
+ * returned as form controls.
+ */
+export function parseApplicationAnswersSection(reportText) {
+  const located = locateApplicationAnswersSection(reportText);
+  const lines = located.section.split('\n');
+  const entries = [];
+  let activeSection = '';
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const heading = /^###\s+(.+?)[ \t]*$/.exec(lines[index]);
+    if (heading) {
+      activeSection = inline(heading[1]).toLowerCase();
+      continue;
+    }
+    if (!FIELD_SECTION_NAMES.has(activeSection)) continue;
+
+    const compact = /^\d+\.\s+\*\*(.+):\*\*[ \t]+(.*)$/.exec(lines[index]);
+    if (compact) {
+      const parsedMetadata = parseEntryMetadata(lines, index + 1, activeSection);
+      entries.push({
+        label: normalizeApplicationAnswerLabel(compact[1]),
+        answer: normalizeApplicationAnswerValue(compact[2]),
+        representation: 'compact',
+        section: activeSection,
+        ...parsedMetadata.metadata,
+      });
+      index = parsedMetadata.cursor - 1;
+      continue;
+    }
+
+    const quoted = /^\d+\.\s+\*\*(.+?)\*\*[ \t]*$/.exec(lines[index]);
+    if (!quoted) continue;
+    const answerLines = [];
+    let cursor = index + 1;
+    while (cursor < lines.length && !lines[cursor].trim()) cursor += 1;
+    while (cursor < lines.length) {
+      const line = /^>[ \t]?(.*)$/.exec(lines[cursor]);
+      if (!line) break;
+      answerLines.push(line[1]);
+      cursor += 1;
+    }
+    if (answerLines.length > 0) {
+      const parsedMetadata = parseEntryMetadata(lines, cursor, activeSection);
+      entries.push({
+        label: normalizeApplicationAnswerLabel(quoted[1]),
+        answer: normalizeApplicationAnswerValue(answerLines.join('\n')),
+        representation: 'quoted',
+        section: activeSection,
+        ...parsedMetadata.metadata,
+      });
+      index = parsedMetadata.cursor - 1;
+      continue;
+    }
+    throw new Error(`Application Answers field entry has no answer: ${normalizeApplicationAnswerLabel(quoted[1])}`);
+  }
+
+  return {
+    ...located,
+    state: uniqueSectionMetadata(located.section, 'State'),
+    runId: uniqueSectionMetadata(located.section, 'Run ID'),
+    pageCount: uniqueSectionMetadata(located.section, 'Receipt pages'),
+    entries,
+  };
+}
+
 function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i += 1) {
@@ -176,9 +489,10 @@ function parseArgs(argv) {
 
 function usage() {
   return [
-    'Usage: node application-answers.mjs --report <report.md> --input <answers.json> [--state filled|submitted] [--date YYYY-MM-DD]',
+    'Usage: node application-answers.mjs --report <report.md> (--input <answers.json> | --role <queue-role-id>) [--state prefilled] [--date YYYY-MM-DD]',
     '',
     'The input JSON may contain: freeText, selections, fieldValues, files, date, state.',
+    '--role builds the snapshot directly from that role\'s durable application_progress pages.',
   ].join('\n');
 }
 
@@ -195,24 +509,40 @@ async function main() {
     console.log(usage());
     return;
   }
-  if (!args.report || !args.input) {
+  if (!args.report || (!args.input && !args.role) || (args.input && args.role)) {
     console.error(usage());
     process.exitCode = 1;
     return;
   }
 
-  const inputText = args.input === '-' ? readFileSync(0, 'utf-8') : readFileSync(resolve(args.input), 'utf-8');
-  const input = JSON.parse(inputText);
-  const snapshot = {
-    ...input,
-    date: args.date || input.date,
-    state: args.state || input.state,
-  };
+  let snapshot;
+  if (args.role) {
+    const role = loadQueue().roles.find((item) => item.id === args.role);
+    if (!role) throw new Error(`Queue role not found: ${args.role}`);
+    snapshot = snapshotFromApplicationProgress(role.application_progress, {
+      date: args.date,
+      state: args.state || 'prefilled',
+    });
+  } else {
+    const inputText = args.input === '-' ? readFileSync(0, 'utf-8') : readFileSync(resolve(args.input), 'utf-8');
+    const input = JSON.parse(inputText);
+    snapshot = {
+      ...input,
+      date: args.date || input.date,
+      state: args.state || input.state,
+    };
+  }
+  const normalized = normalizeApplicationAnswersSnapshot(snapshot);
+  if (normalized.state !== CLI_AUTHORABLE_STATE) {
+    throw new Error(
+      `State: ${normalized.state} cannot be authored by application-answers.mjs; ` +
+      'write prefilled, then use the receipt finalizer and candidate-confirmation paths',
+    );
+  }
   const reportPath = resolve(args.report);
-  const updated = upsertApplicationAnswersSection(readFileSync(reportPath, 'utf-8'), snapshot);
+  const updated = upsertApplicationAnswersSection(readFileSync(reportPath, 'utf-8'), normalized);
   writeFileSync(reportPath, updated, 'utf-8');
 
-  const normalized = normalizeApplicationAnswersSnapshot(snapshot);
   console.log(JSON.stringify({ report: reportPath, date: normalized.date, state: normalized.state }, null, 2));
 }
 

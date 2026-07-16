@@ -63,7 +63,7 @@
 
 Career-Ops ([career-ops.org](https://career-ops.org), znany też jako **careerops**) zamienia dowolne AI CLI w pełne centrum dowodzenia poszukiwaniem pracy. Zamiast ręcznego śledzenia aplikacji w arkuszu kalkulacyjnym, dostajesz pipeline zasilany AI, który:
 
-- **Ocenia oferty** przy pomocy strukturyzowanego systemu A–F (10 ważonych wymiarów)
+- **Ocenia oferty** przy pomocy strukturyzowanego systemu A–G (10 ważonych wymiarów punktacji i analiza wiarygodności)
 - **Generuje spersonalizowane PDF** — CV zoptymalizowane pod ATS, dostosowane do każdej oferty
 - **Skanuje portale** automatycznie (Greenhouse, Ashby, Lever, strony firm)
 - **Przetwarza wsadowo** — ocena 10+ ofert równolegle przez sub-agentów
@@ -81,14 +81,14 @@ Pierwotnie stworzony przez [santifer](https://santifer.io), który użył go do 
 
 | Funkcja                        | Opis                                                                                                                                            |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Auto-Pipeline**              | Wklej URL → pełna ocena + PDF + wpis w trackerze                                                                                                |
-| **Ocena 6-blokowa**            | Podsumowanie roli, dopasowanie CV, strategia poziomu, badanie wynagrodzenia, personalizacja, przygotowanie do rozmowy (STAR+R)                  |
+| **Auto-Pipeline**              | Wklej URL → najpierw ocena/punktacja i werdykt; spersonalizowane materiały i praca nad aplikacją wymagają wyraźnego kontynuowania/wyboru w dashboardzie |
+| **Ocena A–G**                  | Podsumowanie roli, dopasowanie CV, strategia poziomu, badanie wynagrodzenia, personalizacja, przygotowanie do rozmowy (STAR+R) i kontrola wiarygodności |
 | **Bank historii do rozmów**    | Gromadzi historie STAR+Reflection — 5–10 historii mistrzowskich odpowiadających na każde pytanie behawioralne                                   |
 | **Skrypty negocjacyjne**       | Frameworki negocjacji wynagrodzenia, odparcie dyskonta geograficznego, wykorzystanie konkurencyjnych ofert                                      |
 | **Generowanie PDF pod ATS**    | CV z wstrzyknięciem słów kluczowych, design Space Grotesk + DM Sans                                                                            |
 | **Skaner portali**             | 45+ firm skonfigurowanych (Anthropic, OpenAI, ElevenLabs, Retool, n8n…) + zapytania przez Ashby, Greenhouse, Lever, Wellfound                  |
 | **Przetwarzanie wsadowe**      | Równoległa ocena przez workery `claude -p`                                                                                                      |
-| **Lokalny dashboard kanban**   | Przeglądarka do lokalnego review, triage'u, przygotowania i wypełniania aplikacji                                                               |
+| **Lokalny dashboard kanban**   | Dashboard do review i przygotowania ról, kolejkowania żądań aplikacyjnych dla aktywnego agenta oraz kontroli pracy gotowej do przeglądu         |
 | **Human-in-the-Loop**          | AI ocenia i rekomenduje, ty decydujesz i działasz. System nigdy nie wysyła aplikacji — ostatnie słowo zawsze należy do ciebie                  |
 | **Integralność pipeline'u**    | Automatyczny merge, deduplikacja, normalizacja statusów, sprawdzenia zdrowia danych                                                             |
 
@@ -118,7 +118,7 @@ claude   # lub gemini / codex / qwen / opencode — otwórz tutaj swój AI CLI
 ```bash
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
-npx playwright install chromium   # wymagane tylko do generowania PDF
+npx playwright install chromium   # wymagane do PDF oraz weryfikacji przeglądarkowej/aktualności przez Playwright
 claude   # otwórz swój AI CLI — przy pierwszym uruchomieniu przeprowadzi Cię przez onboarding
 ```
 
@@ -134,7 +134,7 @@ Career-ops to jedna komenda slash z wieloma trybami:
 
 ```text
 /career-ops                    → Pokaż wszystkie dostępne komendy
-/career-ops {wklej ofertę}     → Pełny auto-pipeline (ocena + PDF + tracker)
+/career-ops {wklej ofertę}     → Najpierw ocena/punktacja i werdykt; czekaj na wyraźne kontynuowanie lub wybór w dashboardzie
 /career-ops scan               → Skanuj portale w poszukiwaniu nowych ofert
 /career-ops pdf                → Generuj CV zoptymalizowane pod ATS
 /career-ops batch              → Wsadowa ocena wielu ofert
@@ -147,7 +147,7 @@ Career-ops to jedna komenda slash z wieloma trybami:
 /career-ops project            → Ocena projektu portfolio
 ```
 
-Możesz też po prostu wkleić URL oferty lub jej treść — career-ops automatycznie to wykryje i uruchomi pełny pipeline.
+Możesz też po prostu wkleić URL oferty lub jej treść — career-ops automatycznie ją wykryje, oceni/punktuje i najpierw pokaże werdykt. Zgodnie z `modes/_custom.md` nie tworzy spersonalizowanych materiałów, nie przesuwa statusu aplikacji w trackerze, nie wybiera roli, nie otwiera przeglądarki ani nie wypełnia formularza na żywo, dopóki wyraźnie nie kontynuujesz lub nie wybierzesz roli w dashboardzie.
 
 ## Jak to działa
 
@@ -161,14 +161,18 @@ Wklejasz URL oferty lub jej opis
 └────────┬─────────┘
          │
 ┌────────▼─────────┐
-│  Ocena A–F       │  Dopasowanie, luki, badanie wynagrodzenia, historie STAR
+│  Ocena A–G       │  Dopasowanie, luki, wynagrodzenie, historie STAR, wiarygodność
 │  (czyta cv.md)   │
 └────────┬─────────┘
          │
-    ┌────┼────┐
-    ▼    ▼    ▼
- Raport  PDF  Tracker
-  .md   .pdf   .tsv
+         ▼
+Punktacja/werdykt + raport + status trackera: Evaluated
+         │
+         ▼
+Wyraźne kontynuowanie lub wybór w dashboardzie
+         │
+         ▼
+Materiały dopasowane → przeglądarka/wypełnianie → przegląd i wysłanie przez kandydata
 ```
 
 ## 🇵🇱 Polskie portale z ofertami pracy
@@ -227,7 +231,7 @@ Lokalny dashboard kanban jest głównym interfejsem review w career-ops. Działa
 npm run launch   # otwiera http://127.0.0.1:7777
 ```
 
-Używaj go do przeglądania scoringu, wybierania ról do przygotowania, uruchamiania form-fill, sprawdzania draftów/plików i zachowania ludzkiej kontroli przed wysłaniem. Dashboard nigdy nie wysyła aplikacji za Ciebie.
+Używaj go do przeglądania scoringu, wybierania ról do przygotowania, kolejkowania trwałych żądań aplikacyjnych dla aktywnego agenta, sprawdzania draftów/plików i zachowania ludzkiej kontroli przed wysłaniem. Dashboard sam nie uruchamia automatyzacji przeglądarki ani nie wypełnia lub wysyła aplikacji.
 
 ### Terminal Tracker TUI
 
@@ -280,7 +284,7 @@ career-ops/
 ![Bubble Tea](https://img.shields.io/badge/Bubble_Tea-FF75B5?style=flat&logo=go&logoColor=white)
 
 - **Agent**: Claude Code z niestandardowymi skillami i trybami
-- **PDF**: Playwright/Puppeteer + szablon HTML
+- **PDF**: Playwright + szablon HTML
 - **Skaner**: Playwright + Greenhouse API + WebSearch
 - **Dashboard**: Go + Bubble Tea + Lipgloss (motyw Catppuccin Mocha)
 - **Dane**: tabele Markdown + konfiguracja YAML + pliki TSV dla wsadów

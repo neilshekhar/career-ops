@@ -144,10 +144,15 @@ To prevent unnecessary API costs or hitting rate limits, implement the following
 
 ## 6. Worked Example: Running the Pipeline Cheaply
 
-Here is a concrete, end-to-end walkthrough of scanning for jobs and evaluating a single posting using **DeepSeek V3 via OpenRouter** and the standalone `openai-eval.mjs` evaluator. This bypasses the need for an expensive CLI agent for the heavy evaluation block.
+Here is a concrete walkthrough of scanning for jobs and evaluating a single posting
+using **DeepSeek V3 via OpenRouter** and the standalone `openai-eval.mjs` evaluator.
+This covers discovery and evaluation only; application assets and live form work remain
+behind explicit candidate selection.
 
 ### Step 1: Scan for Job Offers (0 Tokens)
-The portal scanner queries ATS APIs directly using Playwright and standard HTTPS requests. It doesn't use the LLM to read job boards.
+The default scanner uses local parsers and public ATS APIs over standard HTTPS. It does
+not launch Playwright or use an LLM; browser verification is a separate fallback for
+unsupported or inconclusive pages.
 ```bash
 node scan.mjs
 ```
@@ -173,33 +178,44 @@ node openai-eval.mjs \
 - **Output:** ~1,000 tokens (The A-G evaluation report)
 - **Cost:** ~4,500 tokens total. At DeepSeek V3 prices (~$0.14/1M input, ~$0.28/1M output), this costs **less than $0.001** per evaluation.
 
-### Step 4: Generate ATS-Optimized PDF (0 Tokens)
-Once you have the evaluation report, the PDF generator uses Playwright to compile your local HTML/CSS into a tailored CV.
+### Step 4: Optional PDF after explicit selection
+
+If the candidate explicitly selects this role or requests its PDF, run the full
+career-ops `pdf` mode. Tailoring the CV is semantic work and uses the configured model;
+only the final HTML-to-PDF render is local and zero-token.
 
 ```bash
-node generate-pdf.mjs
-```
-**Cost:** 0 tokens, $0.00.
+# In a slash-command CLI
+/career-ops pdf
 
-By routing the heaviest step (Evaluation) to a cheap OpenAI-compatible endpoint, a complete end-to-end job application cycle drops from ~$0.05 - $0.15 on frontier models to a fraction of a cent, allowing you to run bulk batch processing affordably.
+# In Codex
+codex exec "Run career-ops pdf mode for the evaluated role."
+```
+
+`generate-pdf.mjs` is only the renderer and requires an already-tailored input HTML plus
+an output path. Do not call it without arguments or treat rendering as CV tailoring.
+For a live application, Queue PREPARE must still regenerate release-eligible CV and cover
+assets, pass provenance/quality checks, and hand off to the receipt-gated apply workflow.
 
 ---
 
 ## 7. Zero-Cost Paths (No Claude / Paid CLI Required)
 
-Career-ops ships a full pipeline that runs **entirely on free models** — no Claude Code, no Anthropic API key, no paid CLI subscription. Everything below works out of the box after a one-time `.env` setup.
+Career-ops ships evaluation and drafting helpers that can run **entirely on free
+models** — no Claude Code, no Anthropic API key, no paid CLI subscription. Live
+browser applications still use the canonical active-agent workflow and candidate review.
 
 ### Path A: OpenRouter Free Models (`or:*` scripts)
 
 No Claude Code CLI required — uses OpenRouter free models with automatic fallback.
 
-**npm shortcuts** (cover the whole pipeline):
+**npm shortcuts** (evaluation and report-draft helpers):
 
 ```bash
 npm run or:scan        # Scan portals for new listings (Greenhouse API, 0 tokens)
 npm run or:pipeline    # Process all pending URLs from data/pipeline.md
 npm run or:eval        # Evaluate a single offer (paste URL or text)
-npm run or:apply       # Generate draft application answers for a report
+npm run or:apply       # Generate report-only draft answers; never fills a live form
 ```
 
 **Usage** 
@@ -209,7 +225,7 @@ node openrouter-runner.mjs scan              # Scan Greenhouse API companies for
 node openrouter-runner.mjs evaluate <url>    # Evaluate a job by URL
 node openrouter-runner.mjs evaluate          # Paste job text interactively
 node openrouter-runner.mjs pipeline          # Process all pending URLs from pipeline.md
-node openrouter-runner.mjs apply <report_no> # Generate draft application form answers
+node openrouter-runner.mjs apply <report_no> # Report-only drafts; no browser/receipt
 node openrouter-runner.mjs models            # List available free models
 node openrouter-runner.mjs help              # Show this help
 ```
@@ -250,4 +266,7 @@ OPENAI_API_KEY=your_provider_key_here                  # some free endpoints nee
 
 Run `node openai-eval.mjs --help` for per-provider examples with exact URLs and model names.
 
-**Which to pick:** Start with **Path A** (one env var, full pipeline). Use B for air-gapped/local-only, C if you already run your own inference endpoint.
+**Which to pick:** Start with **Path A** for one-env-var evaluation and draft helpers.
+Use B for air-gapped/local-only evaluation, or C if you already run your own inference
+endpoint. None of these shortcuts replaces dashboard selection, interactive PREPARE,
+the live per-page receipt flow, or candidate-only final submission.

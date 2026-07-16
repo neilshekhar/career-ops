@@ -37,6 +37,14 @@ export function StatusSelect({ n, current }: { n: string; current: string }) {
   }
 
   const known = (CANONICAL_STATES as readonly string[]).includes(status);
+  const currentClean = status.replace(/\*\*/g, "");
+  const priorApplication = new Set(["Applied", "Responded", "Interview", "Offer", "Hired"]);
+  const postApplication = new Set(["Responded", "Interview", "Offer", "Hired", "Rejected"]);
+  const choices = CANONICAL_STATES.filter((candidate) => {
+    if (candidate === "Applied") return currentClean === "Applied";
+    if (postApplication.has(candidate)) return priorApplication.has(currentClean);
+    return true;
+  });
   return (
     <span className="inline-flex items-center gap-2">
       <label className="text-xs text-faint">status</label>
@@ -47,7 +55,7 @@ export function StatusSelect({ n, current }: { n: string; current: string }) {
         className="rounded-md border border-border bg-surface px-2.5 py-1 text-sm text-foreground outline-none transition-colors focus:border-brand/50 disabled:opacity-50 max-sm:min-h-[44px]"
       >
         {!known && <option value={status}>{status}</option>}
-        {CANONICAL_STATES.map((s) => (
+        {choices.map((s) => (
           <option key={s} value={s}>
             {s}
           </option>

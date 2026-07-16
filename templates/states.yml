@@ -2,93 +2,107 @@
 # Source of truth for career-ops (writer) and dashboard (reader).
 # Both systems MUST use these exact states.
 #
-# Rule: The status field in applications.md must contain EXACTLY
-# one of these values (case-insensitive). No markdown bold (**),
-# no dates, no extra text. Dates go in the date column.
+# Rule: The status field in applications.md must contain EXACTLY one entry with
+# scope: tracker (case-insensitive). Queue-only states never belong in the
+# tracker. No markdown bold (**), dates, or extra text; dates use their column.
 
 states:
   # Pre-application queue states (managed via data/apply-queue.json)
   # These map to tracker states when a decision is made.
   - id: saved
+    scope: queue
     label: Saved
     aliases: [new, queued]
     description: Role saved to queue, pending scoring (maps to Evaluated on decide)
     dashboard_group: evaluated
 
   - id: scored
+    scope: queue
     label: Scored
     aliases: []
     description: Role scored, awaiting selection in the dashboard (maps to Evaluated on decide)
     dashboard_group: evaluated
 
   - id: prepared
+    scope: queue
     label: Prepared
     aliases: [prepare-queued, ready]
     description: CV + documents generated, form fields resolved (maps to Evaluated on decide)
     dashboard_group: evaluated
 
   - id: prefilled
+    scope: queue
     label: Prefilled
     aliases: [headless-filled, pre-filled]
-    description: Headless fill complete — needs headed re-open for user review before submit
+    description: Legacy non-review-ready prefill checkpoint — no new dashboard/planner path enters this state; active agent resumes live L3, teach, conditional rescan, verification, and durable page receipts
     dashboard_group: evaluated
 
   - id: filled
+    scope: queue
     label: Filled
     aliases: [form-filled, auto-filled]
-    description: Headed fill complete, awaiting user review + manual submit
+    description: Durable per-page receipt verified and final application boundary reached — awaiting candidate's combined review and manual submission
     dashboard_group: evaluated
 
   # Post-application tracker states
   - id: evaluated
+    scope: tracker
     label: Evaluated
     aliases: [evaluada]
     description: Offer evaluated with report, pending decision
     dashboard_group: evaluated
 
   - id: applied
+    scope: tracker
     label: Applied
     aliases: [aplicado, enviada, aplicada, sent]
-    description: Application submitted
+    description: Candidate submitted the application after review; dashboard transition is allowed only from a receipt-verified Filled role
     dashboard_group: applied
 
   - id: responded
+    scope: tracker
     label: Responded
     aliases: [respondido]
     description: Company has responded (not yet interview)
     dashboard_group: responded
 
   - id: interview
+    scope: tracker
     label: Interview
     aliases: [entrevista]
     description: Active interview process
     dashboard_group: interview
 
   - id: offer
+    scope: tracker
     label: Offer
     aliases: [oferta]
     description: Offer received
     dashboard_group: offer
 
   - id: rejected
+    scope: tracker
     label: Rejected
     aliases: [rechazado, rechazada]
     description: Rejected by company
     dashboard_group: rejected
 
   - id: discarded
+    scope: tracker
     label: Discarded
     aliases: [descartado, descartada, cerrada, cancelada]
     description: Discarded by candidate or offer closed
     dashboard_group: discarded
 
   - id: skip
+    scope: tracker
     label: SKIP
     aliases: [no_aplicar, no aplicar, skip, monitor]
     description: Doesn't fit, don't apply
     dashboard_group: skip
 
   - id: hired
+    scope: tracker
     label: Hired
     aliases: [contratado, contratada, hired, accepted, accept]
     description: Offer accepted, job landed!

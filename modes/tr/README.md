@@ -23,7 +23,7 @@ Oturumun başında Claude'a açıkça söyle:
 
 veya
 
-> "Değerlendirme ve başvuruları Türkçe yap — `modes/tr/_shared.md` ve `modes/tr/is-ilani.md` kullan."
+> "Türkçe değerlendirme için `modes/tr/is-ilani.md`; başvuru için `modes/tr/basvuru.md` kullan. Başvuru sarmalayıcısı her zaman kökteki kanonik akışı çalıştırır."
 
 ### Yol 2 — Kalıcı olarak, profil üzerinden
 
@@ -42,9 +42,9 @@ Ardından ilk oturumda Claude'a bu ayarı hatırlat ("profile.yml'e baktım, `la
 | Dosya | Kaynak | Amaç |
 |-------|--------|------|
 | `_shared.md` | `modes/_shared.md` (EN) | Paylaşılan bağlam, arketipler, global kurallar, Türkiye piyasa özelinde terimler |
-| `is-ilani.md` | `modes/oferta.md` (ES) | Tek bir ilanın tam değerlendirmesi (Bloklar A-G) |
-| `basvuru.md` | `modes/apply.md` (EN) | Başvuru formu için canlı asistan |
-| `pipeline.md` | `modes/pipeline.md` (ES) | URL gelen kutusu / biriktirilmiş ilanlar için ikinci beyin |
+| `is-ilani.md` | `modes/oferta.md` (EN) | Türkçe dil sarmalayıcısı; kanonik A-G değerlendirmesini yeniden tanımlamadan çalıştırır |
+| `basvuru.md` | `modes/apply.md` (EN) | Türkçe dil sarmalayıcısı; kanonik akış kök dosyada kalır |
+| `pipeline.md` | `modes/pipeline.md` (EN) | Türkçe dil sarmalayıcısı; kanonik URL workflow'unu yeniden tanımlamadan çalıştırır |
 
 Diğer modlar (`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`) İngilizce/İspanyolca orijinalleriyle çalışmaya devam eder — içerikleri büyük ölçüde araç komutları, dosya yolları ve yapılandırma talimatlarından oluştuğundan dilden bağımsız kalmaları tercih edilmiştir.
 
@@ -70,7 +70,7 @@ Kasıtlı olarak çevrilmedi — standart teknik kelime dağarcığı:
 
 - `cv.md`, `pipeline`, `tracker`, `report`, `score`, `archetype`, `proof point`
 - Araç adları (`Playwright`, `WebSearch`, `WebFetch`, `Read`, `Write`, `Edit`, `Bash`)
-- Takipçideki durum değerleri (`Evaluated`, `Applied`, `Interview`, `Offer`, `Rejected`)
+- Takipçideki durum değerleri (`Evaluated`, `Applied`, `Responded`, `Interview`, `Offer`, `Hired`, `Rejected`, `Discarded`, `SKIP`)
 - Kod parçacıkları, dosya yolları, komutlar
 
 Modlar, İstanbul ve Ankara'daki gerçek mühendislik ekiplerinde konuşulduğu gibi Türkçe teknik dil kullanır: Türkçe akıcı metin, yaygın kullanımda yerleşmiş İngilizce teknik terimler. "Pipeline" kelimesinin zorla "boru hattı"na çevrilmesi gibi uygulamalardan kaçınılmıştır.
@@ -114,5 +114,5 @@ Bir çeviriyi iyileştirmek veya başka bir modu Türkçeleştirmek istersen:
 1. `CONTRIBUTING.md`'ye göre bir Issue aç
 2. Yukarıdaki kelime kılavuzuna uy — tutarlı ton için
 3. Kelimesi kelimesine çeviri değil, anlam ve deyim bakımından doğal çeviri yap
-4. Yapısal öğeleri (Blok A-G, tablolar, kod blokları, araç talimatları) aynen koru
+4. Yalnızca dili ve bölgesel terimleri değiştir; kanonik workflow'ları locale dosyalarına kopyalama veya yeniden tanımlama
 5. PR açmadan önce gerçek bir Türkçe ilan (Kariyer.net veya Yenibiris.com) üzerinde test et

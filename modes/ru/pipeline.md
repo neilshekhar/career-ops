@@ -1,58 +1,20 @@
-# Режим: pipeline — Очередь URL (Second Brain)
+# Режим: pipeline — Очередь URL
 
-Обрабатывает URL вакансий из `data/pipeline.md`. Пользователь добавляет URL когда угодно, затем запускает `/career-ops pipeline` для обработки.
+> This file is a localization wrapper. It does not define an independent pipeline workflow.
 
-## Workflow
+## Authoritative execution contract
 
-1. **Прочитать** `data/pipeline.md` → найти `- [ ]` в секции "Ожидающие" (или "Pendientes" / "Pending" — pipeline.md может содержать заголовки на любом языке)
-2. **Для каждого URL**:
-   a. Зарезервировать следующий `REPORT_NUM` атомарно, запустив `node reserve-report-num.mjs` (и освободить маркер, запустив `node reserve-report-num.mjs --release <num>` после записи отчета)
-   b. **Извлечь JD** через Playwright → WebFetch → WebSearch
-   c. Если URL недоступен → пометить `- [!]` с заметкой, продолжить
-   d. **Выполнить auto-pipeline**: Оценка A-F → Отчёт .md → PDF (если балл >= 3.0) → Трекер
-   e. **Переместить из "Ожидающие" в "Обработанные"**: `- [x] #NNN | URL | Компания | Роль | Балл/5 | PDF ✅/❌`
-3. **Если 3+ URL**, запустить агентов параллельно (Agent tool с `run_in_background`). **Ограничение:** Playwright требует ресурсов — использовать **только один** Playwright-агент одновременно (правило `_shared.md`). Все прочие шаги (WebFetch, оценка, генерация отчёта) допускают полную параллелизацию. Рекомендуемая схема: один агент с Playwright верифицирует активность вакансии; остальные агенты получают JD через WebFetch и параллельно проводят оценку.
-4. **По завершении** показать таблицу:
+Before processing any pipeline URL, read and execute `modes/pipeline.md` in its current
+version. Also load `modes/_custom.md` when present and the root modes that the canonical
+pipeline invokes. Retain every root gate, including the API-first bulk and per-role
+liveness checks, atomic report-number reservation, A-G evaluation, explicitly activated
+draft-PDF score filter,
+single-pass/no-recursive-fanout worker limit, and canonical tracker writes.
 
-```
-| # | Компания | Роль | Балл | PDF | Рекомендуемое действие |
-```
+Use this locale's `_shared.md` for regional vocabulary and conventions, and write
+candidate-facing responses in Russian. Localization may change language and regional
+terminology only; it must never change liveness, numbering, evaluation, concurrency,
+source, persistence, credential, review, or submission behavior.
 
-## Формат pipeline.md
-
-```markdown
-## Ожидающие
-- [ ] https://jobs.example.com/posting/123
-- [ ] https://hh.ru/vacancy/12345678 | Компания | Senior Backend
-- [!] https://private.url/job — Ошибка: требуется авторизация
-
-## Обработанные
-- [x] #143 | https://jobs.example.com/posting/789 | Acme Corp | AI PM | 4.2/5 | PDF ✅
-- [x] #144 | https://hh.ru/vacancy/87654321 | BigCo | Backend | 2.1/5 | PDF ❌
-```
-
-## Определение JD из URL
-
-1. **Playwright (предпочтительно):** `browser_navigate` + `browser_snapshot`. Работает со всеми SPA.
-2. **WebFetch (fallback):** Для статических страниц.
-3. **WebSearch (последний ресурс):** Поиск на вторичных порталах.
-
-**Особые случаи:**
-- **hh.ru**: API доступен: `https://api.hh.ru/vacancies/{id}` — JSON с полным описанием
-- **LinkedIn**: Может требовать логин → пометить `[!]`, попросить вставить текст
-- **PDF**: Если URL на PDF — прочитать через Read tool
-- **`local:` префикс**: Читать локальный файл. Пример: `local:jds/company-role.md`
-
-## Нумерация
-
-1. Запустить `node reserve-report-num.mjs` для атомарного резервирования следующего порядкового номера (stdout вернет `{###}`).
-2. Записать файл отчета, используя этот номер.
-3. Освободить маркер, запустив `node reserve-report-num.mjs --release {###}` после записи отчета.
-
-## Синхронизация источников
-
-Перед обработкой URL:
-```bash
-node cv-sync-check.mjs
-```
-Если рассинхронизация — предупредить пользователя.
+If any copied instruction, README, historical handover note, or prior agent summary
+conflicts with `modes/pipeline.md`, ignore the stale copy and follow the root workflow.

@@ -4,16 +4,24 @@ When the candidate pastes a job (text or URL), ALWAYS deliver the 7 blocks (A-F 
 
 ## Liveness gate (URL inputs)
 
-When the candidate pastes a **URL** (not JD text), confirm the posting is still live before doing any evaluation. A dead link must never reach Block A — a 404/expired page wastes a full A-G evaluation, report, and PDF on phantom content.
+When the candidate pastes a **URL** (not JD text), confirm the posting is still live before doing any evaluation. A dead link must never reach Block A — a 404/expired page wastes a full A-G evaluation and report on phantom content.
 
-1. Get the page content: if you arrived here from `auto-pipeline` (its Step 0.5 already navigated and cleared the link), reuse that snapshot — do not navigate again. On a direct URL entry, navigate with Playwright (`browser_navigate` + `browser_snapshot`) and read the title, URL, and visible content.
-2. Classify the posting:
-   - **active posting evidence:** title/role + a real job description or an application/apply path
-   - **closed posting evidence:** expired/closed/"no longer accepting applications", missing JD with only nav/footer, hard redirect to a generic careers/search page, or 404/410
-3. If the posting appears closed, **stop before Block A**: tell the candidate the link is dead, and if the entry came from `data/pipeline.md`, mark it `- [x] ~~Company | Role~~ — oferta nieaktywna`. Do not generate an evaluation, report, or CV.
-4. If the candidate pasted JD text (no URL), liveness cannot be verified — note that and proceed; there is no link to check.
+1. Run `node check-liveness.mjs <url>` first. A definitive public ATS/API `expired`
+   result is authoritative; **stop before Block A**, tell the candidate, resolve any
+   matching pipeline entry as inactive, and do not generate an evaluation, report, or CV.
+2. Only when the checker is inconclusive or the host is unsupported, inspect a Playwright
+   snapshot. Reuse an existing `auto-pipeline` snapshot when available; otherwise open the
+   role page and read its title, URL, and visible content. Title + substantive JD or a
+   genuine application path is active evidence. Expired/closed text, 404/410, a generic
+   careers redirect, or nav/footer without a JD is closed evidence.
+   Treat those explicit signals as closed posting evidence; a bare search/fetch snippet
+   is never sufficient.
+3. Never decide liveness from a WebFetch/WebSearch snippet.
+4. If the candidate pasted JD text without a URL, note that liveness cannot be verified
+   and proceed because there is no link to check.
 
-Do not continue to Block A until this gate is resolved. The snapshot captured here is reused by Block G's freshness signals.
+Do not continue to Block A until this gate is resolved. Reuse any captured snapshot for
+Block G's freshness signals.
 
 ## Bounded Research Budget
 
@@ -249,7 +257,9 @@ Analyze the job posting for signals that indicate whether this is a real, active
 
 ### Signals to analyze (in order):
 
-**1. Posting Freshness** (from the Playwright snapshot captured during the liveness gate, or in `auto-pipeline` Step 0; unavailable if only JD text was pasted):
+**1. Posting Freshness** (from the canonical liveness-check receipt and, when the
+API result was inconclusive, the Playwright snapshot captured during the liveness
+gate or `auto-pipeline` Step 0; unavailable if only JD text was pasted):
 - Date posted or "X days ago" -- extract from page
 - Apply button state (active / closed / missing / redirects to generic page)
 - If URL redirected to generic careers page, note it
@@ -317,60 +327,17 @@ This signal does not change the High Confidence / Proceed with Caution / Suspici
 
 ---
 
-## Cover Letter Draft (auto-generated after Block G)
+## Application-work boundary
 
-After saving the report and recording in the tracker, append a cover letter draft to the report file under `## Cover Letter Draft`. This is a starting point — not the final letter. The user completes it via `/career-ops cover {slug}`.
+Evaluation ends with the A-G report, keywords, recommendation, and `Evaluated` tracker
+row. Do not generate a cover-letter draft, tailored CV, or application-answer prose in
+this mode. Block E may describe a future customization plan, but it is analysis, not a
+candidate-facing application asset.
 
-**How to generate the draft:**
-
-1. Read `cv.md` — select 4 achievement bullets most relevant to the JD's top requirements (exact wording, real metrics only)
-2. Read `config/profile.yml` — extract candidate name, current role, years of experience
-3. Write a 2-sentence opening based on the role title and JD mission language
-4. Write a 1-paragraph profile intro from the cv.md summary, adapted to the JD domain
-5. Leave the "Problems / Why this company / Approach" section as a placeholder — this requires user input
-6. Detect and flag any gaps (domain mismatch, language requirement, start date urgency) so the user sees them immediately
-
-**Draft format to append to the report:**
-
-```markdown
-## Cover Letter Draft
-
-> Draft generated at evaluation time. Complete via `/career-ops cover {slug}` to fill in angles, confirm research, and generate the PDF.
-> Gaps flagged below — address them during the cover flow.
-
----
-
-**Opening** *(placeholder — refine with your "why this role" angle)*
-{2-sentence opening based on JD role title and mission language}
-
-**Profile introduction**
-{1 paragraph from cv.md summary, adapted to JD domain and required competencies}
-
-**Key achievements** *(selected from cv.md — exact wording preserved)*
-- **{lead from cv.md},** {impact sentence with metric}.
-- **{lead from cv.md},** {impact sentence with metric}.
-- **{lead from cv.md},** {impact sentence with metric}.
-- **{lead from cv.md},** {impact sentence with metric}.
-
-**Problems I will solve** *(placeholder — requires company research + your input)*
-> To be completed: what challenges does {company} face that you'd address? How would you approach them?
-
-**Closing**
-I am happy to discuss further at your convenience.
-
----
-
-**Gaps flagged:**
-{List any detected gaps — domain mismatch, language requirement, start date urgency, title mismatch. If none, write "None detected."}
-
-**JD keywords to mirror** *(extracted for ATS + human read)*
-{8-10 exact phrases from the JD}
-
----
-*Run `/career-ops cover {slug}` to complete angles, confirm company research, and generate the PDF.*
-```
-
-Apply all language rules from `_shared.md` Professional Writing section to the draft content. No em dashes, no buzzwords, active voice, concrete claims only.
+After explicit candidate continuation/dashboard selection, Queue PREPARE owns the fresh
+tailored CV and cover letter. The live `apply` workflow owns answers to the exact rendered
+form questions and persists them through `## Application Answers` plus the executable
+receipt. Score alone never authorizes either phase.
 
 ---
 
@@ -400,7 +367,7 @@ Save full evaluation in `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 **Visa eligibility:** {eligible | unclear | not eligible — use exact note from _profile.md}
 **Score:** {X/5}
 **Legitimacy:** {High Confidence | Proceed with Caution | Suspicious}
-**PDF:** {path or pending}
+**PDF:** not generated — evaluation-only
 
 ---
 
@@ -428,9 +395,6 @@ Save full evaluation in `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 ## G) Posting Legitimacy
 (full content of block G)
 
-## H) Draft Application Answers
-(only if score >= 4.5 — draft answers for the application form)
-
 ---
 
 ## Keywords extracted
@@ -441,7 +405,13 @@ Save full evaluation in `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 
 ### 2. Record in tracker
 
-**ALWAYS** record in `data/applications.md`:
+**ALWAYS** stage exactly one evaluation addition as a nine-column TSV under
+`batch/tracker-additions/{num}-{company-slug}.tsv`, then run
+`node merge-tracker.mjs`. Never edit `data/applications.md` directly. This evaluation mode
+always emits Status `Evaluated`; `Applied` and later lifecycle states require the canonical
+receipt/external-provenance status path and never originate here.
+
+The staged row contains:
 - Next sequential number
 - Current date
 - Company — the END employer. If the JD is agency-mediated ("our client", agency domain, no employer named), ASK the user which agency it came through, use `?` as Company, and put a distinguishing descriptor in Notes (e.g. `fintech, Leeds`). Never write "Confidential" — the `?` marker is locale-invariant and can't collide with a real firm.
@@ -449,7 +419,7 @@ Save full evaluation in `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 - Role
 - Score: match average (1-5) — Read `modes/_custom.md` → Scoring Rules, if it exists, and apply its override here. Default (if absent or silent): average of block scores.
 - Status: `Evaluated`
-- PDF: ❌ (or ✅ if auto-pipeline generated PDF)
+- PDF: ❌ (evaluation does not generate an application asset)
 - Report: root-relative link `[001](reports/001-company-2026-01-01.md)` (when merged via `merge-tracker.mjs` it is normalized to be relative to the tracker's own dir, e.g. `../reports/...`; see #760)
 
 **Tracker format:**

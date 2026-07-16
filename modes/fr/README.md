@@ -21,7 +21,7 @@ Dis a Claude en debut de session :
 
 > "Utilise les modes francais sous `modes/fr/`."
 
-Claude lira alors les fichiers de ce dossier au lieu de `modes/`.
+L'agent charge les wrappers linguistiques de ce dossier avec les workflows canoniques de `modes/`; les fichiers locaux ne remplacent pas les regles racines.
 
 ### Option 2 -- En permanence
 
@@ -42,9 +42,9 @@ Cette premiere iteration couvre les quatre modes a plus fort impact :
 | Fichier | Traduit depuis | Role |
 |---------|----------------|------|
 | `_shared.md` | `modes/_shared.md` (EN) | Contexte partage, archetypes, regles globales, specificites marche francophone |
-| `offre.md` | `modes/oferta.md` (ES) | Evaluation complete d'une offre (Blocs A-F) |
-| `postuler.md` | `modes/apply.md` (EN) | Assistant live pour remplir les formulaires de candidature |
-| `pipeline.md` | `modes/pipeline.md` (ES) | Inbox d'URLs / Second Brain pour les offres collectees |
+| `offre.md` | `modes/oferta.md` (EN) | Wrapper linguistique francais; execute l'evaluation canonique A-G sans la redefinir |
+| `postuler.md` | `modes/apply.md` (EN) | Wrapper linguistique français; le workflow canonique reste dans le fichier racine |
+| `pipeline.md` | `modes/pipeline.md` (EN) | Wrapper linguistique francais; execute le pipeline canonique sans le redefinir |
 
 Les autres modes (`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`) restent en EN/ES. Leur contenu est surtout du tooling, des chemins et des commandes -- il doit rester independant de la langue.
 
@@ -54,7 +54,7 @@ Volontairement non traduit car vocabulaire tech standard :
 
 - `cv.md`, `pipeline`, `tracker`, `report`, `score`, `archetype`, `proof point`
 - Noms d'outils (`Playwright`, `WebSearch`, `WebFetch`, `Read`, `Write`, `Edit`, `Bash`)
-- Valeurs de statut dans le tracker (`Evaluated`, `Applied`, `Interview`, `Offer`, `Rejected`)
+- Valeurs de statut dans le tracker (`Evaluated`, `Applied`, `Responded`, `Interview`, `Offer`, `Hired`, `Rejected`, `Discarded`, `SKIP`)
 - Extraits de code, chemins, commandes
 
 Les modes utilisent du francais tech naturel, tel qu'il est parle dans les equipes engineering a Paris, Lyon ou Geneve : texte courant en francais, termes techniques en anglais la ou c'est l'usage. Pas de traduction forcee de "Pipeline" en "Canalisation" ni de "Deploy" en "Deploiement applicatif".
@@ -102,5 +102,5 @@ Pour ameliorer une traduction ou ajouter un mode :
 1. Ouvre une Issue avec ta proposition (voir `CONTRIBUTING.md`)
 2. Respecte le lexique ci-dessus pour garder le ton coherent
 3. Traduis de maniere idiomatique -- pas de traduction mot a mot
-4. Conserve les elements structurels (Blocs A-F, tableaux, blocs de code, instructions outils) a l'identique
+4. Modifie uniquement la langue et le vocabulaire regional; ne copie ni ne redefinis les workflows canoniques dans les fichiers locaux
 5. Teste avec une vraie offre francophone (Welcome to the Jungle, APEC, Indeed FR) avant de soumettre la PR

@@ -2,7 +2,9 @@
 
 ## Full pipeline
 
-1. Read `cv.md` as the source of truth
+1. Read `cv.md` as the canonical CV and `article-digest.md` when present as the
+   supplementary proof-point source. When they overlap, use the digest's more
+   detailed supported evidence; never introduce a claim absent from both.
 2. Ask the user for the JD if it is not in context (text or URL)
 3. Extract 15-20 keywords from the JD
 4. Detect JD language → CV language (EN default)
@@ -171,8 +173,11 @@ d. **Verify layout before commit:**
    - Visually inspect the thumbnail for: text overlapping, uneven spacing, text cut off, text too small
    - If issues remain, adjust with `position_element`, `resize_element`, or `format_text`
    - Repeat until layout is clean
-e. Show the user the final preview and ask for approval
-f. `commit-editing-transaction` to save (ONLY after user approval)
+e. In the ordinary interactive flow, show the user the final preview and ask for
+   approval. Under an explicit Queue One-shot authorization, record the preview and
+   layout checks as quality evidence and continue without an intermediate prompt.
+f. `commit-editing-transaction` to save only after ordinary user approval or after
+   the authorized One-shot evidence path has passed every layout and quality gate
 
 #### Step 5 — Export and download PDF
 
@@ -211,20 +216,41 @@ Want a cover letter for this role too?
 Apply `voice-dna.md` (if present) to the cover letter — full guardrail, conversational voice included (Tier 1 + Tier 2). The CV PDF itself stays Tier 1 only (formal ATS register). See `_shared.md` → Voice DNA.
 
 If the user says yes, run the full cover letter flow from `modes/cover.md` in slug mode:
-1. Load the existing `## Cover Letter Draft` from the evaluation report as a starting point
+1. Load the evaluation report, JD context, keywords, and Block E customization plan.
+   If a legacy `## Cover Letter Draft` exists, treat it only as optional starting text.
 2. Run company research (Step 3 of cover.md)
-3. Present keyword list for confirmation (Step 4)
-4. Surface any gaps (Step 5)
-5. Ask the four prompts: why / problems / approach / tone (Step 6)
-6. Draft in chat, wait for approval (Steps 7-8)
+3. Follow the ordinary confirmation path or the explicit One-shot evidence path for the keyword list (Step 4)
+4. Surface gaps interactively, or resolve/omit and record them under One-shot (Step 5)
+5. Obtain the four candidate decisions, or derive and persist them under One-shot (Step 6)
+6. Draft in chat and use the ordinary approval path or authorized One-shot quality gate (Steps 7-8)
 7. Generate cover letter PDF via `node generate-cover-letter.mjs` (Step 9)
 8. Report both PDF paths
 
-Do not auto-generate the cover letter PDF without going through the interactive steps above.
+Do not auto-generate the cover letter PDF without going through the interactive steps
+above, except when Queue PREPARE has an explicit One-shot authorization under
+`modes/_custom.md` and `modes/queue.md`. In that exception the capable interactive
+agent records the research/keyword/gap/four-angle decisions, runs every quality and
+provenance gate, generates the formats, and defers approval to the final combined
+review; final job submission remains candidate-only.
 
 ## Post-generation
 
-Update tracker if the job is already registered: change PDF from ❌ to ✅.
+If the job is already registered, update its exact existing tracker row through
+the canonical locked metadata writer; never hand-edit `data/applications.md` and
+never stage a duplicate TSV merely to record a generated PDF:
+
+1. Resolve the tracker `#` from the first column (it can differ from the report
+   filename's NNN; use `node find.mjs <report#|company-or-role>` when needed).
+2. Run `node set-status.mjs <tracker#> --pdf-ready`.
+3. Confirm the existing row now shows PDF `✅` and its lifecycle Status,
+   Notes/provenance, Company, Via, Date, Score, and Report are unchanged. The
+   command is a monotonic, idempotent metadata upgrade (`❌` → `✅`); it cannot
+   advance or reset lifecycle state.
+
+`merge-tracker.mjs` remains the canonical path for new evaluation TSV imports
+and safely coalesces PDF metadata carried by an exact duplicate import. Direct
+updates to an already-known row use `set-status.mjs --pdf-ready` so the two
+writer scopes are unambiguous.
 
 For a queue role, store the asset and quality-review paths while the role remains
 `prepare-queued`, then run `node verify-userdata.mjs --role <role-id>`. Only a

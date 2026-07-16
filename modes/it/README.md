@@ -21,7 +21,7 @@ All'inizio della sessione, dì all'agente:
 
 > "Usa le modalità in italiano sotto `modes/it/`."
 
-L'agente leggerà quindi i file di questa cartella anziché quelli di `modes/`.
+L'agente carica i wrapper linguistici di questa cartella insieme ai workflow canonici in `modes/`; i file locali non sostituiscono le regole root.
 
 ### Opzione 2 -- In modo permanente
 
@@ -42,9 +42,9 @@ Questa prima iterazione copre le quattro modalità a più alto impatto:
 | File | Tradotto da | Ruolo |
 |------|-------------|-------|
 | `_shared.md` | `modes/_shared.md` (EN) | Contesto condiviso, archetipi, regole globali, specificità del mercato italiano |
-| `annuncio.md` | `modes/oferta.md` (ES) | Valutazione completa di un annuncio di lavoro (Blocchi A-F) |
-| `candidarsi.md` | `modes/apply.md` (EN) | Assistente live per compilare i moduli di candidatura |
-| `pipeline.md` | `modes/pipeline.md` (ES) | Inbox di URL / Second Brain per gli annunci raccolti |
+| `annuncio.md` | `modes/oferta.md` (EN) | Wrapper linguistico italiano; esegue la valutazione canonica A-G senza ridefinirla |
+| `candidarsi.md` | `modes/apply.md` (EN) | Wrapper linguistico italiano; il workflow canonico resta nel file root |
+| `pipeline.md` | `modes/pipeline.md` (EN) | Wrapper linguistico italiano; esegue il pipeline canonico senza ridefinirlo |
 
 Le altre modalità (`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`) rimangono in inglese/spagnolo. Il loro contenuto riguarda principalmente il tooling, i percorsi e i comandi, e deve rimanere indipendente dalla lingua.
 
@@ -54,7 +54,7 @@ Volutamente non tradotto perché fa parte del vocabolario tecnologico standard:
 
 - `cv.md`, `pipeline`, `tracker`, `report`, `score`, `archetype`, `proof point`
 - Nomi degli strumenti (`Playwright`, `WebSearch`, `WebFetch`, `Read`, `Write`, `Edit`, `Bash`)
-- Valori di stato nel tracker (`Evaluated`, `Applied`, `Interview`, `Offer`, `Rejected`)
+- Valori di stato nel tracker (`Evaluated`, `Applied`, `Responded`, `Interview`, `Offer`, `Hired`, `Rejected`, `Discarded`, `SKIP`)
 - Porzioni di codice, percorsi, comandi
 
 Le modalità utilizzano un italiano tech naturale, come quello parlato nei team di engineering: testo corrente in italiano, termini tecnici in inglese laddove è d'uso comune. Evitiamo traduzioni forzate (ad esempio, lasciamo "Pipeline" invece di "Canalizzazione" o "Deploy" invece di "Dispiegamento").
@@ -101,5 +101,5 @@ Per migliorare una traduzione o aggiungere una modalità:
 1. Apri una Issue con la tua proposta (vedi `CONTRIBUTING.md`)
 2. Rispetta il lessico indicato sopra per mantenere un tono coerente
 3. Traduci in modo idiomatico -- evita traduzioni letterali o da traduttore automatico
-4. Conserva gli elementi strutturali (Blocchi A-F, tabelle, blocchi di codice, istruzioni strumenti) esattamente come nell'originale
+4. Modifica solo lingua e vocabolario regionale; non copiare né ridefinire i workflow canonici nei file locale
 5. Esegui un test con un vero annuncio in italiano prima di inviare la PR

@@ -21,7 +21,7 @@ Sig til Claude i starten af sessionen:
 
 > "Brug de danske modes under `modes/da/`."
 
-Claude vil så læse filerne i denne mappe i stedet for `modes/`.
+Agenten indlæser sprog-wrapperne i denne mappe sammen med de kanoniske workflows i `modes/`; de lokale filer erstatter ikke root-reglerne.
 
 ### Mulighed 2 -- Permanent
 
@@ -42,9 +42,9 @@ Denne første iteration dækker de fire modes med størst effekt:
 | Fil | Oversat fra | Rolle |
 |-----|-------------|-------|
 | `_shared.md` | `modes/_shared.md` (EN) | Delt kontekst, arketyper, globale regler, særtræk ved det danske marked |
-| `oferta.md` | `modes/oferta.md` (ES) | Fuld evaluering af et opslag (Blok A-F) |
-| `apply.md` | `modes/apply.md` (EN) | Live-assistent til udfyldelse af ansøgningsformularer |
-| `pipeline.md` | `modes/pipeline.md` (ES) | URL-indbakke / Second Brain til indsamlede opslag |
+| `oferta.md` | `modes/oferta.md` (EN) | Dansk sprog-wrapper; kører den kanoniske A-G-evaluering uden at omdefinere den |
+| `apply.md` | `modes/apply.md` (EN) | Dansk sprog-wrapper; den kanoniske workflow forbliver i root-filen |
+| `pipeline.md` | `modes/pipeline.md` (EN) | Dansk sprog-wrapper; kører den kanoniske URL-pipeline uden at omdefinere den |
 
 De øvrige modes (`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`) forbliver på EN/ES. Deres indhold er primært tooling, stier og kommandoer -- det skal forblive sproguafhængigt.
 
@@ -54,7 +54,7 @@ Bevidst ikke oversat, fordi det er standard tech-ordforråd:
 
 - `cv.md`, `pipeline`, `tracker`, `report`, `score`, `archetype`, `proof point`
 - Værktøjsnavne (`Playwright`, `WebSearch`, `WebFetch`, `Read`, `Write`, `Edit`, `Bash`)
-- Statusværdier i trackeren (`Evaluated`, `Applied`, `Interview`, `Offer`, `Rejected`)
+- Statusværdier i trackeren (`Evaluated`, `Applied`, `Responded`, `Interview`, `Offer`, `Hired`, `Rejected`, `Discarded`, `SKIP`)
 - Kodeuddrag, stier, kommandoer
 
 Modes bruger naturligt tech-dansk, sådan som det tales i engineering-teams i København, Aarhus eller Odense: løbende tekst på dansk, tekniske termer på engelsk dér, hvor det er normen. Ingen tvungen oversættelse af "Pipeline" til "Rørledning" eller "Deploy" til "Udrulning".
@@ -99,5 +99,5 @@ For at forbedre en oversættelse eller tilføje en mode:
 1. Åbn en Issue med dit forslag (se `CONTRIBUTING.md`)
 2. Følg ordlisten ovenfor for at holde tonen konsistent
 3. Oversæt idiomatisk -- ingen ord-for-ord-oversættelse
-4. Bevar de strukturelle elementer (Blok A-F, tabeller, kodeblokke, værktøjsinstruktioner) uændret
+4. Redigér kun sprog og regionalt ordforråd; kopiér eller omdefinér aldrig de kanoniske workflows i locale-filer
 5. Test med et rigtigt dansk opslag (Jobindex, The Hub, LinkedIn DK), før du sender din PR

@@ -21,7 +21,7 @@ Powiedz Claude'owi na początku sesji:
 
 > "Używaj polskich trybów z `modes/pl/`."
 
-Claude będzie wtedy czytał pliki z tego folderu zamiast z `modes/`.
+Agent ładuje nakładki językowe z tego folderu razem z kanonicznymi workflow w `modes/`; lokalne pliki nie zastępują reguł głównych.
 
 ### Opcja 2 -- Na stałe
 
@@ -42,9 +42,9 @@ Ta pierwsza iteracja obejmuje cztery tryby o najwyższym wpływie:
 | Plik | Przetłumaczony z | Rola |
 |---------|----------------|------|
 | `_shared.md` | `modes/_shared.md` (EN) | Wspólny kontekst, archetypy, reguły globalne, specyfika polskiego rynku |
-| `oferta.md` | `modes/oferta.md` (ES) | Pełna ocena oferty (Bloki A-F) |
-| `aplikuj.md` | `modes/apply.md` (EN) | Asystent na żywo do wypełniania formularzy aplikacyjnych |
-| `pipeline.md` | `modes/pipeline.md` (ES) | Inbox URL-i / Second Brain dla zebranych ofert |
+| `oferta.md` | `modes/oferta.md` (EN) | Polska nakładka językowa; wykonuje kanoniczną ocenę A-G bez jej redefiniowania |
+| `aplikuj.md` | `modes/apply.md` (EN) | Polska nakładka językowa; kanoniczny workflow pozostaje w pliku głównym |
+| `pipeline.md` | `modes/pipeline.md` (EN) | Polska nakładka językowa; wykonuje kanoniczny pipeline bez jego redefiniowania |
 
 Pozostałe tryby (`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`) zostają w EN/ES. Ich treść to głównie tooling, ścieżki i komendy -- musi pozostać niezależna od języka.
 
@@ -54,7 +54,7 @@ Pozostałe tryby (`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `c
 
 - `cv.md`, `pipeline`, `tracker`, `report`, `score`, `archetype`, `proof point`
 - Nazwy narzędzi (`Playwright`, `WebSearch`, `WebFetch`, `Read`, `Write`, `Edit`, `Bash`)
-- Wartości statusu w trackerze (`Evaluated`, `Applied`, `Interview`, `Offer`, `Rejected`)
+- Wartości statusu w trackerze (`Evaluated`, `Applied`, `Responded`, `Interview`, `Offer`, `Hired`, `Rejected`, `Discarded`, `SKIP`)
 - Fragmenty kodu, ścieżki, komendy
 
 Tryby używają naturalnego, technicznego języka polskiego, takiego, jakim mówi się w zespołach engineeringowych w Warszawie, Krakowie czy Wrocławiu: tekst po polsku, terminy techniczne po angielsku tam, gdzie tak się ich używa. Bez wymuszonego tłumaczenia "Pipeline" na "Potok" ani "Deploy" na "Wdrożenie aplikacyjne".
@@ -102,5 +102,5 @@ Aby ulepszyć tłumaczenie lub dodać tryb:
 1. Otwórz Issue z propozycją (zobacz `CONTRIBUTING.md`)
 2. Trzymaj się powyższego słownika, aby zachować spójny ton
 3. Tłumacz idiomatycznie -- bez tłumaczenia słowo w słowo
-4. Zachowaj elementy strukturalne (Bloki A-F, tabele, bloki kodu, instrukcje narzędzi) identycznie
+4. Zmieniaj tylko język i słownictwo regionalne; nie kopiuj ani nie redefiniuj kanonicznych workflow w plikach locale
 5. Przetestuj na prawdziwej polskiej ofercie (Pracuj.pl, No Fluff Jobs, Just Join IT) przed wysłaniem PR-a

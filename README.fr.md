@@ -71,7 +71,7 @@
 
 Career-Ops ([career-ops.org](https://career-ops.org), également connu sous le nom de **careerops**) transforme n'importe quelle interface de ligne de commande (CLI) de codage IA en un véritable centre de commandement pour votre recherche d'emploi. Au lieu de suivre manuellement vos candidatures dans un tableau de bord, vous disposez d'un pipeline alimenté par l'IA qui :
 
-- **Évalue les offres** avec un système de notation structuré de A à F (10 dimensions pondérées)
+- **Évalue les offres** avec un système structuré A-G (10 dimensions pondérées et analyse de légitimité)
 - **Génère des PDF sur mesure** — des CV optimisés pour les systèmes ATS, personnalisés pour chaque description de poste
 - **Scanne automatiquement les portails** (Greenhouse, Ashby, Lever, pages carrières des entreprises)
 - **Traite en lot** — évalue plus de 10 offres en parallèle avec des sous-agents
@@ -89,14 +89,14 @@ Career-ops est agentic : Claude Code navigue sur les pages carrières avec Playw
 
 | Fonctionnalité | Description |
 | :--- | :--- |
-| **Pipeline Automatique** | Collez une URL, obtenez une évaluation complète + un CV PDF + une entrée dans le tracker |
-| **Évaluation en 6 Blocs** | Résumé du rôle, correspondance de CV, stratégie de niveau, recherche de salaire, personnalisation, préparation aux entretiens (STAR+R) — avec une vérification de légitimité de l'offre (Bloc G) pour signaler les arnaques et les emplois fantômes |
+| **Pipeline Automatique** | Collez une URL : évaluation/score et verdict d'abord ; les documents personnalisés et la candidature exigent une continuation explicite ou une sélection dans le tableau de bord |
+| **Évaluation A-G** | Résumé du rôle, correspondance de CV, stratégie de niveau, recherche de salaire, personnalisation, préparation aux entretiens (STAR+R) et vérification de légitimité (Bloc G) |
 | **Banque d'histoires d'entretien** | Accumule les récits STAR+Réflexion à travers les évaluations — 5 à 10 histoires clés pour répondre à n'importe quelle question comportementale |
 | **Scripts de Négociation** | Cadres de négociation de salaire, arguments contre les baisses de salaire géographiques, levier d'offres concurrentes |
 | **Génération de CV ATS** | CV optimisés avec injection de mots-clés, utilisant le design Space Grotesk + DM Sans |
 | **Scanner de Portails** | Plus de 45 entreprises préconfigurées (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + requêtes personnalisées sur Ashby, Greenhouse, Lever, Wellfound |
 | **Traitement en Lot** | Évaluation parallèle avec des processus de travail `claude -p` |
-| **Tableau kanban local** | Tableau de bord navigateur pour revoir, prioriser, préparer et remplir les candidatures localement |
+| **Tableau kanban local** | Tableau de bord pour revoir et préparer les rôles, mettre les demandes de candidature en file pour l'agent actif et vérifier le travail prêt à relire |
 | **Humain dans la Boucle** | L'IA évalue et recommande, vous décidez et agissez. Le système ne soumet jamais de candidature automatiquement — vous avez toujours le dernier mot |
 | **Intégrité du Pipeline** | Fusion automatisée, déduplication, normalisation des statuts et vérifications de santé |
 
@@ -125,7 +125,7 @@ claude   # ou gemini / codex / qwen / opencode — ouvrez votre CLI d'IA ici
 ```bash
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
-npx playwright install chromium   # requis uniquement pour la génération de PDF
+npx playwright install chromium   # requis pour les PDF et la vérification navigateur/validité via Playwright
 claude   # ouvrez votre CLI d'IA — il vous guidera au premier lancement
 ```
 
@@ -187,7 +187,7 @@ Career-ops est accessible via une commande slash unique avec plusieurs modes :
 
 ```
 /career-ops                → Afficher toutes les commandes disponibles
-/career-ops {coller JD}    → Pipeline automatique complet (évaluation + PDF + tracker)
+/career-ops {coller JD}    → Évaluation/score et verdict d'abord ; attendre une continuation explicite ou une sélection dans le tableau de bord
 /career-ops scan           → Scanner les portails pour de nouvelles offres
 /career-ops pdf            → Générer un CV optimisé pour les ATS
 /career-ops batch          → Évaluer plusieurs offres en lot
@@ -200,7 +200,7 @@ Career-ops est accessible via une commande slash unique avec plusieurs modes :
 /career-ops project        → Évaluer un projet de portfolio
 ```
 
-Ou collez simplement l'URL ou la description d'un emploi — career-ops le détecte automatiquement et lance le pipeline complet.
+Ou collez simplement l'URL ou la description d'un emploi — career-ops le détecte, l'évalue/le note et affiche d'abord le verdict. Selon `modes/_custom.md`, il ne génère aucun document personnalisé, ne fait pas progresser le statut de candidature dans le tracker, ne sélectionne aucun rôle, n'ouvre pas le navigateur et ne remplit aucun formulaire en direct avant votre continuation explicite ou votre sélection dans le tableau de bord.
 
 ## Comment ça fonctionne
 
@@ -214,14 +214,18 @@ Vous collez l'URL ou la description d'un emploi
 └────────┬─────────┘
          │
 ┌────────▼─────────┐
-│ Évaluation A-F   │  Correspondance, lacunes, recherche de salaire, récits STAR
+│ Évaluation A-G   │  Correspondance, lacunes, salaire, récits STAR, légitimité
 │ (lit cv.md)      │
 └────────┬─────────┘
          │
-    ┌────┼────┐
-    ▼    ▼    ▼
- Rapport  PDF  Tracker
-  .md    .pdf   .tsv
+         ▼
+Score/verdict + rapport + statut du tracker : Evaluated
+         │
+         ▼
+Continuation explicite ou sélection dans le tableau de bord
+         │
+         ▼
+Documents personnalisés → navigateur/remplissage → relecture et envoi par le candidat
 ```
 
 ## Portails préconfigurés
@@ -255,7 +259,7 @@ Le tableau kanban local est l'interface principale de revue dans career-ops. Il 
 npm run launch   # ouvre http://127.0.0.1:7777
 ```
 
-Utilisez-le pour revoir les scores, choisir les rôles à préparer, lancer le remplissage de formulaires, vérifier les brouillons/fichiers et garder une validation humaine avant l'envoi. Le tableau de bord ne soumet jamais de candidature à votre place.
+Utilisez-le pour revoir les scores, choisir les rôles à préparer, mettre en file des demandes de candidature durables pour l'agent actif, vérifier les brouillons/fichiers et garder une validation humaine avant l'envoi. Le tableau de bord ne lance pas l'automatisation du navigateur et ne remplit ni ne soumet lui-même une candidature.
 
 ### Terminal Tracker TUI
 
@@ -302,8 +306,8 @@ career-ops/
 ## Pile technique
 
 - **Agent** : Claude Code avec compétences et modes personnalisés
-- **PDF** : Playwright/Puppeteer + modèle HTML
-- **Scanner** : Playwright + API Greenhouse + Recherche Web
+- **PDF** : Playwright + modèle HTML
+- **Scanner** : API ATS/données déterministes d'abord, puis Playwright et recherche Web en secours
 - **Tableau de bord** : Go + Bubble Tea + Lipgloss (thème Catppuccin Mocha)
 - **Données** : Tableaux Markdown + configuration YAML + fichiers TSV pour les lots
 

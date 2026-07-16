@@ -119,6 +119,10 @@ func (m ViewerModel) Init() tea.Cmd {
 	return nil
 }
 
+func (m ViewerModel) statusOptions() []string {
+	return data.AllowedTrackerStatusTransitions(m.app.Status)
+}
+
 func (m *ViewerModel) Resize(width, height int) {
 	m.width = width
 	m.height = height
@@ -136,16 +140,11 @@ func (m ViewerModel) Update(msg tea.Msg) (ViewerModel, tea.Cmd) {
 			return m, func() tea.Msg { return ViewerClosedMsg{} }
 
 		case "c":
-			m.statusPicker = true
-			m.statusCursor = 0
-			currentNorm := data.NormalizeStatus(m.app.Status)
-			for idx, opt := range statusOptions {
-				if data.NormalizeStatus(opt) == currentNorm {
-					m.statusCursor = idx
-					break
-				}
+			if len(m.statusOptions()) > 0 {
+				m.statusPicker = true
+				m.statusCursor = 0
+				m.clampScrollOffset()
 			}
-			m.clampScrollOffset()
 			return m, nil
 
 		case "down", "j":
@@ -209,7 +208,7 @@ func (m ViewerModel) Update(msg tea.Msg) (ViewerModel, tea.Cmd) {
 func (m ViewerModel) bodyHeight() int {
 	h := m.height - 4 // header + footer + padding
 	if m.statusPicker {
-		h -= (len(statusOptions) + 1)
+		h -= (len(m.statusOptions()) + 1)
 	}
 	if h < 3 {
 		h = 3
@@ -735,6 +734,12 @@ func (m ViewerModel) renderFooter() string {
 }
 
 func (m ViewerModel) handleStatusPicker(msg tea.KeyMsg) (ViewerModel, tea.Cmd) {
+	options := m.statusOptions()
+	if len(options) == 0 {
+		m.statusPicker = false
+		m.clampScrollOffset()
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc", "q":
 		m.statusPicker = false
@@ -743,8 +748,8 @@ func (m ViewerModel) handleStatusPicker(msg tea.KeyMsg) (ViewerModel, tea.Cmd) {
 
 	case "down", "j":
 		m.statusCursor++
-		if m.statusCursor >= len(statusOptions) {
-			m.statusCursor = len(statusOptions) - 1
+		if m.statusCursor >= len(options) {
+			m.statusCursor = len(options) - 1
 		}
 
 	case "up", "k":
@@ -756,7 +761,7 @@ func (m ViewerModel) handleStatusPicker(msg tea.KeyMsg) (ViewerModel, tea.Cmd) {
 	case "enter":
 		m.statusPicker = false
 		m.clampScrollOffset()
-		newStatus := statusOptions[m.statusCursor]
+		newStatus := options[m.statusCursor]
 		return m, func() tea.Msg {
 			return ViewerUpdateStatusMsg{
 				App:       m.app,
@@ -779,7 +784,7 @@ func (m ViewerModel) overlayStatusPicker(body string) string {
 	var picker []string
 	picker = append(picker, padStyle.Render(borderStyle.Render("Change status:")))
 
-	for i, opt := range statusOptions {
+	for i, opt := range m.statusOptions() {
 		style := lipgloss.NewStyle().Foreground(m.theme.Text).Width(pickerWidth)
 		if i == m.statusCursor {
 			style = style.Background(m.theme.Overlay).Bold(true)

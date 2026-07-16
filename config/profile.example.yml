@@ -79,10 +79,10 @@ location:
   # visa_form_answer_parttime: "..."
   sponsorship_answer: "No sponsorship required"
 
-# ── Application form answers (Layer 1 of the form-fill resolver) ──────────────
+# ── Application form answers (Layer 1 of the live application resolver) ──────
 # Static answers the resolver fills deterministically (zero model tokens) via
 # field-rules.mjs. The classic fixed fields plus the employer-independent custom
-# fields the old fill used to leave blank. Reviewed by you before submit.
+# recurring employer-independent fields. Reviewed by you before submit.
 application_answers:
   salary_range: "$150,000 – 200,000"
   notice_period: "2 weeks"
@@ -92,6 +92,13 @@ application_answers:
   office_days_commitment: "Yes — I can commit to the required days in office."
   work_rights_freetext: "I have full working rights and require no sponsorship."
   work_rights_consent: "Yes, I consent."
+  # Sensitive/factual declarations stay blank until the candidate explicitly
+  # records them. Blank values fall through to role-local L3 + final review.
+  criminal_history: ""
+  currently_student: ""
+  has_masters: ""
+  highest_qualification: ""
+  education_status: ""
   # Binary screener radios/selects — emitted verbatim as Yes/No radio answers.
   # FILL IN: review after any visa or employment-status change.
   work_authorized: "Yes"        # legally authorized to work in target country?
@@ -157,9 +164,7 @@ formatting:
 
 # ── Automation ────────────────────────────────────────────────────────────────
 automation:
-  fill_concurrency: 1   # parallel headless fills — keep at 1 for public release
   login_timeout_min: 10 # minutes to wait for post-login form signal
-  credentials_path: "data/portal-credentials.json"   # gitignored
 
 # ── Application asset quality and model compatibility ───────────────────────
 # New profiles accept any explicitly identified current/future CLI and model.
@@ -320,25 +325,20 @@ cover_letter:
 # scan:
 #   extractor: mcp   # mcp (default) | cli
 
-# ── Auto-PDF threshold ──────────────────────────────────────────────────────
+# ── Explicit draft-PDF score filter ─────────────────────────────────────────
 #
-# Auto-PDF threshold during evaluation (used by `/career-ops pipeline` and
-# `bash batch/batch-runner.sh`).
+# `/career-ops pipeline` and `batch/batch-runner.sh` are evaluation-only unless
+# the candidate explicitly enables non-release draft PDFs for that run (for
+# example `batch/batch-runner.sh --draft-pdf`).
 #
-# An offer's tailored CV PDF is auto-generated only when its score is
-# >= this threshold. Generating a PDF costs ~30-60s per offer (Playwright
-# launch + HTML render), and most offers in a scan score 2.x/3.x and never
-# become an actual application — so the gate avoids wasted renders.
+# `auto_pdf_score_threshold` is only the second-stage score filter after that
+# explicit draft-PDF activation. It never enables PDF generation, selects a
+# role, starts PREPARE, or creates release-ready application assets by itself.
 #
-# Default (key absent OR commented out): 3.0 — the original gate of
-# `/career-ops pipeline`. Both evaluation paths apply the same default, so
-# a batch run and an interactive run treat the same offer identically.
-#
-# Raise it (e.g. 4.0) to auto-generate PDFs only for stronger matches and
-# leave the rest report-only — those can still be produced on demand via
-# `/career-ops pdf {company-slug}`. Fractional thresholds work (e.g. 3.5 —
-# half-point scores like 3.5/5 occur in evaluations). Set it to 0 to
-# generate a PDF for every offer.
+# Default when draft PDFs were explicitly enabled and this key is absent: 3.0.
+# Raise it (for example 4.0) to draft only stronger matches. Fractional values
+# work. Set it to 0 to draft every evaluated offer in an explicitly activated
+# draft-PDF run. Without explicit activation, every value remains report-only.
 # auto_pdf_score_threshold: 4.0
 
 # ── Re-apply Cooldown Windows ──────────────────────────────────────────────

@@ -20,7 +20,9 @@
  * Nothing in this file invokes any LLM.
  */
 
-import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync } from 'fs';
+import {
+  readFileSync, writeFileSync, existsSync, renameSync, mkdirSync, rmSync, statSync,
+} from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
@@ -28,6 +30,7 @@ import yaml from 'js-yaml';
 
 import { createSupabaseClient, isSupabaseConfigured } from './supabase-client.mjs';
 import { checkUrlLivenessHttp } from './liveness-http.mjs';
+import { validateApplicationReceiptIntegrity } from './application-receipt-integrity.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 // CAREER_OPS_DATA_DIR redirects the store's files (tests, sandboxes); default
@@ -37,12 +40,16 @@ const DATA_DIR = process.env.CAREER_OPS_DATA_DIR
   : join(ROOT, 'data');
 export const QUEUE_PATH = join(DATA_DIR, 'apply-queue.json');
 export const LOCAL_ENRICHMENTS_PATH = join(DATA_DIR, 'local-enrichments.json');
+export const QUEUE_LOCK_PATH = join(DATA_DIR, '.apply-queue.lock');
 const TMP_DIR = DATA_DIR;
 
 // --- Status lifecycle ---
-// new -> scored -> prepare-queued -> prepared -> prefilled -> filled -> submitted | skipped | reviewed | closed
-// 'prefilled' = headless fill complete, needs user review in headed browser
-// 'filled'    = headed fill complete, user review + submit pending
+// New runs: new -> scored -> prepare-queued -> prepared -> filled -> submitted | skipped | reviewed | closed
+// Legacy resume branch: prefilled -> filled. No dashboard/planner path creates a
+// new prefilled transition; the active agent must finish L3, teach, conditional
+// re-scan, page verification, and receipts for an existing record.
+// 'filled'    = receipt-gated review-ready application; candidate review and
+//               final submission are still pending.
 export const ACTIVE_STATUSES  = new Set(['new', 'scored', 'prepare-queued', 'prepared', 'prefilled', 'filled']);
 export const DONE_STATUSES    = new Set(['submitted', 'skipped', 'reviewed', 'closed']);
 export const LANE_STATUSES    = new Set(['scored', 'prepare-queued', 'prepared', 'prefilled', 'filled']); // visible in lanes
@@ -94,6 +101,15 @@ export const LOCAL_ONLY_ROLE_FIELDS = new Set([
   'user_override',
   'application_quality_review',
   'generation_provenance',
+  'application_progress',
+  'application_request',
+  'application_finalization_transaction',
+  'application_decision_transaction',
+  'application_receipt_repairs',
+  'review_required_fields',
+  'prefill_checkpoint',
+  'prior_application_detected_at',
+  'prior_application_detected_url',
 ]);
 
 const EMPTY_QUEUE = () => ({
@@ -114,14 +130,109 @@ const STATUS_TIMESTAMP = {
   'prepare-queued': null,
 };
 
+const STATUS_TRANSITION_AUTH = Symbol('career-ops-status-transition');
+// Private capability passed only by mutateQueue() after it captured the
+// persisted before-state under the queue lock.  Exported callers cannot mint
+// this symbol, so saveQueue() must reconstruct its own persisted before-state
+// and cannot be used as a direct protected-status bypass.
+const SAVE_TRANSITION_CONTEXT = Symbol('career-ops-save-transition-context');
+const RECEIPT_PROTECTED_STATUSES = new Set(['filled', 'submitted']);
+
+function finalizedApplicationReceiptError(role, expectedReportState) {
+  try {
+    validateApplicationReceiptIntegrity(role, expectedReportState);
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
+function assertReceiptProtectedRole(role) {
+  if (role?.status === 'filled') {
+    const error = finalizedApplicationReceiptError(role, 'filled');
+    if (error) {
+      throw new Error(
+        `role ${role?.id ?? '<unknown>'}: status filled requires a finalized review-ready ` +
+        `application receipt: ${error.message}`,
+      );
+    }
+  }
+  if (role?.status === 'submitted') {
+    const error = finalizedApplicationReceiptError(role, 'submitted');
+    if (error) {
+      throw new Error(
+        `role ${role?.id ?? '<unknown>'}: status submitted requires candidate-confirmed ` +
+        `receipt/report provenance: ${error.message}`,
+      );
+    }
+  }
+}
+
+function hasModernApplicationReceiptEvidence(role) {
+  return role != null && (
+    Object.prototype.hasOwnProperty.call(role, 'application_progress') ||
+    Object.prototype.hasOwnProperty.call(role, 'application_request')
+  );
+}
+
+function queueTransitionSnapshot(queue) {
+  return new Map((queue?.roles ?? []).map((role) => [role.id, {
+    status: role.status,
+    modernReceiptEvidence: hasModernApplicationReceiptEvidence(role),
+  }]));
+}
+
+function persistedTransitionSnapshot() {
+  const persisted = loadShadowQueue();
+  if (persisted == null) return new Map();
+  validateQueueShape(persisted, 'persisted apply queue');
+  return queueTransitionSnapshot(persisted);
+}
+
+function validateReceiptProtectedTransitions(beforeTransitions, queue, { consumeAuthorization = true } = {}) {
+  for (const role of queue.roles ?? []) {
+    const before = beforeTransitions.get(role.id) ?? {
+      status: null,
+      modernReceiptEvidence: false,
+    };
+    const previous = before.status;
+    const protectedNow = RECEIPT_PROTECTED_STATUSES.has(role.status);
+    const modernNow = hasModernApplicationReceiptEvidence(role);
+    if (previous !== role.status && protectedNow) {
+      const authorization = role[STATUS_TRANSITION_AUTH];
+      if (!authorization || authorization.from !== previous || authorization.to !== role.status) {
+        throw new Error(`role ${role.id}: protected status ${role.status} must be entered through queue-store.setStatus`);
+      }
+      // Legacy rows may predate application receipts, so unchanged protected
+      // rows remain saveable.  Every *new* transition is checked again here,
+      // at the persistence boundary, even though setStatus() also fails early.
+      assertReceiptProtectedRole(role);
+    } else if (previous === role.status && protectedNow) {
+      if (before.modernReceiptEvidence && !modernNow) {
+        throw new Error(
+          `role ${role.id}: refusing to erase modern application receipt evidence while status remains ${role.status}`,
+        );
+      }
+      // Genuine historical rows have neither application_progress nor
+      // application_request and remain saveable for unrelated mutations. Once
+      // either field exists, the protected status remains an invariant on every
+      // later save instead of only at first promotion.
+      if (before.modernReceiptEvidence || modernNow) {
+        assertReceiptProtectedRole(role);
+      }
+    }
+    if (consumeAuthorization) delete role[STATUS_TRANSITION_AUTH];
+  }
+}
+
 // -- Local JSON helpers -------------------------------------------------------
 
 function readJson(path, fallback = null) {
   if (!existsSync(path)) return fallback;
   try {
     return JSON.parse(readFileSync(path, 'utf-8'));
-  } catch {
-    return fallback;
+  } catch (err) {
+    throw new Error(`Invalid JSON in ${path}; refusing to treat an existing store as empty: ${err.message}`);
   }
 }
 
@@ -133,10 +244,14 @@ function atomicWriteJson(path, value) {
 }
 
 function normalizeSidecar(raw = null) {
-  if (!raw || typeof raw !== 'object') {
+  if (raw == null) {
     return { version: 1, settings: {}, roles: {} };
   }
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Invalid local-enrichments store; expected a JSON object');
+  }
   if (raw.roles && typeof raw.roles === 'object') {
+    if (Array.isArray(raw.roles)) throw new Error('Invalid local-enrichments roles map');
     return {
       version: raw.version ?? 1,
       settings: raw.settings ?? {},
@@ -170,8 +285,121 @@ function loadShadowQueue() {
   return readJson(QUEUE_PATH, null);
 }
 
+function validateQueueShape(queue, label = 'apply queue') {
+  if (!queue || typeof queue !== 'object' || Array.isArray(queue)) {
+    throw new Error(`Invalid ${label}; expected a JSON object`);
+  }
+  if (queue.settings != null && (typeof queue.settings !== 'object' || Array.isArray(queue.settings))) {
+    throw new Error(`Invalid ${label}; settings must be an object`);
+  }
+  if (queue.roles != null && !Array.isArray(queue.roles)) {
+    throw new Error(`Invalid ${label}; roles must be an array`);
+  }
+  queue.settings = queue.settings ?? {};
+  queue.roles = queue.roles ?? [];
+  return queue;
+}
+
 function saveShadowQueue(queue) {
   atomicWriteJson(QUEUE_PATH, queue);
+}
+
+function withQueueLock(fn, timeoutMs = 15_000) {
+  mkdirSync(DATA_DIR, { recursive: true });
+  const deadline = Date.now() + timeoutMs;
+  const staleMs = 120_000;
+  const recoverGuardPath = `${QUEUE_LOCK_PATH}.recover`;
+  const token = randomUUID();
+
+  const readOwner = (path) => {
+    try {
+      return JSON.parse(readFileSync(join(path, 'owner.json'), 'utf8'));
+    } catch {
+      return null;
+    }
+  };
+  const processIsAlive = (pid) => {
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      return error?.code === 'EPERM';
+    }
+  };
+  const canRecover = (path) => {
+    const owner = readOwner(path);
+    if (owner?.pid) return !processIsAlive(owner.pid);
+    try {
+      return Date.now() - statSync(path).mtimeMs > staleMs;
+    } catch {
+      return true;
+    }
+  };
+  const createOwnedLock = (path, ownerToken) => {
+    mkdirSync(path, { mode: 0o700 });
+    try {
+      writeFileSync(join(path, 'owner.json'), JSON.stringify({
+        pid: process.pid,
+        token: ownerToken,
+        started_at: new Date().toISOString(),
+      }, null, 2), { mode: 0o600 });
+    } catch (error) {
+      rmSync(path, { recursive: true, force: true });
+      throw error;
+    }
+  };
+  const releaseOwnedLock = (path, ownerToken) => {
+    if (readOwner(path)?.token === ownerToken) {
+      rmSync(path, { recursive: true, force: true });
+    }
+  };
+
+  while (true) {
+    try {
+      createOwnedLock(QUEUE_LOCK_PATH, token);
+      break;
+    } catch (err) {
+      if (err?.code !== 'EEXIST') throw err;
+
+      const recoverToken = randomUUID();
+      let ownsRecoverGuard = false;
+      try {
+        createOwnedLock(recoverGuardPath, recoverToken);
+        ownsRecoverGuard = true;
+      } catch (guardError) {
+        if (guardError?.code !== 'EEXIST') throw guardError;
+        if (canRecover(recoverGuardPath)) {
+          rmSync(recoverGuardPath, { recursive: true, force: true });
+        }
+      }
+
+      if (ownsRecoverGuard) {
+        try {
+          if (canRecover(QUEUE_LOCK_PATH)) {
+            rmSync(QUEUE_LOCK_PATH, { recursive: true, force: true });
+            continue;
+          }
+        } finally {
+          releaseOwnedLock(recoverGuardPath, recoverToken);
+        }
+      }
+
+      if (Date.now() >= deadline) throw new Error('Timed out waiting for apply queue lock');
+      // Synchronous 50ms sleep: callers (CLI and dashboard alike) rely on
+      // mutateQueue being synchronous, and the application-contract guards pin
+      // that call shape. Under cross-process lock contention this blocks the
+      // dashboard event loop for up to timeoutMs — an accepted trade-off; an
+      // async lock path would have to move in lockstep with the contract
+      // verifier patterns.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    releaseOwnedLock(QUEUE_LOCK_PATH, token);
+  }
 }
 
 function dateOnly(value) {
@@ -312,6 +540,7 @@ export function mergeCloudAndLocal(activeRows, sidecar) {
   return {
     version: 1,
     settings: {
+      ...normalizedSidecar.settings,
       score_threshold: normalizedSidecar.settings?.score_threshold ?? null,
       auto_fill_all: normalizedSidecar.settings?.auto_fill_all ?? false,
       updated_at: normalizedSidecar.settings?.updated_at ?? null,
@@ -340,9 +569,13 @@ function profileQueueBackend() {
     // js-yaml v4: yaml.load() uses DEFAULT_SCHEMA — no arbitrary constructors.
     const profile = yaml.load(readFileSync(path, 'utf-8')) ?? {};
     const backend = profile?.queue?.backend;
-    return backend === 'local' || backend === 'supabase' ? backend : null;
-  } catch {
-    return null;
+    if (backend == null || backend === '') return null;
+    if (backend !== 'local' && backend !== 'supabase') {
+      throw new Error(`queue.backend must be local or supabase, got '${backend}'`);
+    }
+    return backend;
+  } catch (err) {
+    throw new Error(`Cannot resolve queue backend from config/profile.yml: ${err.message}`);
   }
 }
 
@@ -381,9 +614,7 @@ export function queueBackend() {
 
 export function loadQueue() {
   if (queueBackend() === 'local') {
-    const queue = loadShadowQueue() ?? EMPTY_QUEUE();
-    queue.settings = queue.settings ?? {};
-    queue.roles = Array.isArray(queue.roles) ? queue.roles : [];
+    const queue = validateQueueShape(loadShadowQueue() ?? EMPTY_QUEUE());
     queue.settings.store_backend = 'local';
     // A queue file inherited from a supabase-mirror era may carry a stale
     // read-only warning — it does not apply to the local backend.
@@ -394,7 +625,7 @@ export function loadQueue() {
   if (!isSupabaseConfigured('dashboard')) {
     const shadow = loadShadowQueue();
     if (shadow) {
-      shadow.settings = shadow.settings ?? {};
+      validateQueueShape(shadow, 'apply queue shadow');
       shadow.settings.store_backend = 'local-shadow';
       shadow.settings.store_warning = 'Supabase env is not configured; writes will fail until SUPABASE_URL and SUPABASE_DASHBOARD_KEY are set.';
       return shadow;
@@ -407,7 +638,7 @@ export function loadQueue() {
   } catch (err) {
     const shadow = loadShadowQueue();
     if (!shadow) throw err;
-    shadow.settings = shadow.settings ?? {};
+    validateQueueShape(shadow, 'apply queue shadow');
     shadow.settings.store_backend = 'supabase-shadow';
     shadow.settings.store_warning = `Supabase unavailable; read-only local shadow returned: ${err.message}`;
     console.warn(`WARN: ${shadow.settings.store_warning}`);
@@ -416,6 +647,10 @@ export function loadQueue() {
 }
 
 export function saveQueue(queue, options = {}) {
+  const beforeTransitions = options[SAVE_TRANSITION_CONTEXT] instanceof Map
+    ? options[SAVE_TRANSITION_CONTEXT]
+    : persistedTransitionSnapshot();
+  validateReceiptProtectedTransitions(beforeTransitions, queue);
   if (queueBackend() === 'local') {
     queue.settings = queue.settings ?? {};
     queue.settings.updated_at = new Date().toISOString();
@@ -437,33 +672,79 @@ export function saveQueue(queue, options = {}) {
   const existingSidecar = loadSidecar();
   const split = splitQueueForPersistence(queue, options);
   const client = createSupabaseClient('dashboard');
+  const nextSidecar = {
+    version: 1,
+    settings: split.sidecar.settings,
+    roles: {
+      ...existingSidecar.roles,
+      ...split.sidecar.roles,
+    },
+  };
 
-  client.rpcSync('save_queue', {
-    active_payload: split.active,
-    seen_payload: split.seen,
-  });
-
-  // The Supabase RPC above is the durable commit. If a local write fails after
-  // it, throwing would tell callers the whole save failed (a misleading 503
-  // that invites a retry/double-write) when the cloud state already advanced.
-  // Warn loudly instead — the in-memory queue is still correct, and the next
-  // successful save re-persists the sidecar/shadow from it.
+  // Local-only application evidence is part of the same logical queue commit.
+  // Persist it BEFORE advancing the cloud status so Supabase can never
+  // acknowledge receipt-gated `filled`/`submitted` while the page ledger,
+  // application request, or candidate-decision transaction exists only in
+  // memory. If the cloud RPC fails, restore the prior sidecar as compensation.
+  saveSidecar(nextSidecar);
   try {
-    saveSidecar({
-      version: 1,
-      settings: split.sidecar.settings,
-      roles: {
-        ...existingSidecar.roles,
-        ...split.sidecar.roles,
-      },
+    client.rpcSync('save_queue', {
+      active_payload: split.active,
+      seen_payload: split.seen,
     });
+  } catch (err) {
+    try {
+      saveSidecar(existingSidecar);
+    } catch (rollbackErr) {
+      throw new Error(
+        `${err.message}; local sidecar rollback also failed: ${rollbackErr.message}`,
+      );
+    }
+    throw err;
+  }
+
+  // The authoritative cloud rows and their required local evidence are now
+  // durable. The whole-queue shadow is only a read fallback/cache; a failure to
+  // refresh it must be loud but must not misreport the committed transaction.
+  try {
     saveShadowQueue(queue);
   } catch (err) {
     console.warn(
-      `WARN: Supabase save committed but local sidecar/shadow write failed (${err.message}). ` +
-      'Local-only fields (drafts, asset paths) from this save are not yet on disk — retry the action or re-save.'
+      `WARN: Supabase and local evidence committed but queue shadow refresh failed (${err.message}). ` +
+      'The next successful load/save will rebuild the fallback shadow.'
     );
   }
+}
+
+/**
+ * Serialize a fresh load -> mutation -> save transaction across local agent
+ * processes. Callers that may run concurrently must use this helper instead of
+ * saving a queue snapshot loaded before another worker's update.
+ *
+ * The callback must be synchronous. Its return value is passed back after the
+ * queue commit succeeds.
+ */
+export function mutateQueue(mutator, { timeoutMs = 15_000, saveOptions = {} } = {}) {
+  if (typeof mutator !== 'function') throw new Error('mutateQueue requires a callback');
+  return withQueueLock(() => {
+    const queue = loadQueue();
+    const beforeTransitions = queueTransitionSnapshot(queue);
+    const result = mutator(queue);
+    if (result && typeof result.then === 'function') {
+      throw new Error('mutateQueue callback must be synchronous');
+    }
+    // Validate before persistence without consuming the setStatus capability;
+    // saveQueue() consumes it at the actual write boundary.  Supplying the
+    // private before-state avoids a second, racy disk/cloud snapshot.
+    validateReceiptProtectedTransitions(beforeTransitions, queue, { consumeAuthorization: false });
+    const guardedSaveOptions = { ...saveOptions };
+    Object.defineProperty(guardedSaveOptions, SAVE_TRANSITION_CONTEXT, {
+      value: beforeTransitions,
+      enumerable: false,
+    });
+    saveQueue(queue, guardedSaveOptions);
+    return result;
+  }, timeoutMs);
 }
 
 // -- Stage computation: pure function, no I/O ---------------------------------
@@ -472,9 +753,11 @@ export function saveQueue(queue, options = {}) {
  * Kanban pipeline stage for the dashboard board view.
  * Maps role.status onto board columns:
  *   'inbox'    — scored, not yet selected      (status: scored)
- *   'todo'     — selected / above threshold, waiting for PREPARE (status: prepare-queued)
+ *   'todo'     — explicitly selected, waiting for PREPARE (status: prepare-queued;
+ *                the dashboard threshold is a filter/setting and never selects)
  *   'prepared' — CV + cover letter + drafts ready (status: prepared)
- *   'review'   — form filled, awaiting user review + manual submit (status: filled | prefilled)
+ *   'review'   — legacy non-review-ready checkpoint or receipt-gated review-ready form
+ *                (status: prefilled | filled; the badge distinguishes them)
  *   'done'     — terminal (submitted / skipped / reviewed / closed)
  *   null       — not on the board ('new' roles are a counter, not a card)
  *
@@ -497,18 +780,21 @@ export function computeStage(role) {
 //
 // Not every column boundary on the dashboard board is a bare relabel — Prepared
 // requires real asset generation (tailored CV + cover letter), In Review requires
-// a real form-fill, and Done requires a real submission. Dragging a card can only
-// ever *write a new status directly* for the handful of transitions below, where
-// moving the card genuinely is the whole action (select / deselect / send back to
-// the PREPARE queue). Forward moves into 'prepared', 'review', or 'done' are never
-// produced here — the dashboard drop handler routes those to the real actions
-// (form-fill.mjs / tracker decision) instead of calling this function.
+// the active browser agent's durable per-page resolver receipts and finalizer, and
+// Done requires candidate-confirmed submission. Dragging a card can only ever
+// *write a new status directly* for the handful of transitions below, where
+// moving the card genuinely is the whole action (select / deselect / send a
+// prepared or legacy-prefilled row back to the PREPARE queue). Receipt-gated
+// `filled` is deliberately immutable here: valid evidence remains review-ready;
+// corrupt historical evidence must use application-receipt.mjs --repair-filled.
+// Forward moves into 'prepared', 'review', or 'done' are never produced here —
+// those states come from asset preparation, the canonical application-receipt
+// finalizer, or the candidate-confirmed decision path.
 const STAGE_DRAG_TARGETS = {
   todo: {
     scored:    'prepare-queued', // Inbox → To Do: select for prepare
     prepared:  'prepare-queued', // Prepared → To Do: un-prepare / send back for redo
-    filled:    'prepare-queued', // In Review → To Do: undo fill / send back for redo
-    prefilled: 'prepare-queued', // In Review → To Do: undo fill / send back for redo
+    prefilled: 'prepare-queued', // Legacy In Review → To Do: restart through PREPARE
   },
   inbox: {
     'prepare-queued': 'scored',  // To Do → Inbox: deselect
@@ -548,8 +834,13 @@ export function computeLane(role) {
     return 'review-carefully';
   }
 
-  // needs-input: has unresolved custom free-text fields, manual-field, or knockout flag
-  if (Array.isArray(role.flags) && (role.flags.includes('manual-field') || role.flags.includes('knockout-flag'))) {
+  // needs-input: a legacy prefill needs active-agent L3, or a review flag exists
+  if (Array.isArray(role.flags) && (
+    role.flags.includes('agent-l3-required') ||
+    role.flags.includes('canonical-apply-receipt-required') ||
+    role.flags.includes('manual-field') || // backward compatibility
+    role.flags.includes('knockout-flag')
+  )) {
     return 'needs-input';
   }
   if (Array.isArray(role.free_text_fields) && role.free_text_fields.some(f => f.kind === 'custom')) {
@@ -567,6 +858,9 @@ export function getById(queue, id) {
 }
 
 export function updateById(queue, id, patches) {
+  if (patches && Object.prototype.hasOwnProperty.call(patches, 'status')) {
+    throw new Error('updateById cannot change status; use queue-store.setStatus so protected transitions are validated');
+  }
   const idx = queue.roles.findIndex(r => r.id === id);
   if (idx === -1) return false;
   queue.roles[idx] = { ...queue.roles[idx], ...patches };
@@ -574,10 +868,39 @@ export function updateById(queue, id, patches) {
 }
 
 export function setStatus(queue, id, status) {
+  const role = getById(queue, id);
+  if (!role) return false;
+  const previousStatus = role.status;
+  if (status === 'filled') {
+    const error = finalizedApplicationReceiptError(role, 'filled');
+    if (error) {
+      throw new Error(
+        'status filled requires a finalized review-ready application receipt: ' + error.message,
+      );
+    }
+  }
+  if (status === 'submitted') {
+    if (role.status !== 'filled' && role.status !== 'submitted') {
+      throw new Error(`status submitted requires prior receipt-gated filled state, not ${role.status}`);
+    }
+    const error = finalizedApplicationReceiptError(role, 'submitted');
+    if (error) {
+      throw new Error(
+        'status submitted requires candidate-confirmed receipt/report provenance: ' + error.message,
+      );
+    }
+  }
   const patches = { status };
   const tsField = STATUS_TIMESTAMP[status];
   if (tsField) patches[tsField] = new Date().toISOString();
-  return updateById(queue, id, patches);
+  Object.assign(role, patches);
+  Object.defineProperty(role, STATUS_TRANSITION_AUTH, {
+    value: { from: previousStatus, to: status },
+    configurable: true,
+    enumerable: false,
+    writable: true,
+  });
+  return true;
 }
 
 /** Record the candidate's explicit decision to continue below their quality floor. */

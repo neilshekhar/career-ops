@@ -65,7 +65,7 @@
 
 Career-Ops transforma qualquer CLI de código com IA em uma central completa de busca de emprego. Em vez de acompanhar candidaturas manualmente em planilha, você tem um pipeline com IA que:
 
-- **Avalia vagas** com um sistema estruturado de pontuação A-F (10 dimensões com pesos)
+- **Avalia vagas** com um sistema estruturado A-G (10 dimensões de pontuação mais análise de legitimidade)
 - **Gera PDFs personalizados** -- CVs otimizados para ATS, ajustados por descrição de vaga
 - **Escaneia portais** automaticamente (Greenhouse, Ashby, Lever, páginas de empresas)
 - **Processa em lote** -- avalia 10+ vagas em paralelo com subagentes
@@ -83,14 +83,14 @@ Originalmente criado por [santifer](https://santifer.io), que o usou para avalia
 
 | Funcionalidade                       | Descrição                                                                                                                                      |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Auto-Pipeline**                    | Cole uma URL e receba avaliação completa + PDF + entrada no tracker                                                                            |
-| **Avaliação em 6 blocos**            | Resumo da vaga, aderência ao CV, estratégia de senioridade, pesquisa de compensação, personalização, preparação para entrevista (STAR+R) -- além de uma verificação de legitimidade da vaga (Bloco G) que sinaliza golpes e vagas-fantasma       |
+| **Auto-Pipeline**                    | Cole uma URL: primeiro avaliação/pontuação e veredito; materiais personalizados e candidatura exigem continuação explícita ou seleção no dashboard |
+| **Avaliação A-G**                    | Resumo da vaga, aderência ao CV, estratégia de senioridade, pesquisa de compensação, personalização, preparação para entrevista (STAR+R) e verificação de legitimidade (Bloco G) |
 | **Banco de histórias de entrevista** | Acumula histórias STAR+Reflection ao longo das avaliações -- 5-10 histórias principais que respondem qualquer pergunta comportamental          |
 | **Scripts de negociação**            | Frameworks para negociação salarial, resposta a desconto geográfico e alavanca com ofertas concorrentes                                        |
 | **Geração de PDF ATS**               | CVs com injeção de palavras-chave usando design com Space Grotesk + DM Sans                                                                    |
 | **Scanner de portais**               | 45+ empresas pré-configuradas (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + consultas customizadas em Ashby, Greenhouse, Lever e Wellfound |
 | **Processamento em lote**            | Avaliação paralela com workers `claude -p`                                                                                                     |
-| **Dashboard kanban local**           | Dashboard no navegador para revisar, priorizar, preparar e preencher candidaturas localmente                                                   |
+| **Dashboard kanban local**           | Dashboard para revisar e preparar vagas, enfileirar solicitações de candidatura para o agente ativo e conferir trabalho pronto para revisão    |
 | **Humano no loop**                   | A IA avalia e recomenda, você decide e age. O sistema nunca envia candidatura automaticamente -- a decisão final é sempre sua                  |
 | **Integridade do pipeline**          | Merge automatizado, deduplicação, normalização de status e health checks                                                                       |
 
@@ -121,7 +121,7 @@ claude   # ou gemini / codex / qwen / opencode — abra sua CLI de IA aqui
 ```bash
 git clone https://github.com/neilshekhar/career-ops.git
 cd career-ops && npm install
-npx playwright install chromium   # necessário apenas para geração de PDF
+npx playwright install chromium   # necessário para PDFs e verificação de navegador/liveness com Playwright
 claude
 ```
 
@@ -137,7 +137,7 @@ Career-ops é um único comando slash com múltiplos modos:
 
 ```
 /career-ops                → Mostrar todos os comandos disponíveis
-/career-ops {cole um JD}   → Auto-pipeline completo (avaliar + PDF + tracker)
+/career-ops {cole um JD}   → Avaliação/pontuação e veredito primeiro; aguarde continuação explícita ou seleção no dashboard
 /career-ops scan           → Escanear portais por novas vagas
 /career-ops pdf            → Gerar CV otimizado para ATS
 /career-ops batch          → Avaliar múltiplas vagas em lote
@@ -150,7 +150,7 @@ Career-ops é um único comando slash com múltiplos modos:
 /career-ops project        → Avaliar um projeto de portfólio
 ```
 
-Ou apenas cole uma URL ou descrição de vaga diretamente -- career-ops detecta automaticamente e roda o pipeline completo.
+Ou apenas cole uma URL ou descrição de vaga diretamente -- career-ops detecta, avalia/pontua e mostra primeiro o veredito. Conforme `modes/_custom.md`, ele não gera materiais personalizados, não avança o status da candidatura no tracker, não seleciona uma vaga, não abre o navegador nem preenche o formulário ao vivo até você continuar explicitamente ou selecionar a vaga no dashboard.
 
 ## Como funciona
 
@@ -164,14 +164,18 @@ Você cola a URL ou descrição da vaga
 └────────┬─────────┘
          │
 ┌────────▼─────────┐
-│  Avaliação A-F   │  Aderência, gaps, pesquisa de compensação, histórias STAR
+│  Avaliação A-G   │  Aderência, gaps, compensação, histórias STAR, legitimidade
 │  (lê cv.md)      │
 └────────┬─────────┘
          │
-    ┌────┼────┐
-    ▼    ▼    ▼
- Report  PDF  Tracker
-  .md   .pdf   .tsv
+         ▼
+Pontuação/veredito + relatório + status do tracker: Evaluated
+         │
+         ▼
+Continuação explícita ou seleção no dashboard
+         │
+         ▼
+Materiais personalizados → navegador/preenchimento → revisão e envio pelo candidato
 ```
 
 ## Portais pré-configurados
@@ -197,7 +201,7 @@ O dashboard kanban local é a principal interface de revisão do career-ops. Ele
 npm run launch   # abre http://127.0.0.1:7777
 ```
 
-Use para revisar scores, escolher vagas para preparar, iniciar o form-fill, conferir rascunhos/arquivos e manter revisão humana antes do envio. O dashboard nunca envia candidaturas por você.
+Use para revisar scores, escolher vagas para preparar, enfileirar solicitações duráveis de candidatura para o agente ativo, conferir rascunhos/arquivos e manter revisão humana antes do envio. O dashboard não inicia automação do navegador nem preenche ou envia candidaturas por conta própria.
 
 ### Terminal Tracker TUI
 
@@ -249,7 +253,7 @@ career-ops/
 ![Bubble Tea](https://img.shields.io/badge/Bubble_Tea-FF75B5?style=flat&logo=go&logoColor=white)
 
 - **Agente**: Claude Code com skills e modos customizados
-- **PDF**: Playwright/Puppeteer + template HTML
+- **PDF**: Playwright + template HTML
 - **Scanner**: Playwright + Greenhouse API + WebSearch
 - **Dashboard**: Go + Bubble Tea + Lipgloss (tema Catppuccin Mocha)
 - **Dados**: Tabelas em Markdown + configuração YAML + arquivos TSV de lote

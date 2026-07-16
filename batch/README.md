@@ -1,6 +1,6 @@
 # Batch Processing
 
-Process multiple job offers in parallel via headless workers. Each worker produces an A-F report, a provisional triage score, and a tracker line. PDF generation is off by default because final application assets belong to interactive PREPARE. See the **Headless / Batch Mode** table in `AGENTS.md` for the correct command per CLI.
+Process multiple job offers in parallel via headless workers. Each worker produces an A-G report, a provisional triage score, and a tracker line. PDF generation is off by default because final application assets belong to interactive PREPARE. See the **Headless / Batch Mode** table in `AGENTS.md` for the correct command per CLI.
 
 ## Quick Start
 
@@ -59,7 +59,7 @@ batch/
 
 1. **batch-runner.sh** reads `batch-input.tsv` and `batch-state.tsv` to determine which offers need processing.
 2. For each pending offer, it assigns a report number and launches a headless worker with `batch-prompt.md` as the system prompt (placeholders like `{{URL}}`, `{{REPORT_NUM}}` are resolved).
-3. Each worker evaluates the offer, writes a report to `reports/`, and writes a tracker TSV to `tracker-additions/`. With `--draft-pdf`, it may also create a non-release PDF under `output/`; that file cannot pass the queue application release gate.
+3. Each worker evaluates the offer, writes a report to `reports/`, and writes an `Evaluated` tracker TSV to `tracker-additions/`. Workers never emit post-application lifecycle states. With `--draft-pdf`, a worker may also create a non-release PDF under `output/`; that file cannot pass the queue application release gate.
 4. After all workers finish, batch-runner calls `merge-tracker.mjs` to merge TSVs into `data/applications.md`, `reconcile-pipeline.mjs` to move processed offers out of the `data/pipeline.md` inbox, and `verify-pipeline.mjs` to check integrity.
 
 Batch scores are deliberately not model-invariant. They are recoverable ranking
@@ -78,6 +78,11 @@ Workers write one TSV per offer to `batch/tracker-additions/`. The merge script 
 
 - Deduplication by company + role fuzzy match and report number
 - Column order conversion (TSV has status before score; applications.md has score before status)
+- Evaluation-only status enforcement. Lifecycle imports require an explicit
+  `--external-import` / `--historical-import` run and are promoted through
+  `set-status.mjs --external` with durable provenance.
+- Monotonic PDF metadata upgrades on an existing duplicate (`❌` → `✅`) without
+  changing its lifecycle status, score, date, report, or notes.
 - In-place updates when a re-evaluation scores higher than the existing entry
 - Moving processed TSVs to `tracker-additions/merged/`
 
