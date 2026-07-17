@@ -26,6 +26,7 @@ These files contain your personal data, customizations, and work product. Update
 | `data/pipeline.md` | Your URL inbox |
 | `data/scan-history.tsv` | Your scan history |
 | `data/scan-runs.tsv` | Your per-run scan counters (appended by `scan.mjs`, read by `stats.mjs`) |
+| `data/portal-health.tsv` | Consecutive reachability status for scanned portals (appended by `scan.mjs`) |
 | `data/follow-ups.md` | Your follow-up history |
 | `data/apply-queue.json` | Your apply queue — scored roles, drafts, decisions |
 | `data/offers/*` | Your received offers/contracts, promise notes, prep reports, and reply drafts (PII — gitignored, written by the `offer-prep` mode) |

@@ -3273,7 +3273,8 @@ try {
   const historyRow = formatScanHistoryRow(hostileOffer, '2026-06-18');
   const historyColumns = historyRow.split('\t');
   if (
-    historyColumns.length === 8 && // 7 metadata columns + fingerprint (#1597)
+    historyColumns.length === 9 && // 7 metadata + fingerprint (#1597) + postedAt
+    historyColumns[8] === '' && // no postedAt on hostileOffer → empty trailing col
     !historyColumns.some(col => /[\r\n\t]/.test(col)) &&
     historyColumns[0] === 'https://jobs.example.com/123|evil' &&
     historyColumns[3].includes('- [ ] https://evil.example/job') &&
@@ -9632,7 +9633,7 @@ try {
     '2026-07-06',
   );
   const cols = withBody.split('\t');
-  if (cols.length === 8 && /^[0-9a-f]{16}$/.test(cols[7])) {
+  if (cols.length === 9 && /^[0-9a-f]{16}$/.test(cols[7])) {
     pass('formatScanHistoryRow appends a fingerprint column for described offers');
   } else {
     fail(`formatScanHistoryRow columns: ${cols.length}, last=${JSON.stringify(cols[7])}`);
@@ -9642,7 +9643,7 @@ try {
     '2026-07-06',
   );
   const cols2 = withoutBody.split('\t');
-  if (cols2.length === 8 && cols2[7] === '') {
+  if (cols2.length === 9 && cols2[7] === '') {
     pass('formatScanHistoryRow leaves the fingerprint empty when no description is available');
   } else {
     fail(`formatScanHistoryRow (no body) columns: ${cols2.length}, last=${JSON.stringify(cols2[7])}`);
@@ -9887,8 +9888,75 @@ try {
   } else {
     fail('computeRunStats should return null for empty/unknown-schema input');
   }
+
+  const portalsYml = 'tracked_companies:\n  - name: Acme\n  - name: GlobalCorp\n  - name: DeadInc\n  - name: NetworkDead\njob_boards: []';
+  const portalHealthTsv = 'timestamp\tcompany\tstatus\n' +
+    '2026-07-01\tDeadInc\tslug_gone\n' +
+    '2026-07-02\tDeadInc\tslug_gone\n' +
+    '2026-07-03\tDeadInc\tslug_gone\n' +
+    '2026-07-01\tNetworkDead\tnetwork\n' +
+    '2026-07-02\tNetworkDead\tnetwork\n' +
+    '2026-07-03\tNetworkDead\tnetwork\n' +
+    '2026-07-01\tGlobalCorp\tnetwork\n' +
+    '2026-07-02\tGlobalCorp\treachable\n' +
+    '2026-07-01\tUnconfiguredDead\tnetwork\n' +
+    '2026-07-02\tUnconfiguredDead\tnetwork\n' +
+    '2026-07-03\tUnconfiguredDead\tnetwork\n';
+  const p = stats.computePortalStats(portalsYml, null, [], portalHealthTsv);
+  if (p && p.persistentlyDead === 2) {
+    pass('computePortalStats tracks persistentlyDead count from portal-health.tsv streaks');
+  } else {
+    fail('computePortalStats failed to compute persistentlyDead streaks');
+  }
+  const pNull = stats.computePortalStats(portalsYml, null, [], null);
+  if (pNull && pNull.persistentlyDead === 0) {
+    pass('computePortalStats gracefully handles null portalHealthTsv');
+  } else {
+    fail('computePortalStats failed on null portalHealthTsv');
+  }
 } catch (e) {
   fail(`test layout guard: ${e.message}`);
+}
+
+// ── STATED-COMP TRACKING (#1852) ────────────────────────────────
+// salary-gap.mjs's own --self-test (invoked above via the CLI-check table)
+// covers stated-observation parsing, backward compatibility, and the
+// getStatedObservations() lookup. This section pins the mode-doc wiring:
+// interview/plan reads it back before generating prep, interview-prep does
+// the same for the initial pass, and interview/debrief writes it.
+
+console.log('\n62. Stated-comp tracking wired into interview modes (#1852)');
+
+try {
+  const planMode = readFile('modes/interview/plan.md');
+  const prepModeDoc = readFile('modes/interview-prep.md');
+  const debriefMode = readFile('modes/interview/debrief.md');
+
+  if (planMode.includes('--stated-for') && planMode.includes('salary-gap.mjs')) {
+    pass('interview/plan reads prior stated-comp observations via salary-gap.mjs --stated-for');
+  } else {
+    fail('interview/plan missing --stated-for lookup for prior stated-comp observations');
+  }
+
+  if (planMode.includes('Compensation — already discussed')) {
+    pass('interview/plan quick-reference carries the "already discussed" comp callout');
+  } else {
+    fail('interview/plan quick-reference missing the "already discussed" comp callout');
+  }
+
+  if (prepModeDoc.includes('--stated-for') && prepModeDoc.includes('salary-gap.mjs')) {
+    pass('interview-prep reads prior stated-comp observations via salary-gap.mjs --stated-for');
+  } else {
+    fail('interview-prep missing --stated-for lookup for prior stated-comp observations');
+  }
+
+  if (debriefMode.includes('stated') && debriefMode.includes('salary-observations.tsv')) {
+    pass('interview/debrief appends a stated observation when a comp number is verbally given');
+  } else {
+    fail('interview/debrief missing the stated-observation append rule');
+  }
+} catch (e) {
+  fail(`stated-comp tracking wiring check: ${e.message}`);
 }
 
 await runDiscovered();
