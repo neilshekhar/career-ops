@@ -154,6 +154,7 @@ const SYSTEM_PATHS = [
   'KIMI.md',
   'build-dashboard.mjs',
   'dashboard-launch.mjs',
+  'dashboard-auth.mjs',
   'dashboard-server.mjs',
   'generate-pdf.mjs',
   'generate-latex.mjs',
