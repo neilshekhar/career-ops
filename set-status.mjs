@@ -321,9 +321,20 @@ function verifyCanonicalApplicationReceipt(target) {
   // submissionReadinessErrors performs the public candidate-confirmation gate;
   // the explicit submitted-state pass prevents a still-`filled` report from
   // being accepted merely because that helper also supports pre-promotion use.
+  const persistedProgressState = progress.report_state;
+  const partialSubmittedRetry = persistedProgressState === 'filled';
   const readinessErrors = [
     ...submissionReadinessErrors(role),
-    ...reviewReadinessErrors(role, { expectedReportState: 'submitted' }),
+    ...reviewReadinessErrors(role, {
+      expectedReportState: 'submitted',
+      expectedIntegrityState: persistedProgressState,
+      // During the narrow retry window, the report artifact has already moved
+      // to submitted while the durable queue seal still describes the prior
+      // filled state. Validate that stored seal structurally without re-reading
+      // the intentionally promoted report; the dashboard's final atomic queue
+      // mutation refreshes the submitted seal immediately afterward.
+      verifyIntegrityArtifacts: !partialSubmittedRetry,
+    }),
   ];
   if (readinessErrors.length) {
     failWith(

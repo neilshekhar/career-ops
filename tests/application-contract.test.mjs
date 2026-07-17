@@ -160,7 +160,7 @@ assert(
   checkTrackerMetadataWriter(
     'set-status.mjs',
     trackerMetadataWriter.replace(
-      "...reviewReadinessErrors(role, { expectedReportState: 'submitted' }),",
+      /\.\.\.reviewReadinessErrors\(role,\s*\{[\s\S]*?expectedReportState:\s*'submitted'[\s\S]*?\}\),/,
       '// submitted receipt readiness removed',
     ),
   ).some((item) => item.message.includes('submitted Application Answers readiness rerun')),

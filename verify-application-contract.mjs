@@ -1246,7 +1246,7 @@ export function checkTrackerMetadataWriter(file, source) {
     ['stable finalized receipt binding', /progress\.handover_receipt_id\s*!==\s*flags\.receipt[\s\S]*request\.receipt_id\s*!==\s*flags\.receipt[\s\S]*progress\.review_ready\s*!==\s*true/],
     ['exact company/role/report receipt match', /queue company does not match[\s\S]*queue role does not match[\s\S]*--report does not exactly bind/],
     ['candidate submission readiness rerun', /submissionReadinessErrors\(role\)/],
-    ['submitted Application Answers readiness rerun', /reviewReadinessErrors\(role,\s*\{\s*expectedReportState:\s*['"]submitted['"]\s*\}\)/],
+    ['submitted Application Answers readiness rerun', /reviewReadinessErrors\(role,\s*\{[^}]*expectedReportState:\s*['"]submitted['"][^}]*\}\)/],
     ['receipt verified before tracker mutation', /if \(flags\.receipt\) verifyCanonicalApplicationReceipt\(target\);/],
   ]);
 }

@@ -1207,9 +1207,17 @@ function apiRoleDecision(req, res, id) {
 
     let started;
     try {
-      // Persist the intent first. Every later side effect is idempotent and the
-      // transaction remains resumable if tracker/cloud/local I/O fails midway.
-      started = mutateQueue((queue) => beginCandidateDecision(queue, id, decision));
+      // A retry may find that the report file was promoted to `submitted`
+      // before the queue commit failed. Reading the already-durable pending
+      // transaction must not perform a no-op queue save: the queue validator
+      // correctly rejects the temporary filled-role/submitted-report split.
+      // New decisions still persist their intent under the queue lock first.
+      const currentQueue = loadQueue();
+      const currentRole = currentQueue.roles.find((item) => item.id === id);
+      const pending = currentRole ? decisionTransactionFor(currentRole, decision) : null;
+      started = pending && ['pending', 'report-promoted', 'tracker-written'].includes(pending.state)
+        ? beginCandidateDecision(currentQueue, id, decision)
+        : mutateQueue((queue) => beginCandidateDecision(queue, id, decision));
     } catch (err) {
       if (err.httpCode) {
         return respond(res, err.httpCode, { error: err.message, receipt_errors: err.receiptErrors });
@@ -1235,19 +1243,11 @@ function apiRoleDecision(req, res, id) {
     try {
       if (decision === 'submitted') {
         // Candidate confirmation is the authority for the report transition.
-        // If the following queue write fails, the durable pending transaction
-        // makes the already-submitted report safely resumable on the next call.
+        // Keep the promoted report on the in-memory working role until the
+        // final queue mutation can promote receipt state and role status
+        // together. Persisting report_state=submitted while status is still
+        // filled would violate the queue's receipt-integrity invariant.
         report = promoteOrReconcileSubmittedReport(workingRole, started.transaction);
-        workingRole = mutateQueue((queue) => {
-          const role = queue.roles.find((item) => item.id === id);
-          if (!role) throw new Error('role disappeared while promoting its submission report');
-          const transaction = assertDecisionTransaction(role, transactionId, decision);
-          const syncedReport = promoteOrReconcileSubmittedReport(role, transaction);
-          transaction.state = 'report-promoted';
-          transaction.report_path = syncedReport.path;
-          transaction.updated_at = new Date().toISOString();
-          return structuredClone(role);
-        });
       }
 
       tracker = writeTrackerTsv(workingRole, decision, {
