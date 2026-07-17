@@ -62,10 +62,21 @@ writeFileSync(join(dataDir, 'apply-queue.json'), JSON.stringify({
   }],
 }, null, 2), 'utf8');
 
+// config/profile.yml is an untracked user-layer file, so clean checkouts and
+// CI don't have one — point the resolver at a minimal fixture instead.
+const profilePath = join(temp, 'profile.yml');
+writeFileSync(profilePath, [
+  'candidate:',
+  '  name: Resolver Evidence',
+  '  email: resolver@example.test',
+  '',
+].join('\n'), 'utf8');
+
 const env = {
   ...process.env,
   CAREER_OPS_DATA_DIR: dataDir,
   CAREER_OPS_QUEUE_BACKEND: 'local',
+  CAREER_OPS_PROFILE: profilePath,
 };
 function run(script, args) {
   return spawnSync(process.execPath, [join(ROOT, script), ...args], {

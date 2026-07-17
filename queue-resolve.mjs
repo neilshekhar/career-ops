@@ -218,7 +218,7 @@ function assertActivePageContext(role, context) {
 }
 
 function loadProfile() {
-  const p = join(ROOT, 'config', 'profile.yml');
+  const p = process.env.CAREER_OPS_PROFILE || join(ROOT, 'config', 'profile.yml');
   if (!existsSync(p)) throw new Error('config/profile.yml not found');
   return yaml.load(readFileSync(p, 'utf-8'));
 }

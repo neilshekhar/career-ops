@@ -1261,15 +1261,21 @@ if (
   fail('apply mode missing additive Application Answers persistence instructions');
 }
 
-const customApplyMode = readFile('modes/_custom.md');
+// modes/_custom.md is an untracked user-layer file — validate its copy of the
+// upload contract only when it exists (clean checkouts and CI don't have one).
+const customApplyMode = existsSync(join(ROOT, 'modes/_custom.md'))
+  ? readFile('modes/_custom.md')
+  : null;
 const receiptSource = readFile('application-receipt.mjs');
 if (
   /upload_controls` array \(including `\[\]` when none exist\)/.test(applyMode) &&
   /\{control_id,kind,expected,displayed,asset_sha256,verified:true\}/.test(applyMode) &&
   /verified CV in every enabled `cv` control/.test(applyMode) &&
   /verified cover letter in every enabled `cover` or `supporting` control/.test(applyMode) &&
-  /upload_controls:\[\{control_id,label,kind,required,multiple,enabled,accepts\}\]/.test(customApplyMode) &&
-  /asset_sha256,verified:true/.test(customApplyMode) &&
+  (customApplyMode === null || (
+    /upload_controls:\[\{control_id,label,kind,required,multiple,enabled,accepts\}\]/.test(customApplyMode) &&
+    /asset_sha256,verified:true/.test(customApplyMode)
+  )) &&
   receiptSource.includes('cleanUploadControls') &&
   receiptSource.includes('assertRoleAttachments') &&
   receiptSource.includes('asset_sha256')

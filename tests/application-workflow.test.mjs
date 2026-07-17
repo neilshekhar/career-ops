@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -304,7 +304,11 @@ assert.throws(() => teachAnswers('invalid', JSON.stringify([{
 
 // Cross-agent workflow contract guards.
 const apply = read('modes/apply.md');
-const custom = read('modes/_custom.md');
+// modes/_custom.md is an untracked user-layer file — assert on it only when it
+// exists (clean checkouts and CI don't have one).
+const custom = existsSync(join(root, 'modes/_custom.md'))
+  ? read('modes/_custom.md')
+  : null;
 const formFill = read('form-fill.mjs');
 const credentials = read('credentials-store.mjs');
 const autoPipeline = read('modes/auto-pipeline.md');
@@ -328,13 +332,15 @@ assert.match(apply, /verified cover letter in every enabled `cover` or `supporti
 assert.match(apply, /There is no "Ask candidate" or blank-field branch/);
 assert.match(apply, /Submit my application, or Submit now/);
 assert.doesNotMatch(apply, /legacy fallback/i);
-assert.match(custom, /There are no "unsupported" form questions/);
-assert.match(custom, /one browser-controller owns all live tabs/);
-assert.match(custom, /only path allowed to promote[\s\S]{0,180}review-ready `filled`/);
-assert.match(custom, /upload_controls:\[\{control_id,label,kind,required,multiple,enabled,accepts\}\]/);
-assert.match(custom, /asset_sha256,verified:true/);
-assert.match(custom, /every enabled `cv` control has the verified CV/);
-assert.match(custom, /every enabled `cover` or `supporting` control has the verified cover letter/);
+if (custom !== null) {
+  assert.match(custom, /There are no "unsupported" form questions/);
+  assert.match(custom, /one browser-controller owns all live tabs/);
+  assert.match(custom, /only path allowed to promote[\s\S]{0,180}review-ready `filled`/);
+  assert.match(custom, /upload_controls:\[\{control_id,label,kind,required,multiple,enabled,accepts\}\]/);
+  assert.match(custom, /asset_sha256,verified:true/);
+  assert.match(custom, /every enabled `cv` control has the verified CV/);
+  assert.match(custom, /every enabled `cover` or `supporting` control has the verified cover letter/);
+}
 assert.match(formFill, /FORM_FILL_RUNTIME = 'offline-plan-only'/);
 assert.match(formFill, /browser_owner: 'active-agent'/);
 assert.match(formFill, /queue_mutation: false/);
@@ -350,7 +356,9 @@ assert.match(credentials, /observation_source !== 'playwright-mcp'/);
 assert.match(credentials, /Exact-host credentials already exist; refusing overwrite/);
 assert.match(apply, /--bind-registration <role-id>/);
 assert.match(apply, /before receipt\s+`--begin`/);
-assert.match(custom, /caller-authored evidence shape or digest without that durable binding is invalid/i);
+if (custom !== null) {
+  assert.match(custom, /caller-authored evidence shape or digest without that durable binding is invalid/i);
+}
 assert.doesNotMatch(assistantRoute, /^- setStatus[^\n]*"Applied"/m);
 assert.match(assistantRoute, /Applied is receipt-gated/);
 assert.match(autoPipeline, /Read and execute `modes\/oferta\.md` once, in full/);

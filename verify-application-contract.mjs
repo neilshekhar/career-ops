@@ -75,6 +75,14 @@ function readRequired(root, file, errors) {
   return readFileSync(path, 'utf8');
 }
 
+// User-layer surfaces (modes/_custom.md, config/profile.yml, modes/_profile.md)
+// are untracked personal files: validated when present, skipped on a clean
+// checkout/CI where they cannot exist.
+function readUserLayer(root, file) {
+  const path = join(root, file);
+  return existsSync(path) ? readFileSync(path, 'utf8') : '';
+}
+
 function walkFiles(root, relativeDir, extensions = null) {
   const start = join(root, relativeDir);
   if (!existsSync(start)) return [];
@@ -1109,14 +1117,16 @@ export function checkPeripheralContractSurfaces(root) {
   const surfaces = [
     {
       file: 'config/profile.yml',
+      userLayer: true,
       patterns: [['single headed browser controller', /one headed browser controller serializes all live tabs/]],
       forbidden: [['parallel headless live fills', /parallel headless fills/i]],
     },
     {
       file: 'modes/_profile.md',
+      userLayer: true,
       patterns: [
         ['threshold is only a filter/recommendation', /dashboard filter\/recommendation floor, not[\s\S]{0,60}auto-selection rule/i],
-        ['explicit selection is required', /Neil explicitly[\s\S]{0,30}selects every role/i],
+        ['explicit selection is required', /explicitly[\s\S]{0,30}selects every role/i],
       ],
     },
     {
@@ -1139,7 +1149,9 @@ export function checkPeripheralContractSurfaces(root) {
     },
   ];
   for (const surface of surfaces) {
-    const source = readRequired(root, surface.file, errors);
+    const source = surface.userLayer
+      ? readUserLayer(root, surface.file)
+      : readRequired(root, surface.file, errors);
     if (!source) continue;
     errors.push(...requirePatterns(surface.file, source, surface.patterns));
     for (const [description, pattern] of surface.forbidden ?? []) {
@@ -1314,7 +1326,7 @@ export function auditApplicationContract(root = ROOT) {
   }
   {
     const file = 'modes/_custom.md';
-    const source = readRequired(root, file, errors);
+    const source = readUserLayer(root, file);
     if (source) errors.push(...checkCustomApplyContract(file, source));
   }
   {

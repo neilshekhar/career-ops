@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { pass, ROOT } from './helpers.mjs';
@@ -251,7 +251,11 @@ assert.match(budget, /requires an already-tailored input HTML plus\s+an output p
 assert.doesNotMatch(budget, /^\s*node generate-pdf\.mjs\s*$/m);
 pass('translated and budget docs use A-G, API-first discovery, and valid PDF boundaries');
 
-for (const file of ['AGENTS.md', 'CLAUDE.md', '.agents/skills/career-ops/SKILL.md', 'modes/_custom.md']) {
+// modes/_custom.md is an untracked user-layer file — include it only when it
+// exists (clean checkouts and CI don't have one).
+const crossAgentDocs = ['AGENTS.md', 'CLAUDE.md', '.agents/skills/career-ops/SKILL.md'];
+if (existsSync(join(ROOT, 'modes/_custom.md'))) crossAgentDocs.push('modes/_custom.md');
+for (const file of crossAgentDocs) {
   const text = read(file);
   for (const contract of [
     'modes/_shared.md',
@@ -277,15 +281,19 @@ assert.match(queueMode, /control_id[\s\S]{0,220}(?:asset_sha256|SHA-256)/i);
 assert.match(queueMode, /enabled[\s\S]{0,30}`cover` or `supporting` control[\s\S]{0,180}(?:tailored )?cover letter/i);
 pass('queue PREPARE/apply handoff preserves the upload-control receipt requirements');
 
-const handover = read('handover.md');
-assert.match(handover, /earlier\s+\*\*1989 passed \/ 0 failed \/ 0 warnings\*\* snapshot is superseded/i);
-assert.match(handover, /completed root\s+verification gate is \*\*\d+ passed \/ 0 failed \/ 0 warnings\*\*/i);
-assert.doesNotMatch(handover, /final unsandboxed gate and resulting count are\s+still pending/i);
-assert.match(handover, /five current application-contract files/i);
-const nextSteps = handover.match(/## Next Steps([\s\S]*?)## Open Questions/)?.[1] ?? '';
-assert.doesNotMatch(nextSteps, /0c\.|✅ DONE|All 23 live selected roles/);
-assert.match(nextSteps, /There is no active browser batch to resume/i);
-pass('handover marks old verification counts as superseded and contains only current next steps');
+// handover.md is an untracked user-layer file — assert on it only when it
+// exists (clean checkouts and CI don't have one).
+if (existsSync(join(ROOT, 'handover.md'))) {
+  const handover = read('handover.md');
+  assert.match(handover, /earlier\s+\*\*1989 passed \/ 0 failed \/ 0 warnings\*\* snapshot is superseded/i);
+  assert.match(handover, /completed root\s+verification gate is \*\*\d+ passed \/ 0 failed \/ 0 warnings\*\*/i);
+  assert.doesNotMatch(handover, /final unsandboxed gate and resulting count are\s+still pending/i);
+  assert.match(handover, /five current application-contract files/i);
+  const nextSteps = handover.match(/## Next Steps([\s\S]*?)## Open Questions/)?.[1] ?? '';
+  assert.doesNotMatch(nextSteps, /0c\.|✅ DONE|All 23 live selected roles/);
+  assert.match(nextSteps, /There is no active browser batch to resume/i);
+  pass('handover marks old verification counts as superseded and contains only current next steps');
+}
 
 const readmes = ['README.md', ...readdirSync(ROOT)
   .filter((name) => /^README\..+\.md$/.test(name))
