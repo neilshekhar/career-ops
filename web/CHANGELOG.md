@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/neilshekhar/career-ops/compare/web-v1.1.0...web-v1.2.0) (2026-07-17)
+
+
+### Features
+
+* **apply:** enforce receipt-gated live application contract across agents ([9e7b598](https://github.com/neilshekhar/career-ops/commit/9e7b598e25b1e464b721a292575d034bd1dc33b8))
+
 ## [1.1.0](https://github.com/neilshekhar/career-ops/compare/web-v1.0.0...web-v1.1.0) (2026-07-10)
 
 

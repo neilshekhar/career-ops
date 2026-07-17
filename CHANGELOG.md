@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.20.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.19.1...career-ops-v1.20.0) (2026-07-17)
+
+
+### Features
+
+* **apply:** enforce receipt-gated live application contract across agents ([9e7b598](https://github.com/neilshekhar/career-ops/commit/9e7b598e25b1e464b721a292575d034bd1dc33b8))
+* **pdf:** raise one-page printable-height gate from 75% to 85% ([b7453c3](https://github.com/neilshekhar/career-ops/commit/b7453c3be81f2afe9d30cb6bb09191e01ceb96f4))
+* **upstream:** adopt scan, provider, and interview features from v1.20 ([888b187](https://github.com/neilshekhar/career-ops/commit/888b187b0a074bca4c8c38f0976ddb2074edb5a2))
+
+
+### Bug Fixes
+
+* **dashboard:** resume submitted-decision retries without violating the queue receipt invariant ([600624e](https://github.com/neilshekhar/career-ops/commit/600624e7bf8c4b072f1cbdfb0300f6a08b6b9afd))
+* **tests:** pass on clean checkouts — validate untracked user-layer surfaces only when present ([74120b7](https://github.com/neilshekhar/career-ops/commit/74120b7f076a8c9161645fd561aaa51651cfedbf))
+* **update-system:** register dashboard-auth.mjs in SYSTEM_PATHS ([9c24e53](https://github.com/neilshekhar/career-ops/commit/9c24e536ee26864123082aefc36beebb9736366b))
+
 ## [1.19.1](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.19.0...career-ops-v1.19.1) (2026-07-15)
 
 
