@@ -40,7 +40,7 @@ try {
     () => validatePdfLayoutEvidence(pdfPath),
     (error) => error.code === 'PDF_LAYOUT_UNDERFILLED' && /30\.0%/.test(error.message),
   );
-  pass('synthetic sparse one-page PDF fails the 75% printable-height gate');
+  pass('synthetic sparse one-page PDF fails the 85% printable-height gate');
 
   const wellFilled = buildPdfLayoutEvidence({
     pdfPath,
@@ -49,16 +49,16 @@ try {
     pageCount: 1,
     measurement: {
       top_px: 0,
-      bottom_px: printable.height_px * 0.82,
-      height_px: printable.height_px * 0.82,
+      bottom_px: printable.height_px * 0.90,
+      height_px: printable.height_px * 0.90,
     },
     measuredAt: new Date('2026-07-16T00:01:00.000Z'),
   });
   persistPdfLayoutEvidence(pdfPath, wellFilled);
   const validated = validatePdfLayoutEvidence(pdfPath);
-  assert.equal(validated.evidence.printable_height_utilization, 0.82);
+  assert.equal(validated.evidence.printable_height_utilization, 0.9);
   assert(validated.evidence.printable_height_utilization >= MIN_ONE_PAGE_UTILIZATION);
-  pass('synthetic 82%-filled one-page PDF passes with durable hash-bound evidence');
+  pass('synthetic 90%-filled one-page PDF passes with durable hash-bound evidence');
 
   writeFileSync(pdfPath, Buffer.concat([pdf, Buffer.from('\ntampered')]));
   assert.throws(

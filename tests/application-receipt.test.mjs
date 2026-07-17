@@ -54,7 +54,7 @@ const attachment = (controlId, kind, path) => ({
   verified: true,
 });
 const PDF_FIXTURE = Buffer.from('%PDF-1.7\n1 0 obj <</Type /Page>> endobj\n%%EOF');
-function writePdfFixture(path, utilization = 0.82) {
+function writePdfFixture(path, utilization = 0.90) {
   writeFileSync(path, PDF_FIXTURE);
   const printable = printablePageBox('a4');
   persistPdfLayoutEvidence(path, buildPdfLayoutEvidence({

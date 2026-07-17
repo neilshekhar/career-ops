@@ -45,7 +45,7 @@ import {
 const root = mkdtempSync(join(tmpdir(), 'career-ops-userdata-'));
 const PDF_FIXTURE = Buffer.from('%PDF-1.7\n1 0 obj <</Type /Page>> endobj\n%%EOF');
 
-function writePdfFixture(path, utilization = 0.82) {
+function writePdfFixture(path, utilization = 0.90) {
   writeFileSync(path, PDF_FIXTURE);
   const printable = printablePageBox('a4');
   persistPdfLayoutEvidence(path, buildPdfLayoutEvidence({
@@ -338,7 +338,7 @@ try {
     root, profile, quality, now: new Date('2026-07-13T00:00:00Z'),
   }).map((item) => item.code);
   assert(sparseCvCodes.includes('pdf-one-page-underfilled'));
-  writePdfFixture(join(root, 'output', 'acme-cv.pdf'), 0.82);
+  writePdfFixture(join(root, 'output', 'acme-cv.pdf'), 0.90);
   const qualityEvidence = createApplicationQualityEvidence(role, {
     root, profile, quality, now: new Date('2026-07-13T00:00:00Z'),
   });

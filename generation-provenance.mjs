@@ -36,7 +36,7 @@ export const PROVENANCE_SCHEMA = 3;
 export const RELEASE_FLOW = 'interactive-prepare';
 export const BATCH_DRAFT_FLOW = 'batch-draft';
 export const PDF_LAYOUT_EVIDENCE_SCHEMA = 1;
-export const MIN_ONE_PAGE_UTILIZATION = 0.75;
+export const MIN_ONE_PAGE_UTILIZATION = 0.85;
 export const DEFAULT_BATCH_ASSET_MODELS = Object.freeze([
   '*',
 ]);
