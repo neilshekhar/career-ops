@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.20.1](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.20.0...career-ops-v1.20.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* **dashboard:** bulk apply using threshold ([3bc273e](https://github.com/neilshekhar/career-ops/commit/3bc273edce464e23d09a3886d0f672273388cbe9))
+
 ## [1.20.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.19.1...career-ops-v1.20.0) (2026-07-17)
 
 
