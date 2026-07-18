@@ -2456,9 +2456,20 @@ try {
 
   if (dashboardServer.includes("role status is '${role.status}', not receipt-gated 'filled'") &&
       dashboardServer.includes('submissionReadinessErrors(role)')) {
-    pass('dashboard API blocks every non-filled submitted decision, including legacy prefilled roles');
+    pass('dashboard API keeps the receipt gate on receipt-mode submitted decisions');
   } else {
-    fail('dashboard API prefilled submit gate missing');
+    fail('dashboard API receipt submit gate missing');
+  }
+
+  const queueStoreSrc = readFile('queue-store.mjs');
+  if (dashboardServer.includes("mode: manualMode ? 'manual' : 'receipt'") &&
+      dashboardServer.includes('role.manual_submission = {') &&
+      dashboardServer.includes("if (decision === 'submitted' && manualSubmission) args.push('--external');") &&
+      dashboardServer.includes('manualSubmissionProvenanceError(role)') &&
+      queueStoreSrc.includes('export function manualSubmissionProvenanceError')) {
+    pass('candidate manual submissions stamp durable provenance and delegate with --external');
+  } else {
+    fail('candidate manual-submission path lost provenance stamping or external delegation');
   }
 
   const trackerDecisionBlock = dashboardServer.slice(
@@ -2490,11 +2501,11 @@ try {
     fail('dashboard candidate decision can drift between queue and tracker or omit receipt provenance');
   }
 
-  if (/const canMarkSubmitted = role\.submission_ready === true/.test(dashboardApp) &&
+  if (/const canMarkSubmitted = role\.submission_ready === true \|\| role\.manual_submission_allowed === true/.test(dashboardApp) &&
       /submitBtn\.disabled = !canMarkSubmitted/.test(dashboardApp)) {
-    pass('dashboard UI enables submission recording only for receipt-gated roles');
+    pass('dashboard UI enables submission recording for receipt-ready and candidate-manual roles');
   } else {
-    fail('dashboard UI can record submission without a receipt-gated role');
+    fail('dashboard UI submission enablement drifted from the receipt/manual contract');
   }
 
   const submissionClientBlock = dashboardApp.slice(

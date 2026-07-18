@@ -54,11 +54,15 @@ let dragSource = null; // { id, stage } of the card currently being dragged
 const STAGE_LABEL = { inbox: 'Inbox', todo: 'To Do', prepared: 'Prepared', review: 'In Review', done: 'Done' };
 
 // target stage → { sourceStage: action }
+// Done accepts a drop from every active lane: a receipt-ready Filled role uses
+// the receipt-gated decision, while any other active role records a candidate
+// manual submission (typed confirmation, external provenance). The server
+// decides which mode applies — nothing here skips the confirmation flow.
 const DROP_ACTIONS = {
   todo:   { inbox: 'stage-flip', prepared: 'stage-flip', review: 'stage-flip' },
   inbox:  { todo: 'stage-flip' },
   review: { prepared: 'fill' },
-  done:   { review: 'submit' },
+  done:   { inbox: 'submit', todo: 'submit', prepared: 'submit', review: 'submit' },
 };
 
 function dropActionFor(fromStage, toStage, roleStatus = null) {
@@ -167,12 +171,6 @@ async function handleDrop(id, fromStage, toStage) {
   }
 
   if (action === 'submit') {
-    // Mirror the inbox panel's guard (its Submit button is disabled for
-    // prefilled) — don't offer a confirm the decision path will refuse.
-    if (role?.status === 'prefilled') {
-      toast('Queue Fill so the active agent can complete the durable receipt before submission.', 4000);
-      return;
-    }
     requestSubmittedDecision(id);
   }
 }
@@ -644,11 +642,13 @@ function renderInbox(role) {
   const note = document.getElementById('inbox-note');
   const submitBtn = document.getElementById('btn-submit');
   const isPrefilled = role.status === 'prefilled';
-  const canMarkSubmitted = role.submission_ready === true;
+  const canMarkSubmitted = role.submission_ready === true || role.manual_submission_allowed === true;
   submitBtn.disabled = !canMarkSubmitted;
-  submitBtn.title = canMarkSubmitted
+  submitBtn.title = role.submission_ready === true
     ? 'Mark submitted only after you completed the portal submission manually'
-    : 'A finalized receipt-bound filled form is required before submission can be recorded';
+    : canMarkSubmitted
+      ? 'Records a portal submission you completed yourself — no receipt-verified form exists for this role yet'
+      : 'A finalized receipt-bound filled form is required before submission can be recorded';
 
   const deepBtn = document.getElementById('btn-deep-eval');
   if (deepBtn) {
@@ -677,11 +677,11 @@ function renderInbox(role) {
   } else if ((role.flags || []).includes('knockout-flag')) {
     note.textContent = '⛔ Screener/knockout detected — the agent fills it truthfully and flags it for final review.';
   } else if (isPrefilled) {
-    note.textContent = 'Legacy non-review-ready checkpoint. Click Fill Form to queue active-agent receipt completion.';
+    note.textContent = 'Legacy non-review-ready checkpoint. Click Fill Form to queue active-agent receipt completion — or Mark Submitted if you already submitted this in the portal yourself.';
   } else if (role.status === 'filled' && (role.application_progress?.report_state === 'submitted')) {
     note.textContent = 'Submission is already recorded in the receipt report. Retry Mark Submitted to finish any pending queue sync.';
-  } else if (role.status === 'filled' && !canMarkSubmitted) {
-    note.textContent = `Receipt gate incomplete: ${(role.receipt_errors || []).join(' | ') || 'verification required'}`;
+  } else if (role.status === 'filled' && role.submission_ready !== true) {
+    note.textContent = `Receipt gate incomplete: ${(role.receipt_errors || []).join(' | ') || 'verification required'} — Mark Submitted still works if you already submitted manually in the portal.`;
   } else if ((role.flags || []).includes('login-required')) {
     note.textContent = '🔐 Portal requires login — the active agent follows the canonical registration/login state machine.';
   } else if (!role.cv_pdf) {
@@ -999,13 +999,13 @@ const SUBMISSION_CONFIRMATION_PHRASE = 'I submitted this application in the port
 async function requestSubmittedDecision(roleId = activeId) {
   if (!roleId) return;
   const role = allRoles.find(r => r.id === roleId);
-  if (role?.status === 'prefilled') {
-    toast('Queue Fill so the active agent can complete the receipt before submission.', 4000);
-    return;
-  }
   const name = role ? `${role.company} – ${role.title}` : 'this role';
+  const manualMode = role ? role.submission_ready !== true : false;
+  const confirmMessage = manualMode
+    ? `No receipt-verified filled form exists for ${name}. Confirm only if you personally completed and submitted this application in the portal yourself — it will be recorded as a manual submission.`
+    : `Confirm only after you personally clicked the portal's final submit control for ${name}. Mark it submitted?`;
   confirmToast(
-    `Confirm only after you personally clicked the portal's final submit control for ${name}. Mark it submitted?`,
+    confirmMessage,
     async () => {
       try {
         const res = await postJson(
@@ -1027,13 +1027,8 @@ async function requestSubmittedDecision(roleId = activeId) {
 
 async function doDecision(decision, roleId = activeId, confirmationNonce = null) {
   if (!roleId) return;
-  const role = allRoles.find(r => r.id === roleId);
   if (decision === 'submitted' && !confirmationNonce) {
     requestSubmittedDecision(roleId);
-    return;
-  }
-  if (decision === 'submitted' && role?.status === 'prefilled') {
-    toast('Queue Fill so the active agent can complete the receipt before submission.', 4000);
     return;
   }
   const label = { submitted: 'Submitted', skipped: 'Skipped', reviewed: 'Reviewed' }[decision];

@@ -279,20 +279,25 @@ function apiSetThreshold() {
   mutateQueue((queue) => { queue.settings.score_threshold = threshold; });
   return respond({ threshold, selection_unchanged: true });
 }
-function writeTrackerTsv(role, decision, { receiptId = null } = {}) {
-  if (decision === 'submitted' && !receiptId) throw new Error('receipt required');
+function writeTrackerTsv(role, decision, { receiptId = null, manualSubmission = false } = {}) {
+  if (decision === 'submitted' && !receiptId && !manualSubmission) throw new Error('receipt required');
+  if (decision === 'submitted' && manualSubmission && manualSubmissionProvenanceError(role) !== null) {
+    throw new Error('manual provenance required');
+  }
   const status = 'Applied';
   const stagedStatus = decision === 'submitted' ? 'Evaluated' : status;
   const tsv = [role.company, role.title, stagedStatus, score];
   const args = ['set-status.mjs', role.company, 'Applied', '--report', role.report, '--receipt', receiptId];
+  if (manualSubmission) args.push('--external');
   return execFileSync(process.execPath, args);
 }
 function beginCandidateDecision() {
   if (decision === 'submitted') {
     const errors = submissionReadinessErrors(role);
-    if (errors.length) return respond(errors);
+    if (errors.length && !ACTIVE_STATUSES.has(role.status)) return respond(errors);
   }
   role.application_decision_transaction = { state: 'pending' };
+  if (manualMode) role.manual_submission = manualProvenance;
 }
 function promoteOrReconcileSubmittedReport() { return markApplicationReportSubmitted(role); }
 function apiSubmissionConfirmation() {
@@ -387,6 +392,28 @@ assert(
   'guard must reject a submitted decision without receipt readiness',
 );
 pass('dashboard submission decisions remain receipt-gated');
+assert(
+  checkDashboardRuntime(
+    'dashboard-server.mjs',
+    safeDashboard.replace('manualSubmissionProvenanceError(role)', 'null'),
+  ).some((item) => item.message.includes('manual-submission provenance validation')),
+  'guard must reject a manual submission tracker write that skips provenance validation',
+);
+assert(
+  checkDashboardRuntime(
+    'dashboard-server.mjs',
+    safeDashboard.replace("  if (manualSubmission) args.push('--external');\n", ''),
+  ).some((item) => item.message.includes('manual-submission external delegation')),
+  'guard must reject a manual submission that drops the external tracker provenance',
+);
+assert(
+  checkDashboardRuntime(
+    'dashboard-server.mjs',
+    safeDashboard.replace('  if (manualMode) role.manual_submission = manualProvenance;\n', ''),
+  ).some((item) => item.message.includes('candidate manual-submission provenance')),
+  'guard must reject a manual submitted decision that never stamps durable provenance',
+);
+pass('candidate manual submissions require durable provenance and external delegation');
 assert(
   checkDashboardRuntime(
     'dashboard-server.mjs',

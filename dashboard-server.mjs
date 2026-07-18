@@ -25,6 +25,10 @@ import {
   loadQueue, mutateQueue, computeLane, computeStage, computeStats,
   setStatus, updateById, ACTIVE_STATUSES, stageDragTarget,
   DRAG_TARGET_STAGES, recordCandidateSelectionOverride,
+  manualSubmissionProvenanceError,
+  MANUAL_SUBMISSION_CONFIRMATION,
+  MANUAL_SUBMISSION_PROVENANCE_VERSION,
+  MANUAL_SUBMISSION_SOURCE,
 } from './queue-store.mjs';
 import { queueDoneStatusFromTracker, parseTrackerDoneRows } from './tracker-status-map.mjs';
 import { parseTrackerRow, resolveColumns } from './tracker-parse.mjs';
@@ -98,11 +102,20 @@ function tsvCell(value) {
   return String(value ?? '').replace(/[\t\r\n]+/g, ' ').trim();
 }
 
-function writeTrackerTsv(role, decision, { receiptId = null } = {}) {
+function writeTrackerTsv(role, decision, { receiptId = null, manualSubmission = false } = {}) {
   mkdirSync(ADDITIONS_DIR, { recursive: true });
 
-  if (decision === 'submitted' && !receiptId) {
+  if (decision === 'submitted' && !receiptId && !manualSubmission) {
     throw new Error('candidate-confirmed submission is missing its finalized application receipt id');
+  }
+  if (receiptId && manualSubmission) {
+    throw new Error('a submission records either receipt provenance or candidate manual provenance, never both');
+  }
+  if (decision === 'submitted' && manualSubmission) {
+    const provenanceError = manualSubmissionProvenanceError(role);
+    if (provenanceError !== null) {
+      throw new Error(`candidate manual submission is missing its dashboard-confirmed provenance: ${provenanceError}`);
+    }
   }
 
   const num    = nextTrackerNum();
@@ -150,6 +163,10 @@ function writeTrackerTsv(role, decision, { receiptId = null } = {}) {
   ];
   if (notes) args.push('--note', notes);
   if (receiptId) args.push('--receipt', receiptId);
+  // Candidate manual submissions have no finalized receipt to verify; the
+  // typed-confirmation provenance validated above is recorded through the
+  // canonical external-progression path instead.
+  if (decision === 'submitted' && manualSubmission) args.push('--external');
   try {
     const output = execFileSync(process.execPath, args, {
       cwd: ROOT,
@@ -201,34 +218,50 @@ function beginCandidateDecision(queue, id, decision) {
     return { role: structuredClone(role), transaction: structuredClone(existing), alreadyCommitted: true };
   }
   if (existing && ['pending', 'report-promoted', 'tracker-written'].includes(existing.state)) {
-    if (decision === 'submitted' && role.status !== 'filled' && role.status !== 'submitted') {
-      const err = new Error(`pending submitted transaction cannot resume from role status '${role.status}'`);
-      err.httpCode = 409;
-      throw err;
+    if (decision === 'submitted') {
+      const manualResume = existing.mode === 'manual' &&
+        (ACTIVE_STATUSES.has(role.status) || role.status === 'submitted');
+      const receiptResume = existing.mode !== 'manual' &&
+        (role.status === 'filled' || role.status === 'submitted');
+      if (!manualResume && !receiptResume) {
+        const err = new Error(`pending submitted transaction cannot resume from role status '${role.status}'`);
+        err.httpCode = 409;
+        throw err;
+      }
     }
     return { role: structuredClone(role), transaction: structuredClone(existing), alreadyCommitted: false };
   }
 
+  let manualMode = false;
   if (decision === 'submitted') {
     const receiptErrors = submissionReadinessErrors(role);
-    if (role.status !== 'filled') {
-      receiptErrors.unshift(`role status is '${role.status}', not receipt-gated 'filled'`);
-    }
-    if (receiptErrors.length) {
-      const err = new Error('application cannot be marked submitted until its durable per-page receipt is review-ready');
-      err.httpCode = 409;
-      err.receiptErrors = receiptErrors;
-      throw err;
+    const receiptReady = role.status === 'filled' && receiptErrors.length === 0;
+    if (!receiptReady) {
+      if (!ACTIVE_STATUSES.has(role.status)) {
+        if (role.status !== 'filled') {
+          receiptErrors.unshift(`role status is '${role.status}', not receipt-gated 'filled'`);
+        }
+        const err = new Error('application cannot be marked submitted until its durable per-page receipt is review-ready');
+        err.httpCode = 409;
+        err.receiptErrors = receiptErrors;
+        throw err;
+      }
+      // Candidate manual submission: no review-ready receipt exists, but the
+      // role is still active and the candidate typed the confirmation phrase
+      // for the one-use nonce consumed before this transaction began. That
+      // attestation — not a receipt — is the durable submission provenance.
+      manualMode = true;
     }
   }
 
   const startedAt = new Date().toISOString();
-  const receiptId = decision === 'submitted' ? role.application_progress?.receipt_id : null;
+  const receiptId = decision === 'submitted' && !manualMode ? role.application_progress?.receipt_id : null;
   const transaction = {
     version: DECISION_TRANSACTION_VERSION,
     transaction_id: `candidate-decision:${role.id}:${decision}:${receiptId ?? randomUUID()}`,
     role_id: role.id,
     decision,
+    ...(decision === 'submitted' ? { mode: manualMode ? 'manual' : 'receipt' } : {}),
     receipt_id: receiptId,
     state: 'pending',
     candidate_confirmed_at: startedAt,
@@ -236,6 +269,16 @@ function beginCandidateDecision(queue, id, decision) {
     updated_at: startedAt,
   };
   role.application_decision_transaction = transaction;
+  if (manualMode) {
+    role.manual_submission = {
+      version: MANUAL_SUBMISSION_PROVENANCE_VERSION,
+      source: MANUAL_SUBMISSION_SOURCE,
+      confirmation: MANUAL_SUBMISSION_CONFIRMATION,
+      confirmed_at: startedAt,
+      prior_status: role.status,
+      transaction_id: transaction.transaction_id,
+    };
+  }
   return { role: structuredClone(role), transaction: structuredClone(transaction), alreadyCommitted: false };
 }
 
@@ -1007,6 +1050,8 @@ function apiGetQueue(res) {
         stage:              computeStage(r),
         provenance_summary: provenanceSummary(r.drafts),
         submission_ready:   r.status === 'filled' && receiptErrors.length === 0,
+        manual_submission_allowed:
+          ACTIVE_STATUSES.has(r.status) && !(r.status === 'filled' && receiptErrors.length === 0),
         receipt_errors:     receiptErrors,
       };
     });
@@ -1263,7 +1308,7 @@ function apiRoleFill(req, res, id) {
   });
 }
 
-const SUBMISSION_CONFIRMATION_PHRASE = 'I submitted this application in the portal';
+const SUBMISSION_CONFIRMATION_PHRASE = MANUAL_SUBMISSION_CONFIRMATION;
 
 function apiSubmissionConfirmation(req, res, id) {
   readBody(req, res, (body) => {
@@ -1279,15 +1324,28 @@ function apiSubmissionConfirmation(req, res, id) {
     }
     if (!role) return respond(res, 404, { error: 'role not found' });
     const errors = applicationReviewErrors(role);
-    if (errors.length) {
+    if (errors.length === 0) {
+      return respond(res, 200, {
+        confirmation_nonce: submissionConfirmations.issue(id),
+        expires_in_seconds: 300,
+        mode: 'receipt',
+      });
+    }
+    if (!ACTIVE_STATUSES.has(role.status)) {
       return respond(res, 409, {
         error: 'a valid receipt-bound filled application is required before submission can be confirmed',
         receipt_errors: errors,
       });
     }
+    // No review-ready receipt exists, but the role is still active: the
+    // candidate may record a portal submission they performed personally. The
+    // typed confirmation phrase validated above plus this one-use nonce become
+    // the durable manual provenance; no agent path issues this confirmation.
     return respond(res, 200, {
       confirmation_nonce: submissionConfirmations.issue(id),
       expires_in_seconds: 300,
+      mode: 'manual',
+      receipt_errors: errors,
     });
   });
 }
@@ -1338,28 +1396,32 @@ function apiRoleDecision(req, res, id) {
     }
 
     const transactionId = started.transaction.transaction_id;
+    const manualMode = started.transaction.mode === 'manual';
     let workingRole = started.role;
     let report = null;
     let tracker = null;
     try {
-      if (decision === 'submitted') {
+      if (decision === 'submitted' && !manualMode) {
         // Candidate confirmation is the authority for the report transition.
         // Keep the promoted report on the in-memory working role until the
         // final queue mutation can promote receipt state and role status
         // together. Persisting report_state=submitted while status is still
         // filled would violate the queue's receipt-integrity invariant.
+        // Manual submissions have no receipt-bound report to promote: their
+        // provenance is the candidate attestation stamped at transaction begin.
         report = promoteOrReconcileSubmittedReport(workingRole, started.transaction);
       }
 
       tracker = writeTrackerTsv(workingRole, decision, {
-        receiptId: decision === 'submitted' ? workingRole.application_progress?.receipt_id : null,
+        receiptId: decision === 'submitted' && !manualMode ? workingRole.application_progress?.receipt_id : null,
+        manualSubmission: decision === 'submitted' && manualMode,
       });
 
       const result = mutateQueue((queue) => {
         const role = queue.roles.find((item) => item.id === id);
         if (!role) throw new Error('role disappeared before its candidate decision could commit');
         const transaction = assertDecisionTransaction(role, transactionId, decision);
-        if (decision === 'submitted') {
+        if (decision === 'submitted' && !manualMode) {
           promoteOrReconcileSubmittedReport(role, transaction);
         }
         transaction.state = 'tracker-written';
@@ -1379,7 +1441,10 @@ function apiRoleDecision(req, res, id) {
         tracker,
         report,
         transaction_id: result.transaction.transaction_id,
-        receipt_id: decision === 'submitted' ? result.role.application_progress?.receipt_id : undefined,
+        receipt_id: decision === 'submitted' && !manualMode ? result.role.application_progress?.receipt_id : undefined,
+        ...(decision === 'submitted'
+          ? { provenance: manualMode ? 'candidate-manual' : 'application-receipt' }
+          : {}),
       });
     } catch (err) {
       return respond(res, 503, {

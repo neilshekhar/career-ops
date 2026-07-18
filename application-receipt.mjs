@@ -1769,6 +1769,66 @@ export function repairFilledRole(roleId) {
   return repaired;
 }
 
+/**
+ * Repair a stuck non-committed finalization transaction. A malformed or stale
+ * staged transaction otherwise dead-ends the role: `--finalize` refuses to
+ * restage over it, so the role stays `prepared`/`prefilled` even though the
+ * browser form is complete. The failed transaction is archived locally, its
+ * partial report/handover artifacts are rolled back, and the next `--finalize`
+ * starts a fresh transaction from the same page evidence. Committed
+ * transactions (already-final receipts) are never touched.
+ */
+export function repairFinalizationTransaction(roleId) {
+  const repaired = mutateQueue((queue) => {
+    const role = roleFromQueue(queue, roleId);
+    const transaction = role.application_finalization_transaction;
+    if (!transaction) {
+      throw new Error('no application finalization transaction exists to repair');
+    }
+    if (transaction.state === 'committed') {
+      throw new Error('refusing to repair a committed finalization transaction; the receipt is already final');
+    }
+    if (role.status === 'filled') {
+      throw new Error('filled roles are repaired with --repair-filled, not --repair-finalization');
+    }
+    if (role.application_decision_transaction &&
+        role.application_decision_transaction.state !== 'committed') {
+      throw new Error('candidate decision transaction is pending; retry that decision instead of repairing finalization');
+    }
+    const repairedAt = new Date().toISOString();
+    const archived = structuredClone(transaction);
+    role.application_receipt_repairs = [
+      ...(Array.isArray(role.application_receipt_repairs) ? role.application_receipt_repairs : []),
+      {
+        repaired_at: repairedAt,
+        previous_status: role.status,
+        kind: 'finalization-transaction',
+        finalization_transaction: archived,
+      },
+    ];
+    delete role.application_finalization_transaction;
+    return {
+      role_id: roleId,
+      status: role.status,
+      repaired_at: repairedAt,
+      archived_transaction_id: archived.transaction_id ?? null,
+      archived_transaction: archived,
+    };
+  });
+
+  // Roll back any artifacts the failed staging attempt may have written, only
+  // after the cleared state is durable. Both helpers tolerate missing or
+  // already-consistent artifacts, and a malformed transaction may lack these
+  // fields entirely.
+  const archived = repaired.archived_transaction;
+  if (archived?.report_path) {
+    demoteApplicationAnswersReport(archived.report_path, archived.run_id ?? null);
+  }
+  if (archived?.receipt_id) removeHandoverReceipt(archived.receipt_id);
+  delete repaired.archived_transaction;
+  return repaired;
+}
+
 export function verifyRole(roleId) {
   const queue = loadQueue();
   const role = roleFromQueue(queue, roleId);
@@ -1779,11 +1839,12 @@ export function verifyRole(roleId) {
 async function main() {
   const [cmd, roleId, jsonArg] = process.argv.slice(2);
   if (!cmd || !roleId) {
-    throw new Error('usage: application-receipt.mjs --begin|--page|--finalize|--verify|--repair-filled <role-id> [json|@file]');
+    throw new Error('usage: application-receipt.mjs --begin|--page|--finalize|--verify|--repair-filled|--repair-finalization <role-id> [json|@file]');
   }
   let result;
   if (cmd === '--verify') result = verifyRole(roleId);
   else if (cmd === '--repair-filled') result = repairFilledRole(roleId);
+  else if (cmd === '--repair-finalization') result = repairFinalizationTransaction(roleId);
   else {
     const payload = parseJsonArg(jsonArg);
     if (cmd === '--begin') result = beginRole(roleId, payload);

@@ -110,6 +110,7 @@ export const LOCAL_ONLY_ROLE_FIELDS = new Set([
   'prefill_checkpoint',
   'prior_application_detected_at',
   'prior_application_detected_url',
+  'manual_submission',
 ]);
 
 const EMPTY_QUEUE = () => ({
@@ -147,6 +148,45 @@ function finalizedApplicationReceiptError(role, expectedReportState) {
   }
 }
 
+// -- Candidate manual-submission provenance -----------------------------------
+//
+// The durable record that the candidate personally performed the portal
+// submission outside the receipt-gated flow. Created only by the dashboard
+// decision endpoint after the typed confirmation phrase and one-use nonce.
+// It authorizes `submitted` from any active status without a review-ready
+// receipt. It never substitutes for receipt evidence on `filled` and never
+// authorizes an agent-performed submission.
+
+export const MANUAL_SUBMISSION_PROVENANCE_VERSION = 1;
+export const MANUAL_SUBMISSION_SOURCE = 'candidate-dashboard';
+export const MANUAL_SUBMISSION_CONFIRMATION = 'I submitted this application in the portal';
+
+export function manualSubmissionProvenanceError(role) {
+  const manual = role?.manual_submission;
+  if (!manual || typeof manual !== 'object' || Array.isArray(manual)) {
+    return 'candidate manual-submission provenance is missing';
+  }
+  if (manual.version !== MANUAL_SUBMISSION_PROVENANCE_VERSION) {
+    return `manual-submission provenance version must be ${MANUAL_SUBMISSION_PROVENANCE_VERSION}`;
+  }
+  if (manual.source !== MANUAL_SUBMISSION_SOURCE) {
+    return `manual-submission provenance source must be '${MANUAL_SUBMISSION_SOURCE}'`;
+  }
+  if (manual.confirmation !== MANUAL_SUBMISSION_CONFIRMATION) {
+    return 'manual-submission provenance is missing the typed candidate confirmation phrase';
+  }
+  if (typeof manual.confirmed_at !== 'string' || !Number.isFinite(Date.parse(manual.confirmed_at))) {
+    return 'manual-submission provenance confirmed_at must be a valid timestamp';
+  }
+  if (!ACTIVE_STATUSES.has(manual.prior_status)) {
+    return `manual-submission provenance prior_status must be an active queue status, not '${manual.prior_status}'`;
+  }
+  if (typeof manual.transaction_id !== 'string' || manual.transaction_id.trim() === '') {
+    return 'manual-submission provenance must record its candidate decision transaction id';
+  }
+  return null;
+}
+
 function assertReceiptProtectedRole(role) {
   if (role?.status === 'filled') {
     const error = finalizedApplicationReceiptError(role, 'filled');
@@ -158,11 +198,12 @@ function assertReceiptProtectedRole(role) {
     }
   }
   if (role?.status === 'submitted') {
+    if (manualSubmissionProvenanceError(role) === null) return;
     const error = finalizedApplicationReceiptError(role, 'submitted');
     if (error) {
       throw new Error(
         `role ${role?.id ?? '<unknown>'}: status submitted requires candidate-confirmed ` +
-        `receipt/report provenance: ${error.message}`,
+        `receipt/report provenance or candidate manual-submission provenance: ${error.message}`,
       );
     }
   }
@@ -880,14 +921,27 @@ export function setStatus(queue, id, status) {
     }
   }
   if (status === 'submitted') {
-    if (role.status !== 'filled' && role.status !== 'submitted') {
-      throw new Error(`status submitted requires prior receipt-gated filled state, not ${role.status}`);
-    }
-    const error = finalizedApplicationReceiptError(role, 'submitted');
-    if (error) {
-      throw new Error(
-        'status submitted requires candidate-confirmed receipt/report provenance: ' + error.message,
-      );
+    const manualError = manualSubmissionProvenanceError(role);
+    if (manualError === null) {
+      // Candidate manual-submission provenance authorizes submitted from any
+      // active status: the candidate personally performed the portal
+      // submission, so no receipt-gated filled state exists to demand.
+      if (!ACTIVE_STATUSES.has(role.status) && role.status !== 'submitted') {
+        throw new Error(`status submitted with manual provenance requires an active role, not ${role.status}`);
+      }
+    } else {
+      if (role.status !== 'filled' && role.status !== 'submitted') {
+        throw new Error(
+          `status submitted requires prior receipt-gated filled state or candidate ` +
+          `manual-submission provenance (${manualError}), not ${role.status}`,
+        );
+      }
+      const error = finalizedApplicationReceiptError(role, 'submitted');
+      if (error) {
+        throw new Error(
+          'status submitted requires candidate-confirmed receipt/report provenance: ' + error.message,
+        );
+      }
     }
   }
   const patches = { status };

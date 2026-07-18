@@ -460,8 +460,14 @@ for an earlier receipt. At the final review boundary, persist Application Answer
 the complete control-bound/hash-bound attachment evidence, then run
 `application-receipt.mjs --finalize`. A failed or
 missing receipt leaves a new role `prepared` (or a resumed legacy role `prefilled`)
-and blocks the dashboard's Submitted
-decision. Candidate intervention is limited to an existing account with no usable
+and blocks the dashboard's receipt-mode Submitted
+decision; a stuck non-committed finalization transaction is cleared with
+`application-receipt.mjs --repair-finalization <role-id>` so `--finalize` can be
+retried. The candidate may still record a portal submission they performed
+personally from any active stage: the dashboard's Mark Submitted then stores
+typed-confirmation manual provenance and delegates the tracker write to
+`set-status.mjs --external`. That manual path is candidate-only — no agent may
+trigger it. Candidate intervention is limited to an existing account with no usable
 stored credential, a rejected/stale stored credential, CAPTCHA, email verification,
 OTP/MFA, security questions, password change/recovery, and the combined final
 review/submission.
@@ -497,7 +503,10 @@ existing exact-host credential is never overwritten.
   `application_request`. New live runs remain `prepared`; only
   `application-receipt.mjs --finalize` after all per-page evidence and final
   report/attachment checks may set `filled`. `prefilled` is legacy/read-only;
-  dashboard submission remains receipt-gated.
+  dashboard submission remains receipt-gated for review-ready `filled` roles,
+  while any other active role can only record a candidate-attested manual
+  portal submission (typed confirmation, durable manual provenance,
+  `--external` tracker delegation) — never an agent action.
 - **Never modify** cv.md, portals.yml, or the locked scoring rules.
 - **Never duplicate** scoring literals from `_profile.md` into this file.
   Always delegate: "as per `modes/_profile.md`" — not "cap at 3.4".

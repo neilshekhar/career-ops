@@ -412,6 +412,9 @@ export function checkDashboardRuntime(file, source) {
 
   const submitted = beginDecision?.indexOf("decision === 'submitted'") ?? -1;
   const readiness = beginDecision?.indexOf('submissionReadinessErrors(role)') ?? -1;
+  if (beginDecision && !/role\.manual_submission\s*=/.test(beginDecision)) {
+    errors.push(issue(file, 'manual submitted decisions do not stamp durable candidate manual-submission provenance'));
+  }
   const durableIntent = decision.indexOf('beginCandidateDecision(queue, id, decision)');
   const mutate = decision.indexOf('setStatus(queue, id, decision)');
   const trackerPersist = decision.indexOf('writeTrackerTsv(workingRole, decision');
@@ -452,6 +455,8 @@ export function checkDashboardRuntime(file, source) {
       ['canonical set-status delegation', /['"]set-status\.mjs['"]/],
       ['receipt provenance argument', /['"]--receipt['"]/],
       ['exact report disambiguation', /['"]--report['"]/],
+      ['manual-submission provenance validation', /manualSubmissionProvenanceError\(role\)/],
+      ['manual-submission external delegation', /['"]--external['"]/],
     ]) {
       if (!pattern.test(trackerWriter)) errors.push(issue(file, `tracker decision writer is missing ${description}`));
     }

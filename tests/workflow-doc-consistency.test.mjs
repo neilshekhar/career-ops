@@ -291,7 +291,11 @@ if (existsSync(join(ROOT, 'handover.md'))) {
   assert.match(handover, /five current application-contract files/i);
   const nextSteps = handover.match(/## Next Steps([\s\S]*?)## Open Questions/)?.[1] ?? '';
   assert.doesNotMatch(nextSteps, /0c\.|✅ DONE|All 23 live selected roles/);
-  assert.match(nextSteps, /There is no active browser batch to resume/i);
+  // The guard's intent is that Next Steps states the browser-batch resume
+  // state explicitly — either "nothing to resume" or an explicit closed-batch
+  // do-not-reopen instruction both satisfy it. Never pin one session's exact
+  // operational phrasing here: handover.md is a living user-layer snapshot.
+  assert.match(nextSteps, /There is no active browser batch to resume|Do not reopen or resubmit/i);
   pass('handover marks old verification counts as superseded and contains only current next steps');
 }
 
