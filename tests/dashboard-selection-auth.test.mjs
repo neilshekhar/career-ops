@@ -119,8 +119,25 @@ assert.equal(store.consume({
 }).accepted, false);
 pass('candidate selection capabilities are short-lived and one-use');
 
+const bulkRoleIds = Array.from({ length: 12 }, (_, index) => `bulk-role-${index + 1}`);
+const bulkRoleStates = Object.fromEntries(bulkRoleIds.map((id) => [id, 'scored']));
+const bulkSelection = store.issue({
+  roleIds: bulkRoleIds,
+  action: 'stage-prepare',
+  roleStates: bulkRoleStates,
+});
+assert.equal(store.consume({
+  roleIds: bulkRoleIds,
+  action: 'stage-prepare',
+  roleStates: bulkRoleStates,
+  nonce: bulkSelection.nonce,
+  intentId: bulkSelection.intentId,
+}).accepted, true);
+pass('PREPARE selection capabilities support role sets larger than the live-fill limit');
+
 const server = readFileSync(join(ROOT, 'dashboard-server.mjs'), 'utf8');
 const client = readFileSync(join(ROOT, 'dashboard/web/app.js'), 'utf8');
+const html = readFileSync(join(ROOT, 'dashboard/web/index.html'), 'utf8');
 assert.deepEqual(checkDashboardRuntime('dashboard-server.mjs', server), []);
 assert.deepEqual(checkDashboardClient('dashboard/web/app.js', client), []);
 for (const pattern of [
@@ -130,6 +147,10 @@ for (const pattern of [
   /action:\s*'run'/,
   /action:\s*'fill'/,
   /action:\s*'stage-prepare'/,
+  /function apiBulkPrepare\s*\(/,
+  /MAX_BULK_PREPARE_SELECTIONS\s*=\s*500/,
+  /['"]dashboard-bulk-prepare['"]/,
+  /path === ['"]\/api\/roles\/prepare['"]/,
 ]) assert.match(server, pattern);
 for (const pattern of [
   /function requestCandidateSelection\s*\(/,
@@ -137,8 +158,11 @@ for (const pattern of [
   /selectionConfirmationBody\(confirmation\)/,
   /'stage-prepare'/,
   /\(issued\)\s*=>\s*doFill\(roleId, issued\)/,
+  /function moveVisibleInboxToTodo\s*\(/,
+  /postJson\(['"]\/api\/roles\/prepare['"]/,
 ]) assert.match(client, pattern);
-pass('single Fill, bulk Start Run, keyboard Fill, and PREPARE drag share the confirmed selection flow');
+assert.match(html, /id=["']btn-bulk-prepare["']/);
+pass('single Fill, live Run, PREPARE drag, and bulk Inbox move share the confirmed selection flow');
 
 assert(
   checkDashboardRuntime(

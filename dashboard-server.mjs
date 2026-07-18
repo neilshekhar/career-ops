@@ -438,6 +438,7 @@ function apiActivity(req, res) {
 
 const ACTIVE_AGENT_APPLY_CONTRACT = APPLICATION_RECEIPT_REQUEST_CONTRACT;
 const MAX_ACTIVE_APPLICATION_REQUESTS = 4;
+const MAX_BULK_PREPARE_SELECTIONS = 500;
 const ACTIVE_APPLICATION_REQUEST_STATES = new Set(['queued', 'in-progress']);
 
 function applicationControllerLease(queue) {
@@ -608,12 +609,15 @@ function apiSelectionConfirmation(req, res) {
     if (!SELECTION_ACTIONS.has(action)) {
       return respond(res, 400, { error: 'selection action must be run | fill | stage-prepare' });
     }
-    if (ids.length === 0 || ids.length > MAX_ACTIVE_APPLICATION_REQUESTS) {
+    const selectionLimit = action === 'stage-prepare'
+      ? MAX_BULK_PREPARE_SELECTIONS
+      : MAX_ACTIVE_APPLICATION_REQUESTS;
+    if (ids.length === 0 || ids.length > selectionLimit) {
       return respond(res, 400, {
-        error: `selection must contain 1–${MAX_ACTIVE_APPLICATION_REQUESTS} unique role IDs`,
+        error: `selection must contain 1–${selectionLimit} unique role IDs`,
       });
     }
-    if (action !== 'run' && ids.length !== 1) {
+    if (action === 'fill' && ids.length !== 1) {
       return respond(res, 400, { error: `${action} selection must contain exactly one role ID` });
     }
 
@@ -625,8 +629,11 @@ function apiSelectionConfirmation(req, res) {
     }
     const roles = exactQueueRoles(queue, ids);
     if (!roles) return respond(res, 404, { error: 'one or more selected role IDs were not found' });
-    if (action === 'stage-prepare' && stageDragTarget(roles[0], 'todo') !== 'prepare-queued') {
-      return respond(res, 409, { error: 'role is not eligible for a candidate-confirmed PREPARE drag' });
+    if (action === 'stage-prepare' &&
+        roles.some((role) => stageDragTarget(role, 'todo') !== 'prepare-queued')) {
+      return respond(res, 409, {
+        error: 'one or more roles are not eligible for candidate-confirmed PREPARE selection',
+      });
     }
 
     const issued = selectionConfirmations.issue({
@@ -640,6 +647,100 @@ function apiSelectionConfirmation(req, res) {
       role_ids: issued.roleIds,
       action,
       expires_in_seconds: 300,
+    });
+  });
+}
+
+function apiBulkPrepare(req, res) {
+  readBody(req, res, (body) => {
+    const {
+      ids,
+      selection_confirmation_nonce: selectionNonce,
+      selection_intent_id: selectionIntentId,
+    } = safeJson(body) || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return respond(res, 400, { error: 'ids must be a non-empty array' });
+    }
+    const uniqueIds = [...new Set(ids.map(String))];
+    if (uniqueIds.length > MAX_BULK_PREPARE_SELECTIONS) {
+      return respond(res, 400, {
+        error: `bulk PREPARE is limited to ${MAX_BULK_PREPARE_SELECTIONS} roles`,
+      });
+    }
+
+    let queue;
+    try {
+      queue = loadQueue();
+    } catch (err) {
+      return respond(res, 503, { error: `queue store unavailable: ${err.message}` });
+    }
+    const roles = exactQueueRoles(queue, uniqueIds);
+    if (!roles) {
+      return respond(res, 404, { error: 'one or more selected role IDs were not found' });
+    }
+
+    let selectionConfirmation;
+    try {
+      selectionConfirmation = consumeSelectionConfirmation({
+        action: 'stage-prepare',
+        ids: uniqueIds,
+        nonce: selectionNonce,
+        intentId: selectionIntentId,
+        roles,
+      });
+    } catch (err) {
+      return respond(res, err.httpCode ?? 403, { error: err.message });
+    }
+
+    const quality = applicationQualityConfig(loadProfile());
+    let result;
+    try {
+      result = mutateQueue((freshQueue) => {
+        const freshRoles = exactQueueRoles(freshQueue, uniqueIds);
+        if (!freshRoles) {
+          const err = new Error('one or more selected role IDs were not found');
+          err.httpCode = 404;
+          throw err;
+        }
+
+        for (const role of freshRoles) {
+          assertSelectionRoleState(role, selectionConfirmation);
+          if (stageDragTarget(role, 'todo') !== 'prepare-queued') {
+            const err = new Error(`${role.id} is no longer eligible for PREPARE selection`);
+            err.httpCode = 409;
+            throw err;
+          }
+        }
+
+        let selectionOverridesRecorded = 0;
+        for (const role of freshRoles) {
+          recordCandidateSelectionConfirmation(
+            role,
+            selectionConfirmation,
+            'dashboard-bulk-prepare',
+          );
+          if (recordCandidateSelectionOverride(
+            role,
+            quality.minimumApplyScore,
+            'dashboard-bulk-prepare',
+          )) selectionOverridesRecorded++;
+          setStatus(freshQueue, role.id, 'prepare-queued');
+        }
+        return {
+          moved: freshRoles.length,
+          selectionOverridesRecorded,
+        };
+      });
+    } catch (err) {
+      return respond(res, err.httpCode ?? 503, {
+        error: err.httpCode ? err.message : `queue store write failed: ${err.message}`,
+      });
+    }
+
+    respond(res, 200, {
+      moved: result.moved,
+      status: 'prepare-queued',
+      selection_overrides_recorded: result.selectionOverridesRecorded,
     });
   });
 }
@@ -1524,6 +1625,7 @@ const server = http.createServer((req, res) => {
   if (path === '/api/queue'    && method === 'GET')  return apiGetQueue(res);
   if (path === '/api/threshold' && method === 'POST') return apiSetThreshold(req, res);
   if (path === '/api/autofill'  && method === 'POST') return apiSetAutoFillAll(req, res);
+  if (path === '/api/roles/prepare' && method === 'POST') return apiBulkPrepare(req, res);
   if (path === '/api/run'      && method === 'POST')  return apiRun(req, res);
   if (path === '/api/activity' && method === 'GET')   return apiActivity(req, res);
 

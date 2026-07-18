@@ -23,6 +23,7 @@ let query      = '';
 // cursor: { stageKey, idx } — which card is highlighted (Done column not navigable)
 let cursor     = { stageKey: 'inbox', idx: 0 };
 let activeId   = null; // ID of the role open in inbox
+let bulkPrepareInFlight = false;
 
 // Bulk selection
 let checkedIds = new Set();
@@ -194,7 +195,7 @@ async function loadQueue() {
     allRoles = data.roles || [];
     doneRows = data.done  || [];
     settings = data.settings || {};
-    if (settings.score_threshold) {
+    if (settings.score_threshold != null) {
       document.getElementById('threshold-input').value = settings.score_threshold;
     }
     syncAutoFillAllButton();
@@ -261,12 +262,26 @@ function stageMapFor(roles) {
   return map;
 }
 
+function rolePassesThreshold(role, threshold = settings.score_threshold) {
+  if (role.stage !== 'inbox' || role.score == null || threshold == null) return true;
+  const scoreFloor = Number(threshold);
+  return !Number.isFinite(scoreFloor) || role.score >= scoreFloor;
+}
+
 function filterRoles(roles) {
-  if (!query) return roles;
-  return roles.filter(r =>
-    r.company.toLowerCase().includes(query) ||
-    r.title.toLowerCase().includes(query) ||
-    (r.location || '').toLowerCase().includes(query));
+  return roles.filter((role) => {
+    const matchesSearch = !query ||
+      role.company.toLowerCase().includes(query) ||
+      role.title.toLowerCase().includes(query) ||
+      (role.location || '').toLowerCase().includes(query);
+    return matchesSearch && rolePassesThreshold(role);
+  });
+}
+
+function visibleScoredInboxRoles() {
+  return filterRoles(allRoles).filter((role) =>
+    role.stage === 'inbox' && role.status === 'scored'
+  );
 }
 
 function renderAll(stats) {
@@ -280,6 +295,7 @@ function renderAll(stats) {
   renderLane('review',   stageMap.review);
   renderTodoCta(stageMap.todo.length);
   renderDoneLane();
+  syncBulkPrepareButton();
 
   // Update inbox if one is open
   if (activeId) {
@@ -778,6 +794,56 @@ function clearAll() {
   syncBatchBar();
 }
 
+function syncBulkPrepareButton() {
+  const button = document.getElementById('btn-bulk-prepare');
+  const count = visibleScoredInboxRoles().length;
+  button.disabled = bulkPrepareInFlight || count === 0;
+  button.textContent = bulkPrepareInFlight
+    ? 'Moving...'
+    : count > 0
+      ? `Move ${count} to To Do`
+      : 'No scored roles to move';
+}
+
+function moveVisibleInboxToTodo() {
+  const roles = visibleScoredInboxRoles();
+  if (roles.length === 0) {
+    toast('No visible scored Inbox roles to move', 3000);
+    return;
+  }
+  const ids = roles.map((role) => role.id);
+  requestCandidateSelection(
+    ids,
+    'stage-prepare',
+    `Move ${ids.length} visible scored Inbox role${ids.length === 1 ? '' : 's'} to To Do? This queues PREPARE only; no forms are opened or submitted.`,
+    (confirmation) => executeBulkPrepare(ids, confirmation),
+  );
+}
+
+async function executeBulkPrepare(ids, confirmation) {
+  bulkPrepareInFlight = true;
+  syncBulkPrepareButton();
+  try {
+    const res = await postJson('/api/roles/prepare', {
+      ids,
+      ...selectionConfirmationBody(confirmation),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast(data.error || 'Could not move Inbox roles to To Do', 4000);
+      return;
+    }
+    for (const id of ids) checkedIds.delete(id);
+    toast(`${data.moved} role${data.moved === 1 ? '' : 's'} moved to To Do`);
+    await loadQueue();
+  } catch {
+    toast('Bulk move failed — check server logs', 4000);
+  } finally {
+    bulkPrepareInFlight = false;
+    syncBulkPrepareButton();
+  }
+}
+
 // ── Run ───────────────────────────────────────────────────────────────────────
 
 async function startRun() {
@@ -1081,7 +1147,7 @@ async function setThreshold() {
   const res  = await postJson('/api/threshold', { value: val });
   const data = await res.json();
   if (!res.ok) { toast(data.error || 'Could not update threshold', 3000); return; }
-  toast(`Selection threshold set to ${val} — no roles were queued or changed.`);
+  toast(`Inbox score filter set to ${val} — no roles were queued or changed.`);
   await loadQueue();
 }
 
@@ -1218,6 +1284,7 @@ function setupEventListeners() {
   document.getElementById('threshold-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') setThreshold();
   });
+  document.getElementById('btn-bulk-prepare').addEventListener('click', moveVisibleInboxToTodo);
 
   document.getElementById('btn-fill').addEventListener('click', () => doFill());
   document.getElementById('btn-submit').addEventListener('click', () => requestSubmittedDecision());

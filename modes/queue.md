@@ -169,8 +169,10 @@ EasyGo            | Senior Data Analyst – Kick   | full-time | 4.4   | ready
 ...
 
 → Open the dashboard: node dashboard-server.mjs
-→ Use the threshold only as a dashboard filter/setting, explicitly select the roles,
-  then prepare: /career-ops queue prepare
+→ Use the threshold only as a dashboard filter/setting, explicitly select the roles
+  with "Move N to To Do", and confirm the exact visible role set. This bulk selection
+  queues PREPARE without opening or filling forms.
+→ Then prepare: /career-ops queue prepare
 ```
 
 ### Step 8 — Sweep unreachable no-jd roles (zero tokens)

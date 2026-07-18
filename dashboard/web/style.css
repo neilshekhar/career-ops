@@ -190,6 +190,27 @@ body {
 
 .btn-threshold:hover { opacity: 0.85; }
 
+.btn-bulk-prepare {
+  background: var(--yellow);
+  color: var(--crust);
+  border: none;
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  min-width: 142px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-bulk-prepare:hover:not(:disabled) { opacity: 0.85; }
+.btn-bulk-prepare:disabled {
+  background: var(--surface1);
+  color: var(--overlay0);
+  cursor: default;
+}
+
 .btn-refresh {
   background: var(--surface0);
   color: var(--subtext);
