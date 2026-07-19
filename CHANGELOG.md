@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.20.2](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.20.1...career-ops-v1.20.2) (2026-07-18)
+
+
+### Bug Fixes
+
+* **dashboard:** candidate manual Mark Submitted from any active stage + --repair-finalization ([9c65a98](https://github.com/neilshekhar/career-ops/commit/9c65a9857cbe087b09563dc06ce6207f1be2bac5))
+
 ## [1.20.1](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.20.0...career-ops-v1.20.1) (2026-07-18)
 
 
