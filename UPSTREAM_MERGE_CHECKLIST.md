@@ -125,6 +125,15 @@ These come up in nearly every pull — resolve them the same way each time:
 
 ## Procedure
 
+0. **Fetch upstream without tags:** `git fetch upstream --no-tags`. Upstream
+   (santifer) and this fork both cut releases tagged `career-ops-vX.Y.Z`
+   independently, so the same version number can land on two different commits.
+   Tags are a global ref namespace in git (not per-remote), so a tagged fetch
+   from `upstream` can silently overwrite or collide with the fork's own
+   `career-ops-vX.Y.Z` tag from `origin` — this already happened once (local
+   `career-ops-v1.20.0` pointed at upstream PR #1884 instead of the fork's own
+   release). `--no-tags` avoids importing upstream's tags into the local
+   namespace at all; the fork's own tags always come from `origin`.
 1. Create a `merge/...` branch off `main`; merge upstream into it.
 2. Resolve conflicts. **Keep Neil's user-layer and engine files** (Data Contract);
    keep upstream's genuine system improvements only where they don't touch the engine.
