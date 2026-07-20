@@ -280,6 +280,40 @@ const TRACKER_REVEAL = `# Applications Tracker
   rmSync(sb.dir, { recursive: true, force: true });
 }
 
+// ── 4e2. Job URL --report matches a local evaluation report via **URL:** ─
+{
+  const sb = makeSandbox(`# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | PDF | Report | Notes |
+|---|------|---------|------|-------|--------|-----|--------|-------|
+| 74 | 2026-07-20 | Arinco | Azure Data Consultant | 3.8/5 | Evaluated | ❌ | [069](reports/069-arinco-test.md) | azure fit |
+`);
+  mkdirSync(join(sb.dir, 'reports'), { recursive: true });
+  writeFileSync(
+    join(sb.dir, 'reports', '069-arinco-test.md'),
+    '# Evaluation: Arinco\n\n**URL:** https://au.seek.com/job/92952960\n**Score:** 3.8/5\n',
+  );
+  const result = runSetStatus([
+    'Arinco', 'Applied',
+    '--role', 'Azure Data Consultant',
+    '--report', 'https://au.seek.com/job/92952960',
+    '--external', '--json',
+  ], sb);
+  let payload = null;
+  try { payload = JSON.parse(result.stdout); } catch {}
+  if (
+    result.code === 0 &&
+    payload?.num === 74 &&
+    payload?.newStatus === 'Applied' &&
+    /\| 74 \|[^\n]+\| Applied \|/.test(readTracker(sb))
+  ) {
+    pass('resolution: job URL --report matches tracker row linked to local evaluation report');
+  } else {
+    fail(`resolution: job URL did not resolve via report **URL:**\n${result.stdout}${result.stderr}\n${readTracker(sb)}`);
+  }
+  rmSync(sb.dir, { recursive: true, force: true });
+}
+
 // ── 4f. Receipt identity and submitted readiness are revalidated ─
 // Receipt identity checks intentionally use URL reports here so the test can
 // fail before touching the real reports/ or handover.md user surfaces.

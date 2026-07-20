@@ -66,6 +66,7 @@ const USAGE = `Usage: node set-status.mjs <tracker#|company> [<state>] [--note "
   --note "..."       Append to the Notes cell ("; "-separated, idempotent)
   --role "..."       Disambiguate when several rows share the company (fuzzy match)
   --report <value>    Disambiguate by the Report cell's exact local path or job URL
+                      (a job URL also matches a local evaluation report whose **URL:** header equals it)
   --company "..."    Reveal a ? Company cell on an exact numeric tracker # (one-way, idempotent)
   --pdf-ready        Mark PDF ✅ on an exact numeric tracker # (monotonic, idempotent)
   --receipt <id>      Verify and record the exact finalized queue receipt (Applied only; requires --role and --report)
@@ -247,6 +248,44 @@ function normalizeReportIdentity(value, { fromTracker = false } = {}) {
   return `file:${absolute}`;
 }
 
+/**
+ * Read **URL:** from a local evaluation report linked in the tracker Report cell.
+ * Used so dashboard Mark Submitted can pass the live job URL while the tracker
+ * still points at reports/{NNN}-….md from the earlier evaluation.
+ */
+function extractUrlFromLinkedReport(target, { fromTracker = false } = {}) {
+  if (!target || /^https?:\/\//i.test(target)) return null;
+
+  const base = fromTracker ? dirname(APPS_FILE) : CAREER_OPS;
+  const reportPath = isAbsolute(target) ? resolvePath(target) : resolvePath(base, target);
+  const allowedRoots = [CAREER_OPS, dirname(APPS_FILE)];
+  if (!allowedRoots.some((root) => reportPath === root || reportPath.startsWith(`${root}/`))) {
+    return null;
+  }
+  if (!existsSync(reportPath)) return null;
+
+  try {
+    return readFileSync(reportPath, 'utf-8')
+      .match(/^\*\*URL:\*\*\s*(https?:\/\/\S+)/im)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function reportIdentitiesMatch(trackerReportCell, wantedValue) {
+  const wanted = normalizeReportIdentity(wantedValue);
+  const direct = normalizeReportIdentity(trackerReportCell, { fromTracker: true });
+  if (wanted && direct && wanted === direct) return true;
+
+  // Job URL ↔ local evaluation report whose header carries the same posting URL.
+  if (wanted?.startsWith('url:')) {
+    const linkTarget = reportTarget(trackerReportCell);
+    const extracted = extractUrlFromLinkedReport(linkTarget, { fromTracker: true });
+    if (extracted && normalizeReportIdentity(extracted) === wanted) return true;
+  }
+  return false;
+}
+
 function canonicalTrackerText(value) {
   return cell(value).replace(/\s+/g, ' ').trim().toLowerCase();
 }
@@ -370,8 +409,7 @@ function resolveRow(rows) {
     failWith(EXIT_NOT_FOUND, 'not-found', `No tracker row with company matching "${selector}"`);
   }
   if (flags.report) {
-    const wantedReport = normalizeReportIdentity(flags.report);
-    const narrowed = matches.filter(r => normalizeReportIdentity(r.report, { fromTracker: true }) === wantedReport);
+    const narrowed = matches.filter(r => reportIdentitiesMatch(r.report, flags.report));
     if (narrowed.length === 0) {
       failWith(EXIT_NOT_FOUND, 'not-found', `No tracker row for "${selector}" has Report matching "${flags.report}"`);
     }
