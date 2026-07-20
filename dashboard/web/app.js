@@ -428,7 +428,11 @@ function buildCard(role, stageKey, idx) {
 
   // Status badge — only where the column doesn't already convey it:
   // filled vs prefilled share the In Review column, so keep that distinction.
+  // Lean prefilled is the default review-ready path; legacy incomplete stays labelled.
+  const leanPrefill = role.status === 'prefilled'
+    && role.application_progress?.execution_protocol === 'lean-llm-v1';
   const statusBadge = role.status === 'filled'   ? '<span class="badge badge-filled">Filled</span>'
+                    : leanPrefill                 ? '<span class="badge badge-prefilled">Lean review</span>'
                     : role.status === 'prefilled' ? '<span class="badge badge-prefilled">Prefilled</span>'
                     : '';
 
@@ -615,7 +619,9 @@ function renderInbox(role) {
       <span class="badge badge-flag">${esc(role.size_bucket || 'unknown')}</span>
       ${role.eligibility !== 'ok' ? `<span class="badge badge-${role.eligibility === 'blocked' ? 'blocked' : 'cap'}">${esc(role.eligibility)}</span>` : ''}
       ${role.status === 'filled' ? '<span class="badge badge-filled">Filled ✓</span>' : ''}
-      ${role.status === 'prefilled' ? '<span class="badge badge-prefilled">Prefilled</span>' : ''}
+      ${role.status === 'prefilled' && role.application_progress?.execution_protocol === 'lean-llm-v1'
+        ? '<span class="badge badge-prefilled">Lean fill complete</span>'
+        : role.status === 'prefilled' ? '<span class="badge badge-prefilled">Prefilled</span>' : ''}
     </div>
 
     ${role.reason ? `<div class="inbox-reason">${esc(role.reason)}</div>` : ''}
@@ -642,10 +648,15 @@ function renderInbox(role) {
   const note = document.getElementById('inbox-note');
   const submitBtn = document.getElementById('btn-submit');
   const isPrefilled = role.status === 'prefilled';
+  const leanPrefillReady = isPrefilled
+    && role.application_progress?.execution_protocol === 'lean-llm-v1'
+    && role.application_progress?.lean_review_ready === true;
   const canMarkSubmitted = role.submission_ready === true || role.manual_submission_allowed === true;
   submitBtn.disabled = !canMarkSubmitted;
   submitBtn.title = role.submission_ready === true
     ? 'Mark submitted only after you completed the portal submission manually'
+    : leanPrefillReady
+      ? 'Lean fill complete — review the portal tab, submit yourself, then Mark Submitted here'
     : canMarkSubmitted
       ? 'Records a portal submission you completed yourself — no receipt-verified form exists for this role yet'
       : 'A finalized receipt-bound filled form is required before submission can be recorded';
@@ -682,8 +693,10 @@ function renderInbox(role) {
     note.textContent = '⛔ Eligibility blocker — review the warning; if selected, the agent answers truthfully and flags the rejection risk.';
   } else if ((role.flags || []).includes('knockout-flag')) {
     note.textContent = '⛔ Screener/knockout detected — the agent fills it truthfully and flags it for final review.';
+  } else if (leanPrefillReady) {
+    note.textContent = 'Lean fill complete — review & Mark Submitted after you submit in the portal yourself.';
   } else if (isPrefilled) {
-    note.textContent = 'Legacy non-review-ready checkpoint. Click Fill Form to queue active-agent receipt completion — or Mark Submitted if you already submitted this in the portal yourself.';
+    note.textContent = 'Legacy incomplete prefill checkpoint. Click Fill Form to resume — or Mark Submitted if you already submitted this in the portal yourself.';
   } else if (role.status === 'filled' && (role.application_progress?.report_state === 'submitted')) {
     note.textContent = 'Submission is already recorded in the receipt report. Retry Mark Submitted to finish any pending queue sync.';
   } else if (role.status === 'filled' && role.submission_ready !== true) {
