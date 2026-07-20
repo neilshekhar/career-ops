@@ -318,7 +318,9 @@ derives liveness/match booleans from `result: "active"` and `result: "matched"`.
 request's `run_id` and `controller_id` with that tab; never reuse either binding for
 another controller, role, or tab. The executable begin gate accepts only a queue
 role already in `prepared` state or a legacy non-review-ready `prefilled` checkpoint being
-resumed **and** a durable queued dashboard `application_request` whose role ID, run ID,
+resumed — a **finished** lean run (`prefilled` carrying `lean_review_ready: true`) is
+review-ready, not resumable, and begin rejects it — **and** a durable queued dashboard
+`application_request` whose role ID, run ID,
 `active-agent` controller, and `controller_id` match the receipt payload and the queue's
 single browser-controller lease. It rejects duplicate tab IDs, mixed controller leases,
 and more than four queued/in-progress roles. Begin consumes that exact request
@@ -339,6 +341,16 @@ Do **not** stamp `evidence_protocol: "v3"` unless the candidate explicitly reque
 historical **receipt-v3** (`execution_protocol: "receipt-v3"` in the begin payload).
 Lean finish (`apply-page.mjs finish`) promotes the queue role to **`prefilled`** for
 candidate review; it does not create page receipts or review-ready `filled`.
+
+A finished lean run is terminal for the agent, exactly as `filled` is for receipt-v3:
+`beginApplicationProgress` and both dashboard fill gates refuse it, and the dashboard
+reports it as already review-ready instead of queueing new browser work. Re-filling it
+would discard the compact review and risk a duplicate application. If the candidate
+confirms a fill genuinely must be redone, reset the role explicitly first.
+
+A recorded `apply-page.mjs fallback` never disappears from a lean run: `finish` copies
+the reason and the unsupported control IDs into the compact review warnings so the
+candidate checks those controls before submitting.
 
 A receipt-backed `filled` role is never queued back into begin: a valid receipt is already
 review-ready. If an inherited/corrupt `filled` row fails verification, preserve its

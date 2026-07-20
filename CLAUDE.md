@@ -442,6 +442,10 @@ fire → Next → … → `apply-page.mjs finish` → queue status **`prefilled`
 `{control_id,kind,expected,displayed,asset_sha256,verified:true}` (content SHA-256).
 Lean runs reject `complete` / `finalize`. Never click a final application submission
 control. Candidate Mark Submitted for lean `prefilled` is manual / `--external`.
+A **finished** lean run (`prefilled` + `lean_review_ready`) is review-ready, not
+resumable: `begin` and both dashboard fill gates refuse it, exactly as `filled`
+protects receipt-v3. Never re-fill it — that would discard the compact review and
+risk duplicating an application the candidate may already have submitted.
 
 Populate every visible application question; a conservative inference is filled,
 stored role-locally, and flagged for the final combined review rather than left blank.
