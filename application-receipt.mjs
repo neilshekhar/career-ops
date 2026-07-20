@@ -252,12 +252,18 @@ function cleanFields(value, expectedCount) {
     const reviewRequired = requiredBoolean(item.review_required ?? false, 'fields[' + index + '].review_required');
     const reviewNote = String(item.review_note ?? '').trim();
     if (reviewRequired && !reviewNote) throw new Error('review-required field is missing review_note');
+    const allowBlankAnswer = /\bhoneypot\b/i.test(String(item.label || ''))
+      || /\b(middle(?:\s+name)?|second name|maiden name|custom pronoun)\b/i.test(String(item.label || ''));
+    const rawAnswer = String(item.answer ?? '');
+    const answer = allowBlankAnswer && !rawAnswer.trim()
+      ? ''
+      : requiredText(item.answer, 'fields[' + index + '].answer');
     return {
       control_id: requiredText(item.control_id, 'fields[' + index + '].control_id'),
       label: requiredText(item.label, 'fields[' + index + '].label'),
       type: requiredText(item.type ?? 'unknown', 'fields[' + index + '].type'),
       required: requiredBoolean(item.required, 'fields[' + index + '].required'),
-      answer: requiredText(item.answer, 'fields[' + index + '].answer'),
+      answer,
       resolution,
       provenance,
       taught,
@@ -839,21 +845,38 @@ export function beginApplicationProgress(role, payload = {}, { queue = null } = 
   const assetQualityEvidence = createApplicationQualityEvidence(role, {
     root: APPLICATION_PROJECT_ROOT,
   });
-  // v3: every production run demands file-derived evidence. The inline-test
+  // Default live runs use lean-llm-v1 (selective verification, finish→prefilled).
+  // Opt into the historical receipt-v3 loop with execution_protocol: 'receipt-v3'
+  // (or legacy evidence_protocol / receipt_required / inline-test capture for
+  // repair suites and historical callers).
+  const requestedProtocol = String(payload.execution_protocol || '').trim();
+  const leanDefault = requestedProtocol !== 'receipt-v3'
+    && payload.receipt_required !== true
+    && payload.evidence_protocol !== 'v3'
+    && payload.evidence_capture !== 'inline-test';
+  const executionProtocol = leanDefault ? 'lean-llm-v1' : 'receipt-v3';
+
+  // receipt-v3: every production run demands file-derived evidence. The inline-test
   // escape exists only for the suite's synthetic envelopes and is gated on the
   // same test-entrypoint check as the path overrides — NODE_ENV alone is not
-  // enough to weaken a live run.
-  const evidenceCapture = payload.evidence_capture === 'inline-test' && TEST_PROJECT_ROOT_ALLOWED
-    ? 'inline-test'
-    : FILE_DERIVED_CAPTURE;
+  // enough to weaken a live run. Lean runs never require page receipts.
+  const evidenceCapture = executionProtocol === 'receipt-v3'
+    ? (payload.evidence_capture === 'inline-test' && TEST_PROJECT_ROOT_ALLOWED
+      ? 'inline-test'
+      : FILE_DERIVED_CAPTURE)
+    : 'selective';
   const progress = {
     version: APPLICATION_RECEIPT_VERSION,
     run_id: runId,
     role_id: role.id,
     application_request_id: request.request_id,
     controller_id: controllerId,
-    evidence_protocol: 'v3',
-    evidence_capture: evidenceCapture,
+    execution_protocol: executionProtocol,
+    verification_mode: executionProtocol === 'lean-llm-v1' ? 'selective' : 'receipt',
+    receipt_required: executionProtocol === 'receipt-v3',
+    ...(executionProtocol === 'receipt-v3'
+      ? { evidence_protocol: 'v3', evidence_capture: evidenceCapture }
+      : { evidence_capture: evidenceCapture }),
     company: role.company ?? '',
     title: role.title ?? '',
     tab: {
@@ -866,8 +889,10 @@ export function beginApplicationProgress(role, payload = {}, { queue = null } = 
     started_at: now,
     updated_at: now,
     pages: [],
+    lean_pages: [],
     review_required: [],
     review_ready: false,
+    lean_review_ready: false,
   };
   role.application_progress = progress;
   request.state = 'in-progress';
@@ -890,7 +915,7 @@ export function validatePageReceipt(payload, progress = null, executableEvidence
   const finalPage = requiredBoolean(payload.final_page ?? false, 'final_page');
   const resolvedCount = fields.filter((field) => field.resolution === 'resolved').length;
   const novelCount = fields.filter((field) => field.resolution === 'novel').length;
-  const answeredCount = fields.filter((field) => field.answer).length;
+  const answeredCount = fields.filter((field) => field.answer != null).length;
   const taughtCount = fields.filter((field) => field.resolution === 'novel' && field.taught).length;
 
   if (payload.resolved_count != null && nonNegativeInteger(payload.resolved_count, 'resolved_count') !== resolvedCount) {

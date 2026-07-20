@@ -1,27 +1,26 @@
 #!/usr/bin/env node
 /**
- * apply-page.mjs — Evidence Protocol v3 live-application page driver.
+ * apply-page.mjs — Dual-protocol live-application page driver.
  *
- * The LLM agent stays the only browser driver, but every digest, manifest,
- * fingerprint, and verification in the receipt is derived HERE from the
- * snapshot files Playwright MCP writes to `.playwright-mcp/` — the agent
- * never serializes evidence by hand. Model-visible output is deliberately
- * compact: resolved answers, novel questions, actionable failures, and short
- * receipts. Raw snapshots, receipt bodies, and evidence envelopes never
- * appear on stdout/stderr.
+ * Default for new begins: lean-llm-v1
+ *   observe → lookup → fill → optional teach → page-done → … → finish → prefilled
  *
- * Per-page loop (replaces the manual extract → --lookup → --teach → --page):
- *   1. agent: browser_snapshot                 (file lands in .playwright-mcp/)
- *   2. node apply-page.mjs lookup   <role> '{"page_index":N,"url":...,"snapshot":"<file>"}'
- *   3. agent: fill resolved answers + answer novel questions in the browser
- *   4. agent: browser_snapshot                 (after-fill file)
- *   5. node apply-page.mjs complete <role> '{"after_snapshot":"<file>","answers":[...],...}'
- *   6. agent: press Next — never any final submit control
+ * Opt-in historical: receipt-v3 (execution_protocol: "receipt-v3")
+ *   snapshot → lookup → fill → complete (after-snapshot + page receipt) → finalize → filled
  *
- * `begin` and `finalize` wrap the application-receipt run gates so agents
- * drive one executable end to end. `fallback` is the controlled degradation
- * path for genuinely unsupported widgets: it durably marks the run
- * manual-review-only; it can never reach review-ready `filled`.
+ * The LLM agent stays the only browser driver. Digests/manifests for receipt-v3
+ * are derived from snapshot files; lean never requires page receipts.
+ *
+ * Lean loop:
+ *   1. browser_snapshot (or compact field observe)
+ *   2. node apply-page.mjs lookup <role> '{"page_index":N,"url":...,"snapshot":"<file>"}'
+ *   3. fill resolved + novel answers; teach reusable novels only
+ *   4. node apply-page.mjs page-done <role> '{"page_index":N,"url":...}'
+ *   5. Next/Continue (never final submit) — selective re-observe only when needed
+ *   6. node apply-page.mjs finish <role> '{"final_url":...,"final_control":...,"application_answers_report":...}'
+ *
+ * Receipt-v3 loop (explicit begin stamp only):
+ *   lookup → fill → complete(after_snapshot) → finalize → filled
  */
 
 import { readFileSync, statSync } from 'fs';
@@ -39,6 +38,14 @@ import {
   extractValidationAlerts, findSubmitBoundary, compareFieldSets,
   verifyPopulatedValues, isCriticalField,
 } from './snapshot-extract.mjs';
+import {
+  isLeanProgress,
+  recordLeanPage,
+  finishLean,
+  assertNotLeanForReceiptCommand,
+  EXECUTION_PROTOCOL_LEAN,
+  EXECUTION_PROTOCOL_RECEIPT,
+} from './lean-application.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const NOVEL_OPTION_CAP = 40; // bounded-L3: never dump giant option lists at the model
@@ -63,7 +70,7 @@ function roleAndProgress(roleId) {
   const role = loadQueue().roles.find((item) => item.id === roleId);
   if (!role) throw new Error(`role not found: ${roleId}`);
   const progress = role.application_progress;
-  if (!progress || progress.review_ready) {
+  if (!progress || progress.review_ready || progress.lean_review_ready) {
     throw new Error('an active application run is required; start with apply-page.mjs begin');
   }
   return { role, progress };
@@ -72,21 +79,31 @@ function roleAndProgress(roleId) {
 // ── begin ─────────────────────────────────────────────────────────────────────
 
 function beginCommand(roleId, payload) {
+  // Default lean-llm-v1 unless caller explicitly requests receipt-v3.
   const progress = beginRole(roleId, payload);
+  const lean = isLeanProgress(progress);
   return {
     run_id: progress.run_id,
     role_id: progress.role_id,
     tab_id: progress.tab.id,
-    evidence_protocol: progress.evidence_protocol ?? 'v3',
-    evidence_capture: progress.evidence_capture,
+    execution_protocol: progress.execution_protocol
+      ?? (lean ? EXECUTION_PROTOCOL_LEAN : EXECUTION_PROTOCOL_RECEIPT),
+    verification_mode: progress.verification_mode
+      ?? (lean ? 'selective' : 'receipt'),
+    receipt_required: progress.receipt_required === true,
+    ...(progress.evidence_protocol ? { evidence_protocol: progress.evidence_protocol } : {}),
+    ...(progress.evidence_capture ? { evidence_capture: progress.evidence_capture } : {}),
     started_at: progress.started_at,
-    next: 'browser_snapshot the first wizard page, then apply-page.mjs lookup',
+    next: lean
+      ? 'observe the first wizard page, then apply-page.mjs lookup; finish with page-done / finish (never complete/finalize)'
+      : 'browser_snapshot the first wizard page, then apply-page.mjs lookup',
   };
 }
 
 // ── lookup ────────────────────────────────────────────────────────────────────
 
 function lookupCommand(roleId, payload) {
+  const { progress } = roleAndProgress(roleId);
   const pageIndex = payload.page_index;
   const url = requiredText(payload.url, 'lookup.url');
   const snapshotPath = requiredText(payload.snapshot, 'lookup.snapshot');
@@ -97,11 +114,14 @@ function lookupCommand(roleId, payload) {
   });
 
   const currentById = new Map(out.extraction.fields.map((field) => [field.control_id, field.value]));
+  const lean = isLeanProgress(progress);
   return {
     role: `${out.company} – ${out.title}`,
     run_id: out.run_id,
     page_id: out.page_id,
     page_index: out.page_index,
+    execution_protocol: progress.execution_protocol
+      ?? (lean ? EXECUTION_PROTOCOL_LEAN : EXECUTION_PROTOCOL_RECEIPT),
     evidence_id: out.evidence_id,
     snapshot_digest: out.snapshot_digest,
     field_count: out.resolved.length + out.novel.length,
@@ -128,7 +148,9 @@ function lookupCommand(roleId, payload) {
     }),
     upload_controls: out.extraction.upload_controls,
     displayed_filenames: out.extraction.displayed_filenames,
-    next: 'fill resolved answers, answer every novel question, browser_snapshot, then apply-page.mjs complete',
+    next: lean
+      ? 'fill resolved answers, answer every novel question, teach reusable novels only, then apply-page.mjs page-done (selective re-observe only if risk triggers fire)'
+      : 'fill resolved answers, answer every novel question, browser_snapshot, then apply-page.mjs complete',
   };
 }
 
@@ -159,11 +181,22 @@ function orderedTeachAnswers(evidence, answers) {
   return novel.map((item) => {
     const supplied = byControl.get(item.control_id);
     const reviewRequired = supplied.review_required === true;
+    // Anti-bot honeypots and intentionally blank optional identity fields
+    // (middle name / custom pronoun) must stay empty; requiredText would force
+    // a fabricated value into the trap or the form.
+    const allowEmpty = /\bhoneypot\b/i.test(String(item.label ?? ''))
+      || /\b(middle(?:\s+name)?|second name|maiden name|custom pronoun)\b/i.test(String(item.label ?? ''));
+    const answer = allowEmpty
+      ? String(supplied.answer ?? '').trim()
+      : requiredText(supplied.answer, `answer for ${item.label}`);
+    if (/\bhoneypot\b/i.test(String(item.label ?? '')) && answer) {
+      throw new Error(`honeypot answer must be empty (got ${JSON.stringify(answer)})`);
+    }
     return {
       control_id: item.control_id,
       label: item.label,
       type: item.type ?? 'textarea',
-      answer: requiredText(supplied.answer, `answer for ${item.label}`),
+      answer,
       reusable: supplied.reusable === true && !reviewRequired,
       review_required: reviewRequired,
       review_note: reviewRequired
@@ -242,6 +275,7 @@ function attachmentEvidence(attachments, afterChips) {
 
 function completeCommand(roleId, payload) {
   const { role, progress } = roleAndProgress(roleId);
+  assertNotLeanForReceiptCommand(progress, 'complete');
   const evidence = progress.pending_resolver_evidence;
   if (!evidence) {
     throw new Error('no staged lookup evidence for this page; run apply-page.mjs lookup first');
@@ -435,6 +469,7 @@ function completeCommand(roleId, payload) {
 
 function finalizeCommand(roleId, payload) {
   const { role, progress } = roleAndProgress(roleId);
+  assertNotLeanForReceiptCommand(progress, 'finalize');
   const finalPage = (progress.pages ?? []).find((page) => page.final_page);
   if (!finalPage) throw new Error('record the final review page with apply-page.mjs complete before finalize');
 
@@ -465,9 +500,63 @@ function finalizeCommand(roleId, payload) {
   };
 }
 
+// ── page-done (lean) ──────────────────────────────────────────────────────────
+
+function pageDoneCommand(roleId, payload) {
+  const { progress } = roleAndProgress(roleId);
+  if (!isLeanProgress(progress)) {
+    throw new Error(
+      'page-done is only valid for lean-llm-v1 runs; use complete for receipt-v3',
+    );
+  }
+  const entry = recordLeanPage(roleId, payload);
+  return {
+    execution_protocol: EXECUTION_PROTOCOL_LEAN,
+    page_index: entry.page_index,
+    url: entry.url,
+    final_page: entry.final_page === true,
+    next: entry.final_page
+      ? 'run apply-page.mjs finish with compact review + Application Answers report; NEVER press the submit control'
+      : 'press Next/Continue in the browser (never a final submit control), observe the next page, then lookup',
+  };
+}
+
+// ── finish (lean) ─────────────────────────────────────────────────────────────
+
+function finishCommand(roleId, payload) {
+  const { role, progress } = roleAndProgress(roleId);
+  if (!isLeanProgress(progress)) {
+    throw new Error(
+      'finish is only valid for lean-llm-v1 runs; use finalize for receipt-v3',
+    );
+  }
+  const out = finishLean(roleId, payload);
+  return {
+    role: `${role.company ?? ''} – ${role.title ?? ''}`,
+    status: out.status,
+    execution_protocol: EXECUTION_PROTOCOL_LEAN,
+    pages_completed: out.pages_completed,
+    lean_review: out.lean_review,
+    next: 'present the compact lean review; the candidate reviews and submits manually, then Mark Submitted on the dashboard',
+  };
+}
+
 // ── fallback ──────────────────────────────────────────────────────────────────
 
 function fallbackCommand(roleId, payload) {
+  const { progress } = roleAndProgress(roleId);
+  if (isLeanProgress(progress)) {
+    // Lean can still mark unsupported widgets for manual review without receipts.
+    const block = recordRoleFallback(roleId, payload);
+    return {
+      recorded: true,
+      execution_protocol: EXECUTION_PROTOCOL_LEAN,
+      reason: block.reason,
+      control_ids: block.control_ids,
+      page_index: block.page_index,
+      consequence: 'lean run stays on the manual-review path; finish at prefilled only after the candidate can review the affected controls',
+    };
+  }
   const block = recordRoleFallback(roleId, payload);
   return {
     recorded: true,
@@ -483,6 +572,8 @@ function fallbackCommand(roleId, payload) {
 const COMMANDS = {
   begin: beginCommand,
   lookup: lookupCommand,
+  'page-done': pageDoneCommand,
+  finish: finishCommand,
   complete: completeCommand,
   finalize: finalizeCommand,
   fallback: fallbackCommand,
@@ -492,7 +583,9 @@ function main() {
   const [, , cmd, roleId, jsonArg] = process.argv;
   const handler = COMMANDS[cmd];
   if (!handler || !roleId) {
-    process.stderr.write('usage: node apply-page.mjs <begin|lookup|complete|finalize|fallback> <role-id> \'<json|@file>\'\n');
+    process.stderr.write(
+      'usage: node apply-page.mjs <begin|lookup|page-done|finish|complete|finalize|fallback> <role-id> \'<json|@file>\'\n',
+    );
     process.exit(1);
   }
   const payload = readJsonArg(jsonArg, cmd);
@@ -511,4 +604,5 @@ if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
 
 export {
   lookupCommand, completeCommand, beginCommand, finalizeCommand, fallbackCommand,
+  pageDoneCommand, finishCommand,
 };

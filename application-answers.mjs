@@ -9,8 +9,10 @@ export const APPLICATION_ANSWERS_HEADING = '## Application Answers';
 
 // Formatting helpers can render receipt-owned lifecycle states when they are
 // reading an existing snapshot, but this CLI may author only the pre-finalizer
-// checkpoint. `application-receipt.mjs` alone promotes it to `filled`, and the
-// candidate-confirmation path alone promotes it to `submitted`.
+// checkpoint (`prefilled`). `application-receipt.mjs` alone promotes receipt-v3
+// runs to `filled`; lean-llm-v1 finishes at `prefilled` and never promotes to
+// receipt-backed `filled`. The candidate-confirmation path alone promotes to
+// `submitted`.
 const VALID_STATES = new Set(['prefilled', 'filled', 'submitted']);
 const CLI_AUTHORABLE_STATE = 'prefilled';
 
@@ -112,7 +114,11 @@ function compactLines(entries, { labelKeys, valueKeys, fallback }) {
 
   return entries.flatMap((entry, index) => {
     const label = inline(pick(entry, labelKeys)) || `${fallback} ${index + 1}`;
-    const value = valueText(pick(entry, valueKeys)) || 'Not recorded';
+    const raw = pick(entry, valueKeys);
+    // Preserve intentional blanks from the receipt (middle name, honeypot, etc.).
+    // `Not recorded` is only for missing keys — never for an empty-string answer.
+    const value = raw == null ? 'Not recorded'
+      : (valueText(raw) === '' ? '(blank)' : valueText(raw));
     return [
       `${index + 1}. **${label}:** ${value}`,
       ...metadataLines(entry).map((line) => `   ${line}`),
@@ -140,6 +146,8 @@ export function normalizeApplicationAnswersSnapshot(snapshot = {}) {
     state: normalizeState(snapshot.state),
     runId: inline(snapshot.runId ?? snapshot.run_id),
     pageCount: snapshot.pageCount ?? snapshot.page_count ?? null,
+    leanPageCount: snapshot.leanPageCount ?? snapshot.lean_page_count ?? null,
+    executionProtocol: inline(snapshot.executionProtocol ?? snapshot.execution_protocol) || null,
     freeText: list(snapshot.freeText ?? snapshot.freeTextAnswers ?? snapshot.answers),
     selections: list(snapshot.selections ?? snapshot.selectedOptions),
     fieldValues: list(snapshot.fieldValues ?? snapshot.otherFields ?? snapshot.fields),
@@ -148,6 +156,45 @@ export function normalizeApplicationAnswersSnapshot(snapshot = {}) {
 }
 
 export function snapshotFromApplicationProgress(progress, options = {}) {
+  const lean = progress?.execution_protocol === 'lean-llm-v1'
+    || options.execution_protocol === 'lean-llm-v1';
+  if (lean) {
+    // Lean finishes without a page-receipt ledger; compact review is authored
+    // from lean_pages + caller-supplied important/review answers.
+    const pages = Array.isArray(progress?.lean_pages) ? progress.lean_pages : [];
+    if (!progress || pages.length === 0) {
+      throw new Error('Lean application progress with at least one lean page is required');
+    }
+    const review = progress.lean_review || {};
+    const important = list(options.important_answers ?? review.important_answers);
+    const reviewRequired = list(options.review_required ?? review.review_required ?? progress.review_required);
+    return {
+      date: options.date || new Date().toISOString().slice(0, 10),
+      state: 'prefilled',
+      runId: progress.run_id,
+      pageCount: 0,
+      leanPageCount: pages.length,
+      executionProtocol: 'lean-llm-v1',
+      freeText: important.filter((item) => /textarea|long|essay|cover|why|motivat/i.test(String(item.label ?? item.question ?? ''))),
+      selections: [],
+      fieldValues: [
+        ...important.map((item) => ({
+          question: item.label ?? item.question,
+          answer: item.answer,
+          provenance: item.source,
+        })),
+        ...reviewRequired.map((item) => ({
+          question: item.label ?? item.question,
+          answer: item.answer ?? '',
+          review_required: true,
+          review_note: item.note ?? item.review_note,
+        })),
+      ],
+      files: list(options.files ?? Object.entries(review.attachments || {}).map(([kind, path]) => ({
+        kind, path: typeof path === 'string' ? path : path?.path,
+      }))),
+    };
+  }
   if (!progress || !Array.isArray(progress.pages) || progress.pages.length === 0) {
     throw new Error('Application progress with at least one page receipt is required');
   }
@@ -211,15 +258,20 @@ export function snapshotFromApplicationProgress(progress, options = {}) {
 
 export function formatApplicationAnswersSection(snapshot = {}) {
   const normalized = normalizeApplicationAnswersSnapshot(snapshot);
+  const lean = normalized.executionProtocol === 'lean-llm-v1';
   const lines = [
     APPLICATION_ANSWERS_HEADING,
     '',
     `**Date:** ${normalized.date}`,
     `**State:** ${normalized.state}`,
+    ...(lean ? ['**Execution protocol:** lean-llm-v1'] : []),
     ...(normalized.runId ? [`**Run ID:** ${normalized.runId}`] : []),
     ...(normalized.pageCount != null ? [`**Receipt pages:** ${normalized.pageCount}`] : []),
+    ...(lean && normalized.leanPageCount != null
+      ? [`**Lean pages completed:** ${normalized.leanPageCount}`]
+      : []),
     '',
-    '### Free-text answers',
+    lean ? '### Important / screening answers' : '### Free-text answers',
     '',
     ...qaLines(normalized.freeText, {
       labelKeys: ['question', 'field', 'label', 'prompt'],
@@ -227,7 +279,7 @@ export function formatApplicationAnswersSection(snapshot = {}) {
       fallback: 'Answer',
     }),
     '',
-    '### Selections made',
+    lean ? '### Selections (if any)' : '### Selections made',
     '',
     ...compactLines(normalized.selections, {
       labelKeys: ['question', 'field', 'label', 'prompt'],
@@ -235,7 +287,7 @@ export function formatApplicationAnswersSection(snapshot = {}) {
       fallback: 'Selection',
     }),
     '',
-    '### Other field values',
+    lean ? '### Review-required / other answers' : '### Other field values',
     '',
     ...compactLines(normalized.fieldValues, {
       labelKeys: ['question', 'field', 'label', 'prompt'],
@@ -296,7 +348,9 @@ export function normalizeApplicationAnswerLabel(value) {
 }
 
 export function normalizeApplicationAnswerValue(value) {
-  return String(value ?? '').replace(/\r\n/g, '\n').trim();
+  const text = String(value ?? '').replace(/\r\n/g, '\n').trim();
+  if (text === '(blank)') return '';
+  return text;
 }
 
 function uniqueSectionMetadata(section, label) {

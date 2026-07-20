@@ -44,12 +44,13 @@ export const QUEUE_LOCK_PATH = join(DATA_DIR, '.apply-queue.lock');
 const TMP_DIR = DATA_DIR;
 
 // --- Status lifecycle ---
-// New runs: new -> scored -> prepare-queued -> prepared -> filled -> submitted | skipped | reviewed | closed
-// Legacy resume branch: prefilled -> filled. No dashboard/planner path creates a
-// new prefilled transition; the active agent must finish L3, teach, conditional
-// re-scan, page verification, and receipts for an existing record.
-// 'filled'    = receipt-gated review-ready application; candidate review and
-//               final submission are still pending.
+// Lean default (lean-llm-v1): new -> scored -> prepare-queued -> prepared -> prefilled -> submitted
+// Receipt-v3 (opt-in/historical): prepared -> filled -> submitted
+// 'prefilled' = lean review-ready fill (compact Application Answers; candidate
+//               Mark Submitted via manual_submission). Also accepts legacy
+//               incomplete checkpoints that never finished receipt-v3.
+// 'filled'    = receipt-gated review-ready application only; candidate review
+//               and final submission are still pending.
 export const ACTIVE_STATUSES  = new Set(['new', 'scored', 'prepare-queued', 'prepared', 'prefilled', 'filled']);
 export const DONE_STATUSES    = new Set(['submitted', 'skipped', 'reviewed', 'closed']);
 export const LANE_STATUSES    = new Set(['scored', 'prepare-queued', 'prepared', 'prefilled', 'filled']); // visible in lanes
@@ -797,8 +798,9 @@ export function mutateQueue(mutator, { timeoutMs = 15_000, saveOptions = {} } = 
  *   'todo'     — explicitly selected, waiting for PREPARE (status: prepare-queued;
  *                the dashboard threshold is a filter/setting and never selects)
  *   'prepared' — CV + cover letter + drafts ready (status: prepared)
- *   'review'   — legacy non-review-ready checkpoint or receipt-gated review-ready form
- *                (status: prefilled | filled; the badge distinguishes them)
+ *   'review'   — lean review-ready prefilled, legacy incomplete checkpoint, or
+ *                receipt-gated filled (status: prefilled | filled; the badge
+ *                and execution_protocol distinguish them)
  *   'done'     — terminal (submitted / skipped / reviewed / closed)
  *   null       — not on the board ('new' roles are a counter, not a card)
  *

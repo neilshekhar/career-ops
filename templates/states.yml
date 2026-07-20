@@ -34,14 +34,14 @@ states:
     scope: queue
     label: Prefilled
     aliases: [headless-filled, pre-filled]
-    description: Legacy non-review-ready prefill checkpoint — no new dashboard/planner path enters this state; active agent resumes live L3, teach, conditional rescan, verification, and durable page receipts
+    description: Lean-llm-v1 review-ready fill (default live path) — compact Application Answers written; candidate reviews in browser and Mark Submitted via manual confirmation. Also covers legacy incomplete checkpoints that never finished receipt-v3.
     dashboard_group: evaluated
 
   - id: filled
     scope: queue
     label: Filled
     aliases: [form-filled, auto-filled]
-    description: Durable per-page receipt verified and final application boundary reached — awaiting candidate's combined review and manual submission
+    description: Receipt-v3 only — durable per-page receipt verified and final application boundary reached; awaiting candidate's combined review and receipt-gated Mark Submitted
     dashboard_group: evaluated
 
   # Post-application tracker states
@@ -56,7 +56,7 @@ states:
     scope: tracker
     label: Applied
     aliases: [aplicado, enviada, aplicada, sent]
-    description: Candidate submitted the application after review; dashboard transition is allowed only from a receipt-verified Filled role
+    description: Candidate submitted the application after review; receipt Mark Submitted requires receipt-verified Filled, while lean Prefilled (and other active statuses) use candidate manual Mark Submitted
     dashboard_group: applied
 
   - id: responded
