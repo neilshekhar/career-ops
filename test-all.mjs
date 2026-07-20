@@ -1250,6 +1250,7 @@ if (
 
 if (
   applyMode.includes('## Application Answers') &&
+  applyMode.includes('**State:** prefilled') &&
   applyMode.includes('**State:** filled') &&
   applyMode.includes('**State:** submitted') &&
   applyMode.includes('Do not rename, reorder, or edit the existing A-G report blocks') &&

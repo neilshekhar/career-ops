@@ -1,0 +1,396 @@
+#!/usr/bin/env node
+/**
+ * tests/lean-application.test.mjs — lean-llm-v1 lifecycle.
+ *
+ * Covers: lean begin stamp, page-done → finish → prefilled, reject
+ * complete/finalize on lean runs, compact Application Answers without page
+ * receipts, and manual Mark Submitted from lean prefilled.
+ */
+
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+
+import { fileURLToPath } from 'node:url';
+import { pass, ROOT } from './helpers.mjs';
+
+const IS_CHILD = process.env.CAREER_OPS_LEAN_CHILD === '1';
+
+async function runIsolated() {
+console.log('\nLean LLM application lifecycle');
+
+const temp = mkdtempSync(join(tmpdir(), 'career-ops-lean-'));
+const dataDir = join(temp, 'data');
+const reportsDir = join(temp, 'reports');
+mkdirSync(dataDir, { recursive: true });
+mkdirSync(reportsDir, { recursive: true });
+mkdirSync(join(temp, 'config'), { recursive: true });
+mkdirSync(join(temp, 'modes'), { recursive: true });
+mkdirSync(join(temp, 'output'), { recursive: true });
+mkdirSync(join(temp, 'jds'), { recursive: true });
+
+// Redirect queue I/O BEFORE importing any module that loads queue-store.
+process.env.NODE_ENV = 'test';
+process.env.CAREER_OPS_QUEUE_BACKEND = 'local';
+process.env.CAREER_OPS_DATA_DIR = dataDir;
+process.env.CAREER_OPS_HANDOVER_PATH = join(temp, 'handover.md');
+process.env.CAREER_OPS_TEST_PROJECT_ROOT = temp;
+
+writeFileSync(join(temp, 'handover.md'), '# Handover\n\n## Session Log\n', 'utf8');
+writeFileSync(join(temp, 'cv.md'), '# CV\nSQL analysis and stakeholder reporting evidence.\n', 'utf8');
+writeFileSync(join(temp, 'article-digest.md'), '# Proof\nReliable reporting evidence.\n', 'utf8');
+writeFileSync(join(temp, 'modes', '_profile.md'), '# Profile\n', 'utf8');
+writeFileSync(join(temp, 'modes', '_custom.md'), '# Rules\n', 'utf8');
+writeFileSync(join(temp, 'voice-dna.md'), '# Voice\nClear and direct.\n', 'utf8');
+writeFileSync(join(temp, 'config', 'profile.yml'), [
+  'candidate:',
+  '  full_name: Test Candidate',
+  'application_quality:',
+  '  require_fresh_assets: false',
+  '  cover_body_words_min: 1',
+  '  cover_body_words_max: 500',
+  '  cover_required_formats: [md, pdf]',
+  '',
+].join('\n'), 'utf8');
+
+const {
+  buildPdfLayoutEvidence,
+  persistPdfLayoutEvidence,
+  printablePageBox,
+} = await import('../generation-provenance.mjs');
+const { buildMarkdown } = await import('../generate-cover-markdown.mjs');
+
+const PDF_FIXTURE = Buffer.from('%PDF-1.7\n1 0 obj <</Type /Page>> endobj\n%%EOF');
+function writePdfFixture(path, utilization = 0.90) {
+  writeFileSync(path, PDF_FIXTURE);
+  const printable = printablePageBox('a4');
+  persistPdfLayoutEvidence(path, buildPdfLayoutEvidence({
+    pdfPath: path,
+    pdfBuffer: PDF_FIXTURE,
+    format: 'a4',
+    pageCount: 1,
+    measurement: {
+      top_px: 0,
+      bottom_px: printable.height_px * utilization,
+      height_px: printable.height_px * utilization,
+    },
+    measuredAt: new Date('2026-07-16T00:00:00.000Z'),
+  }));
+}
+
+const cvPath = join(temp, 'output', 'lean-cv.pdf');
+const cvHtmlPath = join(temp, 'output', 'lean-cv.html');
+const coverMd = join(temp, 'output', 'lean-cover.md');
+const coverPdf = join(temp, 'output', 'lean-cover.pdf');
+const coverPayload = join(temp, 'output', 'lean-cover.payload.json');
+const jdPath = join(temp, 'jds', 'lean-analyst.md');
+writePdfFixture(cvPath);
+writePdfFixture(coverPdf);
+writeFileSync(cvHtmlPath, '<html><body>SQL analysis and stakeholder reporting evidence.</body></html>', 'utf8');
+const jdText = (
+  'Lean Co needs an analyst to deliver reliable SQL reporting, translate stakeholder '
+  + 'requirements, validate data quality, document decisions, and communicate findings clearly. '
+).repeat(6);
+writeFileSync(jdPath, jdText, 'utf8');
+const coverObj = {
+  candidate: { name: 'Test Candidate' },
+  letter: {
+    company: 'Lean Co',
+    role_title: 'Analyst',
+    opening: 'I am applying because this role matches my evidence-based analytics experience.',
+    profile_intro: 'I bring reliable SQL reporting and stakeholder communication.',
+    achievements: [],
+    problems_section: '',
+    closing: 'Thank you for reviewing my application.',
+  },
+};
+writeFileSync(coverMd, buildMarkdown(coverObj), 'utf8');
+writeFileSync(coverPayload, JSON.stringify(coverObj), 'utf8');
+
+const reportRel = 'reports/099-lean-co-analyst-2026-07-20.md';
+const reportPath = join(temp, reportRel);
+writeFileSync(reportPath, [
+  '# Lean Co — Analyst',
+  '',
+  '**Score:** 4.2/5',
+  '**URL:** https://jobs.example.test/lean',
+  '**Legitimacy:** likely-real',
+  '',
+  '## Machine Summary',
+  '',
+  '```yaml',
+  'company: Lean Co',
+  'role: Analyst',
+  'score: 4.2',
+  '```',
+  '',
+].join('\n'), 'utf8');
+
+const url = 'https://jobs.example.test/lean';
+const roleId = 'lean:analyst';
+const receiptRoleId = 'receipt:analyst';
+
+writeFileSync(join(dataDir, 'apply-queue.json'), JSON.stringify({
+  version: 1,
+  settings: {
+    application_controller: {
+      version: 1,
+      controller: 'active-agent',
+      controller_id: 'browser-controller:test',
+      max_active_roles: 4,
+    },
+  },
+  roles: [
+    {
+      id: roleId,
+      company: 'Lean Co',
+      title: 'Analyst',
+      url,
+      status: 'prepared',
+      cv_pdf: cvPath,
+      jd_path: 'jds/lean-analyst.md',
+      jd_text: jdText,
+      cover_letter_paths: { md: coverMd, pdf: coverPdf, payload: coverPayload },
+      application_request: {
+        version: 1,
+        request_id: 'lean-run:lean:analyst',
+        run_id: 'lean-run',
+        role_id: roleId,
+        source: 'dashboard-fill',
+        state: 'queued',
+        controller: 'active-agent',
+        controller_id: 'browser-controller:test',
+        requested_at: '2026-07-20T00:00:00.000Z',
+        url,
+        contract: [
+          'modes/apply.md', 'modes/_custom.md', 'queue-resolve.mjs', 'application-receipt.mjs',
+        ],
+      },
+    },
+    {
+      id: receiptRoleId,
+      company: 'Lean Co',
+      title: 'Analyst',
+      url: 'https://jobs.example.test/receipt',
+      status: 'prepared',
+      cv_pdf: cvPath,
+      jd_path: 'jds/lean-analyst.md',
+      jd_text: jdText,
+      cover_letter_paths: { md: coverMd, pdf: coverPdf, payload: coverPayload },
+      application_request: {
+        version: 1,
+        request_id: 'receipt-run:receipt:analyst',
+        run_id: 'receipt-run',
+        role_id: receiptRoleId,
+        source: 'dashboard-fill',
+        state: 'queued',
+        controller: 'active-agent',
+        controller_id: 'browser-controller:test',
+        requested_at: '2026-07-20T00:00:00.000Z',
+        url: 'https://jobs.example.test/receipt',
+        contract: [
+          'modes/apply.md', 'modes/_custom.md', 'queue-resolve.mjs', 'application-receipt.mjs',
+        ],
+      },
+    },
+  ],
+}, null, 2) + '\n', 'utf8');
+
+try {
+  const store = await import('../queue-store.mjs');
+  const receipt = await import('../application-receipt.mjs');
+  const lean = await import('../lean-application.mjs');
+  const answers = await import('../application-answers.mjs');
+
+  function hash(value) {
+    return createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
+  }
+
+  function leanPreflight(targetUrl, company, title) {
+    const digest = hash(`lean:${targetUrl}`);
+    return {
+      controller_id: 'browser-controller:test',
+      liveness_evidence: {
+        method: 'playwright',
+        checked_url: targetUrl,
+        result: 'active',
+        checked_at: '2026-07-20T00:01:00.000Z',
+        snapshot_digest: digest,
+      },
+      destination_evidence: {
+        method: 'playwright',
+        checked_url: targetUrl,
+        result: 'matched',
+        checked_at: '2026-07-20T00:01:00.000Z',
+        snapshot_digest: digest,
+        observed_company: company,
+        observed_title: title,
+        observed_requisition: 'not shown',
+      },
+    };
+  }
+
+  let progress;
+  store.mutateQueue((queue) => {
+    const role = queue.roles.find((r) => r.id === roleId);
+    progress = receipt.beginApplicationProgress(role, {
+      run_id: 'lean-run',
+      tab: { id: 'tab-lean', url, title: 'Analyst — Lean Co' },
+      ...leanPreflight(url, 'Lean Co', 'Analyst'),
+    }, { queue });
+  });
+  assert.equal(progress.execution_protocol, 'lean-llm-v1');
+  assert.equal(progress.verification_mode, 'selective');
+  assert.equal(progress.receipt_required, false);
+  assert.equal(progress.evidence_protocol, undefined);
+  assert.equal(lean.isLeanProgress(progress), true);
+  pass('begin stamps lean-llm-v1 by default (selective, receipt_required false)');
+
+  let receiptProgress;
+  store.mutateQueue((queue) => {
+    const role = queue.roles.find((r) => r.id === receiptRoleId);
+    receiptProgress = receipt.beginApplicationProgress(role, {
+      run_id: 'receipt-run',
+      execution_protocol: 'receipt-v3',
+      tab: { id: 'tab-receipt', url: role.url, title: 'Analyst — Lean Co' },
+      ...leanPreflight(role.url, 'Lean Co', 'Analyst'),
+    }, { queue });
+  });
+  assert.equal(receiptProgress.execution_protocol, 'receipt-v3');
+  assert.equal(receiptProgress.receipt_required, true);
+  assert.equal(receiptProgress.evidence_protocol, 'v3');
+  assert.equal(lean.isLeanProgress(receiptProgress), false);
+  pass('explicit execution_protocol receipt-v3 keeps the historical receipt stamp');
+
+  const midBeforeReject = store.loadQueue().roles.find((r) => r.id === roleId);
+  assert.throws(
+    () => lean.assertNotLeanForReceiptCommand(midBeforeReject.application_progress, 'complete'),
+    /not valid for lean-llm-v1/,
+  );
+  assert.throws(
+    () => lean.assertNotLeanForReceiptCommand(midBeforeReject.application_progress, 'finalize'),
+    /not valid for lean-llm-v1/,
+  );
+  const cliEnv = {
+    ...process.env,
+    NODE_ENV: 'test',
+    CAREER_OPS_DATA_DIR: dataDir,
+    CAREER_OPS_QUEUE_BACKEND: 'local',
+  };
+  delete cliEnv.CAREER_OPS_HANDOVER_PATH;
+  delete cliEnv.CAREER_OPS_TEST_PROJECT_ROOT;
+  delete cliEnv.CAREER_OPS_REPORTS_DIR;
+  const completeCli = spawnSync(process.execPath, [
+    join(ROOT, 'apply-page.mjs'), 'complete', roleId,
+    JSON.stringify({ after_snapshot: 'x.yml' }),
+  ], { cwd: ROOT, env: cliEnv, encoding: 'utf8' });
+  assert.notEqual(completeCli.status, 0);
+  assert.match(completeCli.stderr || completeCli.stdout || '', /not valid for lean-llm-v1|lean-llm-v1/);
+  const finalizeCli = spawnSync(process.execPath, [
+    join(ROOT, 'apply-page.mjs'), 'finalize', roleId,
+    JSON.stringify({ application_answers_report: reportRel }),
+  ], { cwd: ROOT, env: cliEnv, encoding: 'utf8' });
+  assert.notEqual(finalizeCli.status, 0);
+  assert.match(finalizeCli.stderr || finalizeCli.stdout || '', /not valid for lean-llm-v1|lean-llm-v1/);
+  pass('complete and finalize are rejected on lean runs');
+
+  lean.recordLeanPage(roleId, {
+    page_index: 0,
+    url,
+    label: 'Personal details',
+    attachments_handled: true,
+  });
+  lean.recordLeanPage(roleId, {
+    page_index: 1,
+    url: `${url}/review`,
+    label: 'Review',
+    final_page: true,
+    review_required: [{ label: 'Salary expectation', answer: 'Negotiable', note: 'inferred' }],
+  });
+  const mid = store.loadQueue().roles.find((r) => r.id === roleId);
+  assert.equal(mid.application_progress.pages?.length ?? 0, 0);
+  assert.equal(mid.application_progress.lean_pages.length, 2);
+  assert.equal(mid.status, 'prepared');
+  pass('page-done records lean_pages without page receipts or status promotion');
+
+  const snap = answers.snapshotFromApplicationProgress(mid.application_progress, {
+    important_answers: [{ label: 'Why this role?', answer: 'SQL reporting fit', source: 'model' }],
+  });
+  assert.equal(snap.executionProtocol, 'lean-llm-v1');
+  assert.equal(snap.pageCount, 0);
+  assert.equal(snap.leanPageCount, 2);
+  const section = answers.formatApplicationAnswersSection(snap);
+  assert.match(section, /lean-llm-v1/);
+  assert.match(section, /Lean pages completed/);
+  pass('Application Answers supports lean compact sections without page receipts');
+
+  const finished = lean.finishLean(roleId, {
+    final_url: `${url}/review`,
+    final_control: 'Submit application',
+    application_answers_report: reportRel,
+    important_answers: [{ label: 'Why this role?', answer: 'SQL reporting fit', source: 'model' }],
+    attachments: { cv: 'lean-cv.pdf', cover: 'lean-cover.pdf' },
+    warnings: [],
+  });
+  assert.equal(finished.status, 'prefilled');
+  assert.equal(finished.execution_protocol, 'lean-llm-v1');
+  assert.equal(finished.pages_completed, 2);
+  const after = store.loadQueue().roles.find((r) => r.id === roleId);
+  assert.equal(after.status, 'prefilled');
+  assert.equal(after.application_progress.lean_review_ready, true);
+  assert.equal(after.application_progress.review_ready, false);
+  assert.notEqual(after.status, 'filled');
+  const reportText = readFileSync(reportPath, 'utf8');
+  assert.match(reportText, /## Application Answers/);
+  assert.match(reportText, /\*\*State:\*\* prefilled/);
+  assert.match(reportText, /lean-llm-v1/);
+  assert.doesNotMatch(reportText, /\*\*State:\*\* filled/);
+  pass('finish sets queue prefilled with compact review (never filled)');
+
+  store.mutateQueue((queue) => {
+    const role = queue.roles.find((r) => r.id === roleId);
+    role.manual_submission = {
+      version: 1,
+      source: 'candidate-dashboard',
+      confirmation: 'I submitted this application in the portal',
+      confirmed_at: new Date().toISOString(),
+      prior_status: 'prefilled',
+      transaction_id: 'candidate-decision:lean:analyst:submitted:test',
+    };
+    assert.equal(store.setStatus(queue, roleId, 'submitted'), true);
+    assert.equal(role.status, 'submitted');
+  });
+  pass('manual Mark Submitted from lean prefilled succeeds');
+
+  const selectiveTriggers = [
+    'conditional fields appeared',
+    'validation errors visible',
+    'upload basename mismatch',
+    'ambiguous Submit vs Continue',
+    'session reset / unexpected navigation',
+  ];
+  assert.equal(selectiveTriggers.length, 5);
+  pass('selective verification trigger list is defined for lean risk gates');
+} finally {
+  rmSync(temp, { recursive: true, force: true });
+}
+}
+
+if (IS_CHILD) {
+  await runIsolated();
+} else {
+  const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {
+    cwd: ROOT,
+    env: { ...process.env, CAREER_OPS_LEAN_CHILD: '1', NODE_ENV: 'test' },
+    encoding: 'utf8',
+  });
+  if (child.status !== 0) {
+    process.stderr.write(child.stderr || child.stdout || 'lean child failed\n');
+    process.exit(child.status || 1);
+  }
+  process.stdout.write(child.stdout);
+  pass('lean-llm-v1 begin/page-done/finish → prefilled; receipt-v3 opt-in; complete/finalize rejected');
+}

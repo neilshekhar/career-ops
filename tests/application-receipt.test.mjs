@@ -74,6 +74,8 @@ function preflight(url, company, title, seed) {
   const snapshotDigest = hash(`${seed}:${url}:${company}:${title}`);
   return {
     controller_id: 'browser-controller:test',
+    // Historical receipt-v3 suite: keep the receipt loop explicitly.
+    execution_protocol: 'receipt-v3',
     // This suite hand-installs synthetic resolver evidence, which v3 runs
     // reject. The inline-test capture escape only works from test entrypoints.
     evidence_capture: 'inline-test',
@@ -829,6 +831,7 @@ try {
   delete v3Preflight.evidence_capture; // production shape: no test escape
   const v3Run = receipt.beginApplicationProgress(v3Role, {
     run_id: 'v3-run', tab: { id: 'v3-tab', url: role.url },
+    execution_protocol: 'receipt-v3',
     ...v3Preflight,
   });
   assert.equal(v3Run.evidence_capture, 'file-derived');

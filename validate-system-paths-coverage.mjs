@@ -49,6 +49,8 @@ const REQUIRED_APPLICATION_SYSTEM_PATHS = [
   'application-receipt.mjs',
   'application-safety.mjs',
   'apply-page.mjs',
+  'lean-application.mjs',
+  'benchmark-lean-application.mjs',
   'credentials-store.mjs',
   'dashboard-launch.mjs',
   'dashboard-server.mjs',

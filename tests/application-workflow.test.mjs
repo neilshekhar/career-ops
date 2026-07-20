@@ -319,12 +319,16 @@ const runPartitionSource = read('run-partition.mjs');
 const dashboardServer = read('dashboard-server.mjs');
 const dashboardClient = read('dashboard/web/app.js');
 
+assert.match(apply, /lean-llm-v1/);
+assert.match(apply, /apply-page\.mjs page-done|Record page-done/i);
 assert.match(apply, /Re-snapshot and complete \(teach \+ verify \+ page receipt\)/);
 assert.match(apply, /"answers":\[\]|answers:\[\]/);
 assert.match(apply, /apply-page\.mjs begin/);
 assert.match(apply, /apply-page\.mjs lookup/);
+assert.match(apply, /apply-page\.mjs finish/);
 assert.match(apply, /apply-page\.mjs complete/);
 assert.match(apply, /apply-page\.mjs finalize/);
+assert.match(apply, /Historical receipt-v3/i);
 assert.match(apply, /upload_controls:\[\{control_id,label,kind,required,multiple,enabled,accepts\}\]/);
 assert.match(apply, /\{control_id,kind,expected,displayed,asset_sha256,verified:true\}/);
 assert.match(apply, /requires a verified CV in every enabled `cv` control/);
