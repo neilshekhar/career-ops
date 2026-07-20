@@ -21,7 +21,7 @@ lock-protected `mutateQueue()` path; never perform an unlocked read-modify-write
 | `cv.md` | ALWAYS — proof points for scoring and drafting |
 | `article-digest.md` | If present — richer proof points |
 | `modes/_custom.md` | If present — standing One-shot, auth, fill-completeness, tab, and review rules |
-| `modes/apply.md` + current `queue-resolve.mjs` + `application-receipt.mjs` | Before any chained live fill — canonical page loop and executable receipt gate |
+| `modes/apply.md` + current `queue-resolve.mjs` + `lean-application.mjs` / `application-receipt.mjs` | Before any chained live fill — canonical lean (default) or receipt-v3 page loop |
 
 ---
 
@@ -383,15 +383,16 @@ EasyGo – Senior Data Analyst – Kick
 
 → Open the dashboard to start application work: node dashboard-server.mjs
    (The dashboard Fill/Run action queues a durable `application_request`; it does
-    not launch a browser or fill the form. The active agent consumes the request,
-    keeps the role `prepared` while completing every live `--lookup` → L3 →
-    `--teach` → rescan → verify page barrier, and only
-    `application-receipt.mjs --finalize` may promote it to `filled`.)
+    not launch a browser or fill the form. The active agent consumes the request
+    through lean-llm-v1 by default: live lookup → L3 → page-done → finish →
+    queue status `prefilled`. Historical receipt-v3 is opt-in only; only
+    `application-receipt.mjs --finalize` / `apply-page.mjs finalize` may promote
+    to review-ready `filled`.)
 ```
 
 For roles that chained through one-shot auto-fill (Step 5), note it in the
 summary line: `⚡ auto-fill: active-agent application request queued — live
-completion and receipts in progress`.
+lean fill in progress (finish → prefilled)`.
 
 ### Step 5 — One-shot auto-fill (`auto-fill` flag / `auto_fill_all` setting)
 
@@ -408,12 +409,13 @@ For each one-shot role, chain straight into the application after marking it
 one durable `application_request` and have the active agent consume it through the
 full live workflow in `modes/apply.md`, regardless of ATS. The dashboard never
 launches Playwright or `form-fill.mjs`; `form-fill.mjs` may emit an offline plan only
-and cannot mutate the browser, queue, or status. The active agent records one durable
-receipt per page and finalizes only at the final pre-submission review boundary.
+and cannot mutate the browser, queue, or status. Default lean-llm-v1 ends at
+`apply-page.mjs finish` → queue status **`prefilled`**. Receipt-v3
+(lookup → complete → finalize → `filled`) is historical / explicit opt-in only.
 
 - **Structured ATS (Greenhouse / Lever / Ashby / …):** use deterministic profile,
   exact, and cached resolutions inside the live per-page resolver loop, then L3 and
-  teach every novel field. Structured metadata does not authorize a separate fill
+  teach reusable novels. Structured metadata does not authorize a separate fill
   browser or status transition.
 - **Custom ATS (`ats: custom`):** use the same active-agent loop; do not wait for the
   candidate to copy, paste, answer, or navigate the form.
@@ -428,49 +430,49 @@ until the final review boundary.
 
 Guarantees unchanged: the asset gate holds because the fill runs strictly
 *after* this PREPARE produced fresh CV + cover assets for the role, and nothing
-is ever submitted by an agent. A new role remains `prepared` throughout live
-filling; only a complete durable page ledger plus final attachment/report validation
-may mark it `filled`. Existing `prefilled` records are legacy non-review-ready
-checkpoints that the active agent may resume, not a state any new dashboard/planner
-path creates. The candidate reviews all receipt-verified open applications together
-and performs each final submission manually.
+is ever submitted by an agent. Default lean runs move `prepared` → **`prefilled`**
+via `apply-page.mjs finish`. Only a complete durable page ledger plus final
+attachment/report validation on an explicit **receipt-v3** run may mark a role
+review-ready `filled`. The candidate reviews lean `prefilled` (or receipt `filled`)
+open applications together and performs each final submission manually.
 
 The dashboard enforces one durable browser-controller lease and at most four
-queued/in-progress application requests. It never overwrites an existing live request or
-requeues `filled`: a valid `filled` receipt is already review-ready, while an invalid
-legacy/corrupt one is archived and returned to `prepared` with
+queued/in-progress application requests. It never overwrites an existing live request.
+Lean `prefilled` Mark Submitted is manual / `--external`. A valid receipt-backed
+`filled` role is already at receipt review; an invalid legacy/corrupt one is archived
+and returned to `prepared` with
 `node application-receipt.mjs --repair-filled <role-id>` before a fresh request.
 
-### Live continuation and receipt barrier (mandatory)
+### Live continuation (lean default; receipt-v3 opt-in)
 
 For every application started from this mode, the active agent must execute the
-current `modes/apply.md` workflow. On each page it extracts every visible field,
-runs `queue-resolve.mjs --lookup`, fills resolved answers, answers every novel
-field with L3, fills those answers, runs `--teach` (including `[]`), rescans
-conditional fields, and verifies values/validation before Next. Record that page
-with `application-receipt.mjs --page`, including the live
-`upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]` manifest
-on every page. Attachment evidence binds an observed `control_id` to the exact
-current-role local asset path, its content SHA-256, and the matching portal-displayed
+current `modes/apply.md` workflow. **Default lean-llm-v1:** on each page extract
+visible fields, run `apply-page.mjs lookup`, fill resolved answers, answer every
+novel field with L3, teach reusable novels only, run `apply-page.mjs page-done`,
+and use selective verification only when risk triggers fire before Next. At the
+final review boundary, persist a compact Application Answers section and run
+`apply-page.mjs finish` → queue status **`prefilled`**. Lean rejects `complete` /
+`finalize`. Never click a final submit.
+
+**Historical receipt-v3** (explicit begin stamp only): per-page lookup → fill →
+teach → `apply-page.mjs complete` / `application-receipt.mjs --page` with
+`upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]`
+(including `[]`), then `application-receipt.mjs --finalize` / `apply-page.mjs finalize`
+→ review-ready `filled`. Attachment evidence binds an observed `control_id` to the
+exact current-role local asset path, its content SHA-256, and the matching portal-displayed
 basename. Every enabled `cv` control must contain the verified CV, and every enabled
 `cover` or `supporting` control must contain the verified tailored cover letter;
 `attachments_not_applicable_reason` is valid only when the complete ledger proves that
-no enabled upload control accepts an attachment. No later page may erase or substitute
-for an earlier receipt. At the final review boundary, persist Application Answers and
-the complete control-bound/hash-bound attachment evidence, then run
-`application-receipt.mjs --finalize`. A failed or
-missing receipt leaves a new role `prepared` (or a resumed legacy role `prefilled`)
-and blocks the dashboard's receipt-mode Submitted
-decision; a stuck non-committed finalization transaction is cleared with
-`application-receipt.mjs --repair-finalization <role-id>` so `--finalize` can be
-retried. The candidate may still record a portal submission they performed
-personally from any active stage: the dashboard's Mark Submitted then stores
-typed-confirmation manual provenance and delegates the tracker write to
-`set-status.mjs --external`. That manual path is candidate-only — no agent may
-trigger it. Candidate intervention is limited to an existing account with no usable
-stored credential, a rejected/stale stored credential, CAPTCHA, email verification,
-OTP/MFA, security questions, password change/recovery, and the combined final
-review/submission.
+no enabled upload control accepts an attachment. A stuck non-committed finalization
+transaction is cleared with `application-receipt.mjs --repair-finalization <role-id>`.
+
+The candidate may still record a portal submission they performed personally from any
+active stage: the dashboard's Mark Submitted then stores typed-confirmation manual
+provenance and delegates the tracker write to `set-status.mjs --external`. That manual
+path is candidate-only — no agent may trigger it. Candidate intervention is limited to
+an existing account with no usable stored credential, a rejected/stale stored credential,
+CAPTCHA, email verification, OTP/MFA, security questions, password change/recovery, and
+the combined final review/submission.
 
 ---
 
@@ -481,7 +483,7 @@ a candidate account. Follow the standing procedure in `modes/apply.md →
 ## Login-gated portals` for the login/registration flow. Account creation and an
 exact-host stored-credential login attempt are agent responsibilities. The active agent
 owns wall detection, login/registration state handling, and all subsequent
-L3/teach/verify pages. Alert
+lean page-done (or receipt-v3 complete) pages. Alert
 the candidate only when an existing account has no usable stored credential or the one
 stored-credential attempt fails; continue other roles and return after they log in.
 Stage new passwords only in memory and persist them only after exact-host acceptance via
@@ -495,18 +497,16 @@ existing exact-host credential is never overwritten.
 
 ## Hard rules (both phases)
 
-- **Never auto-submit.** This mode may write queue/application receipts, generate
+- **Never auto-submit.** This mode may write queue/application progress, generate
   assets, enqueue an `application_request`, and invoke the active-agent apply flow.
   Final application submission stays manual in every path.
 - **Planning is not filling.** `form-fill.mjs` is offline plan-only and may not use a
   browser or mutate queue/status. Dashboard Fill/Run only queues an
-  `application_request`. New live runs remain `prepared`; only
-  `application-receipt.mjs --finalize` after all per-page evidence and final
-  report/attachment checks may set `filled`. `prefilled` is legacy/read-only;
-  dashboard submission remains receipt-gated for review-ready `filled` roles,
-  while any other active role can only record a candidate-attested manual
-  portal submission (typed confirmation, durable manual provenance,
-  `--external` tracker delegation) — never an agent action.
+  `application_request`. Default lean finish sets **`prefilled`**; only
+  `application-receipt.mjs --finalize` / `apply-page.mjs finalize` after all per-page
+  evidence and final report/attachment checks may set review-ready `filled`
+  (receipt-v3 opt-in). Lean `prefilled` Mark Submitted is manual / `--external`;
+  receipt-backed `filled` roles keep receipt-gated Mark Submitted.
 - **Never modify** cv.md, portals.yml, or the locked scoring rules.
 - **Never duplicate** scoring literals from `_profile.md` into this file.
   Always delegate: "as per `modes/_profile.md`" — not "cap at 3.4".
@@ -515,8 +515,8 @@ existing exact-host credential is never overwritten.
 - **Minimum tokens during PREPARE.** Run `queue-resolve.mjs --pre` first and answer
   only its printed `novel` fields; PREPARE must not open/read the live form DOM.
   During an authorized live fill, the opposite is required: follow `modes/apply.md`
-  and extract the current page DOM/options for the per-page `--lookup` → L3 →
-  `--teach` (including `[]`) → verify barrier before Next.
+  and extract the current page DOM/options for the per-page lookup → L3 →
+  page-done (lean) or complete (receipt-v3) barrier before Next.
 - **No `prepared` without drafts.** A role must not be marked `status: "prepared"`
   until `queue-resolve.mjs --pre` has run and `role.drafts` is populated (or the role
   has no `free_text_fields`, or the role is `ats: custom` whose live fields are resolved

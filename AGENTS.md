@@ -404,21 +404,24 @@ Before starting or resuming any live application, the browser controller must it
 read all six current contracts: `modes/_shared.md`, `modes/apply.md`,
 `modes/_custom.md` (when present), `apply-page.mjs`, `queue-resolve.mjs`, and
 `application-receipt.mjs`. A copied excerpt or prior-agent summary is not a substitute.
-Use `apply-page.mjs` as the executable per-page driver (file-derived Evidence Protocol
-v3); `application-receipt.mjs` remains the review-readiness finalizer. These are the
-canonical cross-agent instructions; localized application modes are language wrappers
-only. Every role must have a queue record and stable role ID before the form is filled.
-On every wizard page: Playwright MCP snapshot → `apply-page.mjs lookup` → fill resolved
-→ L3 all novel → fill → re-snapshot → `apply-page.mjs complete` (runs the teach barrier
-including `[]`, machine verification, and page receipt) before Next. Digests, field
-manifests, upload controls (`upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]`,
-including `[]` when none exist), and populated-value checks are derived from snapshot
-files by code — never hand-authored. Attachment evidence is bound to an observed
-`control_id`, the exact current-role local asset path and content SHA-256, and the
-matching portal-displayed basename. Every enabled `cv` control requires the verified CV,
-and every enabled `cover` or `supporting` control requires the verified tailored cover
-letter. `attachments_not_applicable_reason` is valid only when the complete page ledger
-proves that no enabled upload control accepts an attachment.
+Use `apply-page.mjs` as the executable per-page driver (dual-protocol). Default for
+every NEW live `begin` is **`lean-llm-v1`** (`verification_mode: "selective"`,
+`receipt_required: false`); `lean-application.mjs` is the lean lifecycle helper the
+driver wraps. `application-receipt.mjs` remains the review-readiness finalizer for
+opt-in **receipt-v3** only. These are the canonical cross-agent instructions; localized
+application modes are language wrappers only. Every role must have a queue record and
+stable role ID before the form is filled.
+
+**Default lean loop:** after preflight, `apply-page.mjs begin` → on every wizard page
+observe → `apply-page.mjs lookup` → fill resolved → L3 all novel → teach reusable
+novels only → `apply-page.mjs page-done` → selective re-observe only when risk triggers
+fire → Next → … → `apply-page.mjs finish` → queue status **`prefilled`**. Lookup derives
+`upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]` (including
+`[]`) from snapshot files; bind attachments to
+`{control_id,kind,expected,displayed,asset_sha256,verified:true}` (content SHA-256).
+Lean runs reject `complete` / `finalize`. Never click a final application submission
+control. Candidate Mark Submitted for lean `prefilled` is manual / `--external`.
+
 Populate every visible application question; a conservative inference is filled,
 stored role-locally, and flagged for the final combined review rather than left blank.
 Account registration and one exact-host stored-credential login attempt follow the
@@ -428,17 +431,16 @@ dashboard role/request/run/controller/tab and
 `commitAcceptedRegistrationCredentials(host, email, password, acceptanceEvidence)`
 independently revalidates that binding.
 Registration confirmation is permitted, but final
-application submission is never permitted. After preflight, start
-`apply-page.mjs begin`, run `apply-page.mjs complete` before every Next, and run
-`apply-page.mjs finalize` only after the final summary, the complete upload-control ledger,
-control-bound/hash-bound attachment evidence, and
-`## Application Answers` persistence pass. Dashboard Fill/Run actions only enqueue a
+application submission is never permitted. Dashboard Fill/Run actions only enqueue a
 durable `application_request` for the active agent; the dashboard never launches a
 browser or fills a form. `form-fill.mjs` is an offline planning helper only and may not
-touch the browser, queue, or status. New runs stay `prepared` while the active agent
-fills them; only the receipt finalizer may set review-ready `filled`. Existing
-`prefilled` records are legacy non-review-ready checkpoints, not a state any new
-dashboard or planner path may create.
+touch the browser, queue, or status. New lean runs move `prepared` → **`prefilled`** via
+finish. Only the receipt finalizer may set review-ready `filled`.
+
+**Historical / opt-in receipt-v3** (explicit `execution_protocol: "receipt-v3"` on begin):
+`lookup` → `apply-page.mjs complete` (after-snapshot + page receipt) →
+`apply-page.mjs finalize` → review-ready `filled` → receipt Mark Submitted. Do not treat
+this as the default for new begins.
 
 ## Form Fill — Tab Management (CRITICAL)
 

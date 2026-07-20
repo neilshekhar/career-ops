@@ -303,16 +303,16 @@ export function checkInstructionSurface(file, source, { skill = false } = {}) {
     ['queue-resolve.mjs authority', /`queue-resolve\.mjs`/],
     ['application-receipt.mjs authority', /`application-receipt\.mjs`/],
     ['stable role ID precondition', /stable role ID/i],
+    ['lean-llm-v1 default', /lean-llm-v1/],
     ['per-page lookup step', /apply-page\.mjs lookup/],
     ['L3 novel-answer step', /\bL3\b/],
-    ['per-page complete\/teach barrier', /apply-page\.mjs complete[\s\S]{0,120}teach barrier|teach barrier[\s\S]{0,80}including\s+`\[\]`/i],
-    ['empty teach barrier', /including\s+`\[\]`/i],
-    ['verification before Next', /complete[\s\S]{0,160}before Next|verify[\s\S]{0,40}before Next/i],
+    ['lean page-done step', /apply-page\.mjs page-done/],
+    ['lean finish step', /apply-page\.mjs finish/],
+    ['lean prefilled completion', /finish[\s\S]{0,120}`?prefilled`?|`prefilled`[\s\S]{0,80}lean/i],
     ['exact-host auth state machine', /exact-host[^.\n]*(?:registration|login)|(?:registration|login)[^.\n]*exact-host/i],
     ['agent-owned registration', /registration confirmation is permitted/i],
     ['final submission prohibition', /final\s+application\s+submission\s+is\s+never\s+permitted/i],
     ['offline form-fill boundary', /`form-fill\.mjs`[^.\n]*offline planning helper only/i],
-    ['receipt begin\/complete\/finalize barrier', /apply-page\.mjs begin[\s\S]*apply-page\.mjs complete[\s\S]*apply-page\.mjs finalize/],
     ['receipt-only filled promotion', /only the receipt finalizer may set review-ready\s+`filled`/i],
   ]);
 }
@@ -324,15 +324,14 @@ export function checkAutofillOverview(file, source) {
     ['modes\/_custom.md authority', /`modes\/_custom\.md`/],
     ['apply-page.mjs authority', /`apply-page\.mjs`/],
     ['queue-resolve.mjs authority', /`queue-resolve\.mjs`/],
-    ['application-receipt evidence', /receipt finalizer|application-receipt\.mjs/i],
+    ['lean-llm-v1 default', /lean-llm-v1/],
+    ['application-receipt historical', /application-receipt\.mjs|receipt-v3/i],
     ['stable role ID', /stable role ID/i],
     ['per-page lookup', /apply-page\.mjs lookup|`--lookup`/],
     ['L3 completion', /\bL3\b/],
-    ['per-page complete\/teach', /apply-page\.mjs complete|`--teach`/],
-    ['empty teach barrier', /including `(?:answers:)?\[\]`|`"answers":\[\]`/i],
-    ['rendered-state verification', /verify the rendered state|machine-verif/i],
-    ['durable receipt', /\breceipt\b/i],
-    ['combined review boundary', /final combined review/i],
+    ['lean page-done', /apply-page\.mjs page-done|page-done/],
+    ['lean finish', /apply-page\.mjs finish|\bfinish\b[\s\S]{0,40}prefilled/i],
+    ['combined review boundary', /final combined review|compact lean review/i],
     ['candidate-only final submission', /only the candidate clicks the final application submission control/i],
   ]);
 
@@ -791,22 +790,19 @@ export function checkCanonicalApplyMode(file, source) {
   const errors = requirePatterns(file, source, [
     ['single Workflow section', /^## Workflow\s*$/m],
     ['queue role-ID step', /^## Step 3 — Match or create the queue record\s*$/m],
+    ['lean-llm-v1 default', /lean-llm-v1/],
     ['per-page lookup', /apply-page\.mjs lookup/],
     ['L3 completion', /Generate and fill every novel field now \(L3\)/],
-    ['per-page complete barrier', /Re-snapshot and complete \(teach \+ verify \+ page receipt\)/],
-    ['receipt begin', /apply-page\.mjs begin/],
-    ['receipt complete', /apply-page\.mjs complete/],
-    ['receipt finalizer', /apply-page\.mjs finalize/],
+    ['lean page-done barrier', /apply-page\.mjs page-done|Record page-done/i],
+    ['lean begin', /apply-page\.mjs begin/],
+    ['lean finish', /apply-page\.mjs finish/],
+    ['lean prefilled completion', /`prefilled`|queue status prefilled|status\s+`?prefilled`?/i],
     ['stable browser control identity', /`control_id`/],
-    ['lookup snapshot digest binding', /snapshot_digest/],
-    ['browser before/rescan/after evidence', /\(`before`, `rescan`, `after`\)/],
-    ['zero-field final review restriction', /zero-field\s+receipt is rejected on any non-final\/form page/i],
-    ['receipt-derived Application Answers', /application-answers\.mjs[^\n]+--role <role-id>/],
     ['combined review', /^## Step 9 — Present one combined review\s*$/m],
     ['candidate-only submission', /candidate reviews and submits; the agent never clicks a final/i],
     ['non-Playwright draft-only boundary', /Without Playwright[\s\S]{0,360}draft-only checkpoint[\s\S]{0,360}Do not transfer transcription or unfinished live filling/i],
-    ['single complete-manifest receipt per wizard page', /one ordered, de-duplicated `control_id` manifest[\s\S]{0,260}not a[\s\S]{0,80}separate receipt for each viewport/i],
     ['hands-off hidden-employer duplicate handling', /If an agency hides the end employer[\s\S]{0,620}do not stop the batch to ask for[\s\S]{0,80}client name or another authorization/i],
+    ['historical receipt-v3 appendix', /receipt-v3|Historical receipt/i],
   ]);
   const workflowCount = (source.match(/^## Workflow\s*$/gm) || []).length;
   if (workflowCount !== 1) errors.push(issue(file, `expected one canonical Workflow section, found ${workflowCount}`));
@@ -841,7 +837,7 @@ export function checkQueueMode(file, source) {
     ['lock-protected queue mutation contract', /commit each logical change through the[\s\S]{0,120}`mutateQueue\(\)` path/i],
     ['explicit selection after threshold filtering', /threshold only as a dashboard filter\/setting, explicitly select the roles/i],
     ['dashboard request-only boundary', /dashboard Fill\/Run action queues a durable `application_request`/i],
-    ['live receipt finalizer boundary', /application-receipt\.mjs --finalize/],
+    ['lean or receipt finalizer boundary', /apply-page\.mjs finish|application-receipt\.mjs --finalize|lean-llm-v1/i],
   ]);
   for (const [description, pattern] of [
     ['threshold-driven prepare instruction', /set threshold and prepare/i],
@@ -863,7 +859,7 @@ export function checkCustomApplyContract(file, source) {
     ['park-and-continue login behavior', /parked while the controller continues the other roles/i],
     ['one-browser-controller concurrency rule', /one browser-controller owns all live tabs/i],
     ['all-run hands-off duplicate route decision', /Duplicate handling \(all authorized runs\)[\s\S]{0,520}without an intermediate prompt/i],
-    ['executable receipt finalizer', /apply-page\.mjs begin[\s\S]*apply-page\.mjs complete[\s\S]*apply-page\.mjs finalize/],
+    ['lean finish path', /apply-page\.mjs begin[\s\S]*apply-page\.mjs (?:page-done|finish)|lean-llm-v1[\s\S]{0,200}prefilled/i],
     ['receipt-only filled promotion', /only path allowed to promote[\s\S]{0,180}review-ready `filled`/],
   ]);
 }

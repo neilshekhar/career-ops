@@ -189,6 +189,10 @@ After detecting archetype, read `modes/_profile.md` for the user's specific fram
 10. **Include `**URL:**` in every report header.**
 11. **Sponsorship answer:** For forms and application drafts, answer sponsorship questions from `config/profile.yml`. If unchanged, the answer is "No sponsorship required"; never imply citizenship, PR, or clearance.
 
+### Live Application (lean default)
+
+Authorized live fills follow root `modes/apply.md`. Default for every NEW `apply-page.mjs begin` is **`lean-llm-v1`** (`verification_mode: selective`, `receipt_required: false`): observe → `apply-page.mjs lookup` → fill L1/L1.5/L2/L3 → teach reusable novels → `apply-page.mjs page-done` → selective re-observe only on risk → Next → … → `apply-page.mjs finish` → queue status **`prefilled`**. Never click a final submit. Candidate Mark Submitted is manual / `--external` for lean `prefilled`. Historical **receipt-v3** (`complete` / `finalize` → review-ready `filled`) is explicit opt-in only — do not treat the full receipt loop as the default. `apply-page.mjs` remains the agent-facing driver; `lean-application.mjs` is the lean lifecycle helper; `application-receipt.mjs` remains the receipt finalizer. Read the six-file contract before any live action.
+
 ### Tools
 
 | Tool | Use |

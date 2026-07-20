@@ -122,15 +122,20 @@ These come up in nearly every pull — resolve them the same way each time:
    API-cron, form-fill safety, resolver, cron JWT/RLS, dashboard, DOCX, cover
    formats, answer-cache) and drop legacy in-file provider sections — verify each
    dropped provider has a `tests/providers/*.test.mjs` replacement first.
-8. **Evidence Protocol v3.1 (file-derived receipts) is fork-side.** Keep
-   `apply-page.mjs`, `snapshot-extract.mjs`, the six-file contract
-   (`apply-page.mjs` + the prior five), and the
-   `apply-page.mjs lookup` → fill → `complete` (teach+verify+receipt) loop in
-   `modes/apply.md`, `modes/_custom.md`, `AGENTS.md`/`CLAUDE.md`, SKILL.md, and
-   localized wrappers. Do not accept an upstream reintroduction of hand-authored
-   `--lookup`/`--teach`/`--page` envelopes as the live agent-facing path for new
-   runs. Inline `queue-resolve.mjs --lookup/--teach` remains valid only for PREPARE
-   and historical revalidation.
+8. **Lean-llm-v1 is the default live apply protocol (fork-side).** Keep
+   `apply-page.mjs` as the dual-protocol agent-facing driver, `lean-application.mjs`
+   as the lean lifecycle helper, `snapshot-extract.mjs` for receipt-v3 file-derived
+   receipts, and the six-file contract (`modes/_shared.md`, `modes/apply.md`,
+   `modes/_custom.md`, `apply-page.mjs`, `queue-resolve.mjs`,
+   `application-receipt.mjs`). Default for every NEW begin is
+   `execution_protocol: "lean-llm-v1"` / selective verification /
+   `apply-page.mjs page-done` → `apply-page.mjs finish` → queue **`prefilled`**.
+   Reject upstream restoring a mandatory receipt loop (`lookup` → `complete` →
+   `finalize` → `filled`) as the only path for new begins. Historical
+   **receipt-v3** remains explicit opt-in only. Do not accept an upstream
+   reintroduction of hand-authored `--lookup`/`--teach`/`--page` envelopes as the
+   live agent-facing path. Inline `queue-resolve.mjs --lookup/--teach` remains valid
+   only for PREPARE and historical revalidation.
 
 ## Procedure
 

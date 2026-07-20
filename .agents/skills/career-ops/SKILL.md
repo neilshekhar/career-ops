@@ -173,24 +173,22 @@ credential store, resolver teach writes, or receipt ledger.
 Before any live action, the designated controller must itself read current
 `modes/_shared.md`, `modes/apply.md`, `modes/_custom.md` when present,
 `apply-page.mjs`, `queue-resolve.mjs`, and `application-receipt.mjs`; a copied excerpt or
-parent summary is not a substitute. Every live page must run the full
-`apply-page.mjs lookup` → fill resolved → L3 all novel → fill → re-snapshot →
-`apply-page.mjs complete` (teach including `[]` + machine verification + page receipt)
-barrier before Next. Digests and the Playwright-extracted
-`upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]`
-manifest are derived from snapshot files on disk. Attachment evidence binds the observed
-`control_id` to the exact current-role
-local asset path, its content SHA-256, and the matching portal-displayed basename. Every
-enabled `cv` control receives the verified CV; every enabled `cover` or `supporting`
-control receives the verified tailored cover letter. `attachments_not_applicable_reason`
-is valid only when the complete ledger proves no enabled upload control accepts an
-attachment. Account creation and one exact-host stored-credential login attempt belong to
+parent summary is not a substitute. Default for every NEW live begin is **`lean-llm-v1`**:
+`apply-page.mjs lookup` → fill resolved → L3 all novel → teach reusable novels →
+`apply-page.mjs page-done` → selective re-observe only on risk → Next → …
+`apply-page.mjs finish` → queue status **`prefilled`**. Lookup derives
+`upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]` (including
+`[]`); bind attachments with `control_id` + content SHA-256 / `asset_sha256`. Lean rejects
+`complete` / `finalize`. Never click a final application submission control. Mark Submitted
+for lean `prefilled` is manual / `--external`. Historical receipt-v3 (explicit begin stamp)
+uses lookup → complete → finalize → review-ready `filled`. Account creation and one
+exact-host stored-credential login attempt belong to
 the controller; a staged registration password is persisted only after accepted-registration
 evidence v2 is bound to the active dashboard role/request/run/controller/tab with
 `node credentials-store.mjs --bind-registration <role-id> '@acceptance.json'`, then
 validated again by
 `commitAcceptedRegistrationCredentials(host, email, password, acceptanceEvidence)`.
-The binding may precede receipt begin while the request is queued; an in-progress
+The binding may precede begin while the request is queued; an in-progress
 request must also match `application_progress.tab`. A caller-authored digest alone cannot
 persist a password, and an existing exact-host credential is never overwritten.
 The controller fills every question, flags conservative inferences for the combined review,
@@ -219,9 +217,10 @@ regional vocabulary, then load root `modes/apply.md`, `modes/_custom.md` when
 present, `apply-page.mjs`, the current `queue-resolve.mjs` contract, and
 `application-receipt.mjs`.
 The six-file controller read list above remains mandatory. Use
-`apply-page.mjs` for per-page file-derived lookup/complete and
-`application-receipt.mjs` as the only valid
-`prepared` (or legacy `prefilled`) → `filled` promotion. A localized wrapper may not
+`apply-page.mjs` for per-page lean lookup/page-done/finish (default lean-llm-v1 →
+`prefilled`) and keep `application-receipt.mjs` as the only valid
+`prepared` (or legacy/receipt) → review-ready `filled` promotion on explicit receipt-v3.
+A localized wrapper may not
 replace, omit, or reorder queue, auth, resolver/teach, tab, persistence, review, or
 never-submit behavior.
 

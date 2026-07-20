@@ -18,7 +18,8 @@ root mode in its current version:
 Localization may change language and regional terminology only. It may never omit,
 reorder, weaken, or add an exception to a root gate. In particular, API-first
 liveness, source boundaries, atomic numbering, queue persistence, exact-host auth,
-one-browser-controller ownership, per-page lookup/L3/teach/receipt barriers, combined
+one-browser-controller ownership, default lean-llm-v1 lookup/page-done/finish → prefilled
+(with selective verification; receipt-v3 opt-in only), combined
 review, and the ban on final job submission remain unchanged.
 
 ## Source boundary
