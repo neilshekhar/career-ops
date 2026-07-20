@@ -109,6 +109,16 @@ function isText(value) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function allowBlankAnswerLabel(label) {
+  return /\bhoneypot\b/i.test(String(label || ''))
+    || /\b(middle(?:\s+name)?|second name|maiden name|custom pronoun)\b/i.test(String(label || ''));
+}
+
+function isAnsweredField(field) {
+  if (isText(field?.answer)) return true;
+  return field?.answer === '' && allowBlankAnswerLabel(field?.label);
+}
+
 function isTimestamp(value) {
   return isText(value) && Number.isFinite(Date.parse(value));
 }
@@ -756,7 +766,7 @@ function validatePage(page, role, progress, errors) {
     push(isText(field.label), errors, `${name} label is missing`);
     push(isText(field.type), errors, `${name} type is missing`);
     push(typeof field.required === 'boolean', errors, `${name} required flag is invalid`);
-    push(isText(field.answer), errors, `${name} answer is blank`);
+    push(isAnsweredField(field), errors, `${name} answer is blank`);
     push(FIELD_RESOLUTION.has(field.resolution), errors, `${name} resolution is invalid`);
     push(FIELD_PROVENANCE.has(field.provenance), errors, `${name} provenance is invalid`);
     push(typeof field.taught === 'boolean', errors, `${name} taught flag is invalid`);
@@ -783,7 +793,7 @@ function validatePage(page, role, progress, errors) {
         `${name} has an unexpected review note`);
     }
     if (FIELD_RESOLUTION.has(field.resolution)) counts[field.resolution] += 1;
-    if (isText(field.answer)) counts.answered += 1;
+    if (isAnsweredField(field)) counts.answered += 1;
     if (field.resolution === 'novel' && field.taught === true) counts.taught += 1;
     if (FIELD_PROVENANCE.has(field.provenance)) provenance[field.provenance] += 1;
   });

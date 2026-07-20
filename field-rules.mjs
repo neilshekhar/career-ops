@@ -65,22 +65,33 @@ export function matchProfileRule(label, type, profile, role = {}) {
       test: /place of residence|where do you (live|reside)|current (place of )?residence|residential (address|status)|country of residence|which (city|suburb)/,
       value: () => nonEmpty(a.current_residence) || nonEmpty(c.location) },
     { id: 'country',
+      // Do not match "Country code" / dialling-code comboboxes (Oracle HCM phone row).
       test: /^country\b|what country|country you|your country/,
-      value: () => nonEmpty(loc.country) },
+      value: () => nonEmpty(loc.country),
+      guard: () => !/\bcode\b|dial(?:l?ing)?|calling/.test(l) },
     // A criminal-history declaration is NOT the same thing as consenting to a
     // background check. Keep the factual answer ahead of the consent rule.
     { id: 'criminal_history',
       test: /criminal (history|record)|have you (ever )?been convicted|conviction|found guilty|pending criminal|criminal offen[cs]e|police record/,
       value: () => nonEmpty(a.criminal_history) },
-    { id: 'consent_verification',
-      test: /(consent|agree|authori[sz]e|permission|willing).{0,50}(verif|background|police|criminal|right to work|check)|(background|police|criminal|right to work).{0,40}(consent|agree|check)/,
-      value: () => nonEmpty(a.work_rights_consent) },
+    // Short visa-type answers (Oracle HCM "confirm which visa type…") before the
+    // longer work-rights free-text paragraph.
+    { id: 'visa_type',
+      test: /visa type|confirm which visa|which visa (type|are you on)|what visa (type|are you)/,
+      value: () => nonEmpty(loc.visa_form_answer_fulltime) || nonEmpty(loc.visa_form_answer_parttime) || nonEmpty(a.work_rights_freetext),
+      guard: () => type !== 'select' },
     { id: 'work_rights_freetext',
-      test: /work(ing)? rights|right to work|visa status|what visa|which visa|are you (an? )?(australian )?(citizen|permanent resident|pr\b)|immigration status/,
+      test: /work(ing)? rights|right to work|visa status|what visa|which visa|visa type|are you (an? )?(australian )?(citizen|permanent resident|pr\b)|immigration status/,
       value: () => nonEmpty(a.work_rights_freetext),
       // Free text only; the active-agent page loop resolves visa dropdown options
       // against role.visa_answer and the visible option set.
       guard: () => type !== 'select' },
+    { id: 'consent_verification',
+      // Omit bare "permission…check" so visa-type+VEVO wording does not steal
+      // the consent answer. Require an explicit consent/agree/authorise intent.
+      test: /(consent|agree|authori[sz]e|willing).{0,50}(verif|background|police|criminal|right to work|check)|(background|police|criminal|right to work).{0,40}(consent|agree|check)/,
+      value: () => nonEmpty(a.work_rights_consent),
+      guard: () => !/visa type|which visa|what visa|confirm which visa/.test(l) },
 
     // ── Binary screener radios/selects (employer-independent, stable facts) ────
     // Ordered most-specific-first so sponsorship phrasing is never mis-answered

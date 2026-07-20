@@ -64,6 +64,7 @@ import {
 import {
   readSnapshotFile, extractFields, extractUploadControls, extractDisplayedFilenames,
 } from './snapshot-extract.mjs';
+import { formatPhoneWithoutCountryCode } from './format-au.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const RESOLVER_EVIDENCE_VERSION = 1;
@@ -192,17 +193,26 @@ function cleanNovelEvidence(items) {
 }
 
 function cleanTeachEvidence(items) {
-  return items.map((item, index) => ({
-    control_id: requiredText(item.control_id, `--teach.answers[${index}].control_id`),
-    label: requiredText(item.label, `--teach.answers[${index}].label`),
-    type: String(item.type ?? 'textarea').trim() || 'textarea',
-    answer: requiredText(item.answer, `--teach.answers[${index}].answer`),
-    reusable: item.reusable === true && item.review_required !== true,
-    review_required: item.review_required === true,
-    review_note: item.review_required === true
-      ? requiredText(item.review_note, `--teach.answers[${index}].review_note`)
-      : (String(item.review_note ?? '').trim() || null),
-  }));
+  return items.map((item, index) => {
+    const label = String(item.label ?? '');
+    const allowBlankAnswer = /\bhoneypot\b/i.test(label)
+      || /\b(middle(?:\s+name)?|second name|maiden name|custom pronoun)\b/i.test(label);
+    const rawAnswer = String(item.answer ?? '');
+    const answer = allowBlankAnswer && !rawAnswer.trim()
+      ? ''
+      : requiredText(item.answer, `--teach.answers[${index}].answer`);
+    return {
+      control_id: requiredText(item.control_id, `--teach.answers[${index}].control_id`),
+      label: requiredText(item.label, `--teach.answers[${index}].label`),
+      type: String(item.type ?? 'textarea').trim() || 'textarea',
+      answer,
+      reusable: item.reusable === true && item.review_required !== true,
+      review_required: item.review_required === true,
+      review_note: item.review_required === true
+        ? requiredText(item.review_note, `--teach.answers[${index}].review_note`)
+        : (String(item.review_note ?? '').trim() || null),
+    };
+  });
 }
 
 function assertActivePageContext(role, context) {
@@ -407,7 +417,17 @@ export function resolveFields(role, fields, profile, { embedFn = embedSync, cach
     // Text / textarea
     const hit = matchProfileRule(f.label, f.type, profile, role);
     if (hit) {
-      setDraft(f, { answer: hit.value, widget: 'text', source: 'deterministic', rule: hit.rule },
+      let answer = hit.value;
+      // Split phone row (Oracle HCM / SEEK): when a country-code control is on
+      // the same page, fill the national number only — never +61XXXXXXXXX.
+      if (hit.rule === 'phone') {
+        const hasCountryCode = fields.some((other) =>
+          /country\s*code|dial(?:l?ing)?\s*code|calling\s*code/i.test(String(other.label || '')));
+        if (hasCountryCode) {
+          answer = formatPhoneWithoutCountryCode(hit.value, '+61') || hit.value;
+        }
+      }
+      setDraft(f, { answer, widget: 'text', source: 'deterministic', rule: hit.rule },
         { source: 'deterministic', rule: hit.rule });
     } else if (labelCounts.get(lbl) > 1) {
       // Semantic caches are keyed by label meaning, not control identity. A
@@ -725,9 +745,14 @@ export function teachAnswers(roleId, jsonArg, {
     };
   }
 
+  const allowBlankTeachAnswer = (it) =>
+    /\bhoneypot\b/i.test(String(it?.label || ''))
+    || /\b(middle(?:\s+name)?|second name|maiden name|custom pronoun)\b/i.test(String(it?.label || ''));
   const invalidIndex = items.findIndex((it) =>
     !it || typeof it !== 'object' || !String(it.label || '').trim() ||
-    it.answer == null || String(it.answer).trim() === '' || typeof it.reusable !== 'boolean'
+    it.answer == null ||
+    (String(it.answer).trim() === '' && !allowBlankTeachAnswer(it)) ||
+    typeof it.reusable !== 'boolean'
   );
   if (invalidIndex !== -1) {
     throw new Error(`--teach: item ${invalidIndex} requires non-empty label/answer and boolean reusable`);

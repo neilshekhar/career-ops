@@ -502,6 +502,8 @@ export function extractFields(tree) {
       continue;
     }
     if (PASSWORD_RE.test(label)) continue;
+    // Anti-bot traps (Oracle HCM labels these "honeypot") are not candidate fields.
+    if (/\bhoneypot\b/i.test(label)) continue;
 
     if (node.role === 'checkbox') {
       push(label, 'checkbox', {
