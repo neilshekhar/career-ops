@@ -33,7 +33,7 @@ import {
 import { queueDoneStatusFromTracker, parseTrackerDoneRows } from './tracker-status-map.mjs';
 import { parseTrackerRow, resolveColumns } from './tracker-parse.mjs';
 import {
-  partitionRunRoles, isDeepEval, FILLABLE_STATUSES,
+  partitionRunRoles, isDeepEval, FILLABLE_STATUSES, isLeanCompleteRole,
 } from './run-partition.mjs';
 import { applicationQualityConfig, validateApplicationRole } from './verify-userdata.mjs';
 import {
@@ -861,6 +861,12 @@ function apiRun(req, res) {
             else repairRequired.push({ role: structuredClone(role), receiptErrors });
             continue;
           }
+          // A finished lean run sits on `prefilled` but is review-ready, not
+          // resumable. Never re-dispatch it: the candidate owns submission.
+          if (isLeanCompleteRole(role)) {
+            reviewReady.push(structuredClone(role));
+            continue;
+          }
           // Dashboard checkbox selection is the durable PREPARE selection.
           // It never creates a consumable live-application request until fresh
           // role-specific assets and provenance have passed PREPARE.
@@ -927,7 +933,9 @@ function apiRun(req, res) {
     }
     for (const role of dispatch.reviewReady) {
       emitActivity(runId, role.id, 'success', role, {
-        message: 'Durable application receipt is already review-ready; no browser work was launched.',
+        message: isLeanCompleteRole(role)
+          ? 'Lean run already reached its final review boundary; no browser work was launched. Review the open tab, submit it yourself, then Mark Submitted.'
+          : 'Durable application receipt is already review-ready; no browser work was launched.',
       });
     }
     for (const { role, receiptErrors } of dispatch.repairRequired) {
@@ -1192,6 +1200,16 @@ function apiRoleFill(req, res, id) {
         setStatus(freshQueue, freshRole.id, 'prepare-queued');
         return {
           preparationQueued: true,
+          role: structuredClone(freshRole),
+          overrideRecorded,
+        };
+      }
+
+      // A finished lean run is review-ready on `prefilled`; re-filling it would
+      // discard the compact review and risk duplicating a live application.
+      if (isLeanCompleteRole(freshRole)) {
+        return {
+          reviewReady: true,
           role: structuredClone(freshRole),
           overrideRecorded,
         };

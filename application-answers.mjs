@@ -168,6 +168,9 @@ export function snapshotFromApplicationProgress(progress, options = {}) {
     const review = progress.lean_review || {};
     const important = list(options.important_answers ?? review.important_answers);
     const reviewRequired = list(options.review_required ?? review.review_required ?? progress.review_required);
+    const longFormImportant = important.filter(
+      (item) => /textarea|long|essay|cover|why|motivat/i.test(String(item.label ?? item.question ?? '')),
+    );
     return {
       date: options.date || new Date().toISOString().slice(0, 10),
       state: 'prefilled',
@@ -175,10 +178,12 @@ export function snapshotFromApplicationProgress(progress, options = {}) {
       pageCount: 0,
       leanPageCount: pages.length,
       executionProtocol: 'lean-llm-v1',
-      freeText: important.filter((item) => /textarea|long|essay|cover|why|motivat/i.test(String(item.label ?? item.question ?? ''))),
+      freeText: longFormImportant,
       selections: [],
       fieldValues: [
-        ...important.map((item) => ({
+        // Long-form answers already render in the free-text section above;
+        // listing them here too would emit a duplicate label for one answer.
+        ...important.filter((item) => !longFormImportant.includes(item)).map((item) => ({
           question: item.label ?? item.question,
           answer: item.answer,
           provenance: item.source,
@@ -364,9 +369,15 @@ function uniqueSectionMetadata(section, label) {
 }
 
 const FIELD_SECTION_NAMES = new Set([
+  // receipt-v3 section vocabulary
   'free-text answers',
   'selections made',
   'other field values',
+  // lean-llm-v1 compact-review vocabulary (lean-application.mjs writes the same
+  // headings and the same entry metadata keys, so one parser reads both records)
+  'important / screening answers',
+  'selections (if any)',
+  'review-required / other answers',
 ]);
 
 const ENTRY_METADATA_KEYS = new Map([

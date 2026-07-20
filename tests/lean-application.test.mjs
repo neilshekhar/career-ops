@@ -327,6 +327,17 @@ try {
   assert.match(section, /Lean pages completed/);
   pass('Application Answers supports lean compact sections without page receipts');
 
+  // An unparseable widget hard-blocks receipt-v3 finalize. Lean still finishes,
+  // but the candidate must see it in the compact review.
+  store.mutateQueue((queue) => {
+    receipt.recordVerificationFallback(queue.roles.find((r) => r.id === roleId), {
+      reason: 'canvas signature widget could not be machine-verified',
+      control_ids: ['sig-canvas'],
+      url: `${url}/review`,
+      page_index: 1,
+    });
+  });
+
   const finished = lean.finishLean(roleId, {
     final_url: `${url}/review`,
     final_control: 'Submit application',
@@ -349,6 +360,54 @@ try {
   assert.match(reportText, /lean-llm-v1/);
   assert.doesNotMatch(reportText, /\*\*State:\*\* filled/);
   pass('finish sets queue prefilled with compact review (never filled)');
+
+  assert.match(reportText, /Verification fallback recorded on page 1/);
+  assert.match(reportText, /sig-canvas/);
+  assert.deepEqual(
+    after.application_progress.lean_review.warnings.length, 1,
+  );
+  pass('a verification fallback surfaces in the lean review instead of vanishing');
+
+  // The compact review must stay readable by the same exact parser the receipt
+  // path uses — headings and entry metadata share one vocabulary.
+  const parsedLean = answers.parseApplicationAnswersSection(reportText);
+  assert.equal(parsedLean.state, 'prefilled');
+  const leanLabels = parsedLean.entries.map((entry) => entry.label);
+  assert.ok(leanLabels.includes('Why this role?'), `lean entries: ${leanLabels.join(' | ')}`);
+  assert.ok(leanLabels.includes('Salary expectation'), `lean entries: ${leanLabels.join(' | ')}`);
+  assert.equal(
+    parsedLean.entries.find((entry) => entry.label === 'Salary expectation').review_required,
+    true,
+  );
+  pass('lean compact review parses with parseApplicationAnswersSection');
+
+  // A finished lean run is review-ready, not resumable: `prefilled` alone no
+  // longer proves a role is fillable, so begin and the dashboard must refuse it.
+  assert.throws(
+    () => store.mutateQueue((queue) => receipt.beginApplicationProgress(
+      queue.roles.find((r) => r.id === roleId),
+      {
+        tab: { id: 'tab-lean-2', url },
+        controller_id: 'controller-lean',
+        run_id: 'run-lean-2',
+      },
+      { queue },
+    )),
+    /already completed a lean-llm-v1 run|duplicate application/i,
+  );
+  pass('begin refuses to overwrite a finished lean run');
+
+  assert.throws(
+    () => lean.recordLeanPage(roleId, { page_index: 2, url }),
+    /an active application run is required/,
+  );
+  pass('page-done refuses to append to a finished lean run');
+
+  const { partitionRunRoles } = await import('../run-partition.mjs');
+  const leanLanes = partitionRunRoles([after]);
+  assert.equal(leanLanes.agentPath.length, 0);
+  assert.equal(leanLanes.filledCheck.length, 1);
+  pass('dashboard dispatch never re-queues a finished lean run');
 
   store.mutateQueue((queue) => {
     const role = queue.roles.find((r) => r.id === roleId);

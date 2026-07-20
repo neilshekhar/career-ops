@@ -78,7 +78,7 @@ export function recordLeanPage(roleId, payload = {}) {
   return mutateQueue((queue) => {
     const role = roleFromQueue(queue, roleId);
     const progress = role.application_progress;
-    if (!progress || progress.review_ready) {
+    if (!progress || progress.review_ready || progress.lean_review_ready) {
       throw new Error('an active application run is required');
     }
     if (!isLeanProgress(progress)) {
@@ -116,6 +116,25 @@ export function recordLeanPage(roleId, payload = {}) {
   });
 }
 
+/**
+ * Warnings the candidate must see in the compact review. A recorded verification
+ * fallback (an unparseable widget the driver could not verify) hard-blocks
+ * receipt-v3 finalize; lean still finishes at `prefilled`, but the unsupported
+ * controls must never disappear silently from the review record.
+ */
+function leanWarnings(payload, progress) {
+  const supplied = Array.isArray(payload.warnings) ? payload.warnings.map(String) : [];
+  const fallback = progress?.verification_fallback;
+  if (!fallback) return supplied;
+  const controls = Array.isArray(fallback.control_ids) ? fallback.control_ids.join(', ') : '';
+  const note = `Verification fallback recorded on page ${fallback.page_index}: ${fallback.reason}`
+    + (controls ? ` (unsupported controls: ${controls})` : '')
+    + '. Check these controls yourself before submitting.';
+  return supplied.some((item) => item.includes('Verification fallback recorded'))
+    ? supplied
+    : [...supplied, note];
+}
+
 function buildLeanAnswersMarkdown(payload, progress, role) {
   const date = String(payload.date || new Date().toISOString().slice(0, 10));
   const attachments = payload.attachments && typeof payload.attachments === 'object'
@@ -125,7 +144,7 @@ function buildLeanAnswersMarkdown(payload, progress, role) {
   const reviewRequired = Array.isArray(payload.review_required)
     ? payload.review_required
     : (progress.review_required || []);
-  const warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
+  const warnings = leanWarnings(payload, progress);
   const pages = progress.lean_pages || [];
 
   const lines = [
@@ -152,21 +171,24 @@ function buildLeanAnswersMarkdown(payload, progress, role) {
     '### Important / screening answers',
     '',
   ];
+  // Headings and entry metadata keys below are the exact vocabulary
+  // `parseApplicationAnswersSection` accepts — a lean review record must stay
+  // machine-readable by the same parser the receipt path uses.
   if (!important.length) lines.push('- None beyond deterministic profile fills.');
   else {
     for (const [i, item] of important.entries()) {
-      lines.push(`${i + 1}. **${item.label}:** ${item.answer}`);
-      if (item.source) lines.push(`   - Source: ${item.source}`);
+      lines.push(`${i + 1}. **${item.label}:** ${answerCell(item.answer)}`);
+      if (item.source) lines.push(`   - Provenance: ${item.source}`);
     }
   }
-  lines.push('', '### Review-required answers', '');
+  lines.push('', '### Review-required / other answers', '');
   if (!reviewRequired.length) lines.push('- None.');
   else {
     for (const [i, item] of reviewRequired.entries()) {
-      lines.push(`${i + 1}. **${item.label}:** ${item.answer ?? ''}`);
-      if (item.note || item.review_note) {
-        lines.push(`   - Review note: ${item.note || item.review_note}`);
-      }
+      lines.push(`${i + 1}. **${item.label}:** ${answerCell(item.answer)}`);
+      lines.push('   - Review required: yes');
+      const note = item.note || item.review_note;
+      if (note) lines.push(`   - Review note: ${note}`);
     }
   }
   lines.push('', '### Warnings', '');
@@ -174,6 +196,16 @@ function buildLeanAnswersMarkdown(payload, progress, role) {
   else warnings.forEach((w, i) => lines.push(`${i + 1}. ${w}`));
   lines.push('');
   return lines.join('\n');
+}
+
+// `(blank)` is the canonical marker for an intentionally empty answer (honeypot,
+// middle name); an empty cell would make the entry unparseable. Newlines are
+// collapsed because this record is the compact review — a continuation line
+// starting with `- ` would otherwise be read as unknown entry metadata and
+// throw the whole report out of the parser. Full text stays in the live form.
+function answerCell(value) {
+  const text = String(value ?? '').replace(/\r\n/g, '\n').replace(/\s*\n\s*/g, ' ').trim();
+  return text === '' ? '(blank)' : text;
 }
 
 function safeHost(url) {
@@ -240,7 +272,7 @@ export function finishLean(roleId, payload = {}) {
       attachments: payload.attachments || {},
       important_answers: payload.important_answers || [],
       review_required: payload.review_required || progress.review_required || [],
-      warnings: payload.warnings || [],
+      warnings: leanWarnings(payload, progress),
       agent_submitted: false,
       application_answers_report: reportPath,
       finished_at: now,

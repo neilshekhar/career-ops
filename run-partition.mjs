@@ -30,16 +30,39 @@
 export const isDeepEval = (role) => (role.flags || []).includes('deep-eval');
 
 // Statuses accepted by the dashboard's ordinary application-request gate.
-// `prefilled` is a legacy non-review-ready checkpoint; no dashboard path creates it.
+// `prefilled` covers two different things since lean-llm-v1: a legacy incomplete
+// checkpoint (resumable) and a finished lean run awaiting the candidate's own
+// submission (NOT resumable). `isLeanCompleteRole` separates them.
 export const FILLABLE_STATUSES = new Set(['prepared', 'prefilled']);
 
+/**
+ * A lean-llm-v1 run that already reached its final review boundary. It is the
+ * lean equivalent of receipt-backed `filled`: review-ready, candidate-owned, and
+ * never re-fillable. Beginning a new run over it would discard the compact review
+ * and duplicate an application the candidate may already have submitted.
+ *
+ * Kept dependency-free here so the pure dashboard partition, the executable
+ * begin gate, and the HTTP fill gates all read one definition.
+ */
+export function isLeanCompleteRole(role) {
+  const progress = role?.application_progress;
+  if (!progress) return false;
+  if (progress.lean_review_ready !== true) return false;
+  return progress.execution_protocol === 'lean-llm-v1'
+    || (progress.receipt_required === false && progress.execution_protocol !== 'receipt-v3');
+}
+
+const isReviewOwned = (role) => role.status === 'filled' || isLeanCompleteRole(role);
+
 export function partitionRunRoles(roles) {
-  const filledCheck = roles.filter((role) => role.status === 'filled');
+  // `filledCheck` is the "already review-ready, never re-dispatch" lane: a
+  // receipt-backed `filled` row (validated or repaired) or a finished lean run.
+  const filledCheck = roles.filter((role) => isReviewOwned(role));
   const agentPath = roles.filter(
-    (role) => role.status !== 'filled' && FILLABLE_STATUSES.has(role.status),
+    (role) => !isReviewOwned(role) && FILLABLE_STATUSES.has(role.status),
   );
   const notPrepared = roles.filter(
-    (role) => role.status !== 'filled' && !FILLABLE_STATUSES.has(role.status),
+    (role) => !isReviewOwned(role) && !FILLABLE_STATUSES.has(role.status),
   );
   return { agentPath, filledCheck, notPrepared };
 }

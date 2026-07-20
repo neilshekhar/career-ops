@@ -33,6 +33,7 @@ import {
   validateApplicationReceiptIntegrity,
 } from './application-receipt-integrity.mjs';
 import { applicationActionDecision, isFinalApplicationActionLabel } from './application-safety.mjs';
+import { isLeanCompleteRole } from './run-partition.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const TEST_ENTRYPOINT = basename(process.argv[1] || '');
@@ -829,6 +830,18 @@ export function beginApplicationProgress(role, payload = {}, { queue = null } = 
   if (!BEGIN_ALLOWED_STATUSES.has(role.status)) {
     throw new Error(`application receipt may begin only from: ${[...BEGIN_ALLOWED_STATUSES].join(', ')}`);
   }
+  // A finished lean run also lands on `prefilled`, so status alone no longer
+  // proves the role is resumable. Receipt-v3 is protected by `filled` being
+  // outside BEGIN_ALLOWED_STATUSES; lean needs this explicit gate or a second
+  // begin would overwrite the compact review and duplicate a live application.
+  if (isLeanCompleteRole(role)) {
+    throw new Error(
+      'this role already completed a lean-llm-v1 run and is awaiting the candidate\'s own review '
+      + '(queue status prefilled, lean_review_ready). Beginning again would discard the compact '
+      + 'review and risk a duplicate application. Use the dashboard Mark Submitted, or explicitly '
+      + 'reset the role first if the candidate confirms the fill must be redone.',
+    );
+  }
   const tab = payload.tab && typeof payload.tab === 'object' ? payload.tab : {};
   const tabId = requiredText(tab.id ?? tab.tab_id, 'tab.id');
   const requestedControllerId = requiredText(payload.controller_id, 'controller_id');
@@ -1076,7 +1089,7 @@ export function recordPageReceipt(role, payload) {
 // run is active, and never for a page already receipted.
 export function recordVerificationFallback(role, payload = {}) {
   const progress = role?.application_progress;
-  if (!progress || progress.review_ready) {
+  if (!progress || progress.review_ready || progress.lean_review_ready) {
     throw new Error('an active application run is required to record a verification fallback');
   }
   const reason = requiredText(payload.reason, 'fallback reason');
