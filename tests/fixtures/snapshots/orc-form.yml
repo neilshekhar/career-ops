@@ -1,0 +1,43 @@
+- generic [ref=o1]:
+  - navigation "Application Flow Navigation" [ref=o2]:
+    - link "Import profile" [ref=o3] [cursor=pointer]:
+      - /url: "#import"
+    - link "Contact Information" [ref=o4] [cursor=pointer]:
+      - /url: "#contact"
+  - main [ref=o10]:
+    - heading "Big Data & BI Specialist" [level=1] [ref=o11]
+    - generic [ref=o20]:
+      - heading "Contact Information" [level=2] [ref=o21]
+      - generic [ref=o22]:
+        - text: First Name
+        - textbox "First Name" [ref=o23]: Alex
+      - generic [ref=o26]:
+        - text: Last Name
+        - textbox "Last Name" [ref=o27]: Candidate
+      - generic [ref=o30]:
+        - text: Email
+        - textbox "Email" [ref=o31]: alex.candidate@example.com
+      - generic [ref=o34]:
+        - text: Phone Number
+        - textbox "Phone Number" [ref=o35]: "0400 000 000"
+      - generic [ref=o40]:
+        - text: Country
+        - combobox "Country" [ref=o41]:
+          - option "Australia" [selected]
+          - option "New Zealand"
+          - option "United Kingdom"
+      - generic [ref=o44]:
+        - text: State
+        - combobox "State" [ref=o45]:
+          - option "Please select"
+          - option "Victoria" [selected]
+          - option "New South Wales"
+      - generic [ref=o50]:
+        - text: Current Employer
+        - textbox "Current Employer" [ref=o51]
+      - checkbox "I want to receive marketing communications" [ref=o54] [cursor=pointer]
+    - generic [ref=o60]:
+      - button "Save as Draft" [ref=o61] [cursor=pointer]
+      - button "Continue" [ref=o62] [cursor=pointer]
+  - contentinfo [ref=o70]:
+    - text: Powered by Example ATS

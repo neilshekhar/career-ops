@@ -1,0 +1,38 @@
+- generic [ref=v1]:
+  - banner [ref=v2]:
+    - link "State Jobs Portal" [ref=v3] [cursor=pointer]:
+      - /url: https://jobs.example.gov
+    - generic [ref=v4]: Public Sector Job Application Tracking System
+  - generic [ref=v10]:
+    - generic [ref=v11]:
+      - generic [ref=v12]: Diversity/Research Information (De-identified)
+      - generic [ref=v13]:
+        - text: "[Page"
+        - strong [ref=v14]: "2"
+        - text: of 4]
+    - generic [ref=v20]:
+      - 'textbox "Email Address: *" [ref=v21]': alex.candidate@example.com
+      - 'textbox "Street Address: *" [ref=v22]': 1 Example Street
+      - 'textbox "Suburb: *" [ref=v23]': Melbourne
+      - 'textbox "Postcode: *" [ref=v24]': "3000"
+    - generic [ref=v30]:
+      - checkbox "Mailing address is the same as street address" [checked] [ref=v31] [cursor=pointer]
+    - generic [ref=v40]:
+      - generic [ref=v41]: Do you identify as a person with disability?
+      - generic [ref=v42]:
+        - radio "Yes" [ref=v43] [cursor=pointer]
+        - radio "No" [ref=v44] [cursor=pointer]
+        - radio "Prefer not to say" [checked] [ref=v45] [cursor=pointer]
+    - generic [ref=v50]:
+      - generic [ref=v51]: How did you hear about this vacancy?
+      - combobox [ref=v52]:
+        - option "Please select" [selected]
+        - option "Job board"
+        - option "Referral"
+        - option "Other"
+    - generic [ref=v60]:
+      - textbox [ref=v61]
+    - generic [ref=v70]:
+      - button "Previous" [ref=v71] [cursor=pointer]
+      - button "Save and Continue" [ref=v72] [cursor=pointer]
+      - button "Submit Application" [ref=v73] [cursor=pointer]

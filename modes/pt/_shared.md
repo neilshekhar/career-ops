@@ -12,8 +12,8 @@ root mode in its current version:
 
 - evaluation: `modes/oferta.md`
 - pipeline processing: `modes/pipeline.md`
-- live application: `modes/apply.md` plus `queue-resolve.mjs` and
-  `application-receipt.mjs`
+- live application: `modes/apply.md` plus `apply-page.mjs`,
+  `queue-resolve.mjs`, and `application-receipt.mjs`
 
 Localization may change language and regional terminology only. It may never omit,
 reorder, weaken, or add an exception to a root gate. In particular, API-first

@@ -670,7 +670,13 @@ function renderInbox(role) {
       : 'One-shot: PREPARE queues canonical active-agent application work (still never submits)';
   }
 
-  if (role.employment_type === 'ambiguous') {
+  if (role.application_progress?.verification_fallback) {
+    const reason = role.application_progress.verification_fallback.reason || 'manual review required';
+    note.textContent = `⚠ Verification fallback — ${reason}. This run cannot become receipt-gated Filled; review in browser and Mark Submitted only after you submit manually.`;
+  } else if ((role.application_progress?.verification_warnings || []).length) {
+    const n = role.application_progress.verification_warnings.length;
+    note.textContent = `⚠ ${n} verification warning${n === 1 ? '' : 's'} on ordinary fields — review those answers carefully before submitting.`;
+  } else if (role.employment_type === 'ambiguous') {
     note.textContent = '⚠ Employment type is ambiguous — if selected, the agent uses a conservative answer and flags it for final review.';
   } else if (role.eligibility === 'blocked') {
     note.textContent = '⛔ Eligibility blocker — review the warning; if selected, the agent answers truthfully and flags the rejection risk.';

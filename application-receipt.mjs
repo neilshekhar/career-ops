@@ -56,6 +56,13 @@ export const APPLICATION_RECEIPT_VERSION = 2;
 const APPLICATION_FINALIZATION_TRANSACTION_VERSION = 1;
 const RESOLVER_EVIDENCE_VERSION = 1;
 const APPLICATION_REQUEST_VERSION = 1;
+// Evidence-protocol v3: new runs are stamped
+// FILE_DERIVED_CAPTURE at begin, and their page receipts only accept resolver
+// evidence staged from a real snapshot file (queue-resolve stamps it
+// SNAPSHOT_FILE_CAPTURE). Hand-authored envelopes are mechanically rejected on
+// stamped runs; historical stored runs (no stamp) keep validating unchanged.
+const FILE_DERIVED_CAPTURE = 'file-derived';
+const SNAPSHOT_FILE_CAPTURE = 'snapshot-file';
 const MAX_ACTIVE_APPLICATION_REQUESTS = 4;
 const ACTIVE_APPLICATION_REQUEST_STATES = new Set(['queued', 'in-progress']);
 const BEGIN_ALLOWED_STATUSES = new Set(['prepared', 'prefilled']);
@@ -175,6 +182,31 @@ function cleanReviewItems(value) {
 const FIELD_PROVENANCE = new Set(['deterministic', 'learned', 'cache', 'model']);
 const FIELD_RESOLUTION = new Set(['resolved', 'novel']);
 const UPLOAD_CONTROL_KINDS = new Set(['cv', 'cover', 'supporting', 'other']);
+
+// Machine-verification warnings (evidence-protocol v3): fields whose rendered
+// value could not be byte-compared after conservative normalization (custom
+// widgets, reformatted display values). They never silently pass — each one is
+// carried on the page receipt and surfaced in the candidate's combined review.
+function cleanVerificationWarnings(value, fields) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw new Error('verification_warnings must be an array');
+  const known = new Set(fields.map((field) => field.control_id));
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`verification_warnings[${index}] must be an object`);
+    }
+    const controlId = requiredText(item.control_id, `verification_warnings[${index}].control_id`);
+    if (!known.has(controlId)) {
+      throw new Error(`verification_warnings[${index}] references an unreceipted control: ${controlId}`);
+    }
+    return {
+      control_id: controlId,
+      label: requiredText(item.label, `verification_warnings[${index}].label`),
+      reason: requiredText(item.reason, `verification_warnings[${index}].reason`),
+      verified_in_snapshot: false,
+    };
+  });
+}
 
 function cleanUploadControls(value) {
   if (!Array.isArray(value)) {
@@ -807,12 +839,21 @@ export function beginApplicationProgress(role, payload = {}, { queue = null } = 
   const assetQualityEvidence = createApplicationQualityEvidence(role, {
     root: APPLICATION_PROJECT_ROOT,
   });
+  // v3: every production run demands file-derived evidence. The inline-test
+  // escape exists only for the suite's synthetic envelopes and is gated on the
+  // same test-entrypoint check as the path overrides — NODE_ENV alone is not
+  // enough to weaken a live run.
+  const evidenceCapture = payload.evidence_capture === 'inline-test' && TEST_PROJECT_ROOT_ALLOWED
+    ? 'inline-test'
+    : FILE_DERIVED_CAPTURE;
   const progress = {
     version: APPLICATION_RECEIPT_VERSION,
     run_id: runId,
     role_id: role.id,
     application_request_id: request.request_id,
     controller_id: controllerId,
+    evidence_protocol: 'v3',
+    evidence_capture: evidenceCapture,
     company: role.company ?? '',
     title: role.title ?? '',
     tab: {
@@ -930,6 +971,7 @@ export function validatePageReceipt(payload, progress = null, executableEvidence
       }
     }
   }
+  const verificationWarnings = cleanVerificationWarnings(payload.verification_warnings, fields);
 
   return {
     run_id: runId,
@@ -957,6 +999,7 @@ export function validatePageReceipt(payload, progress = null, executableEvidence
     browser_observation: browserObservation,
     provenance_counts: provenanceCounts,
     review_required: reviewRequired,
+    ...(verificationWarnings.length ? { verification_warnings: verificationWarnings } : {}),
     final_page: finalPage,
     lookup_at: resolverEvidence.lookup_completed_at,
     teach_at: resolverEvidence.teach_completed_at,
@@ -973,7 +1016,13 @@ export function recordPageReceipt(role, payload) {
     // payload-inline resolver_evidence blob is caller-authored and never
     // acceptable here. The inline fallback in validatePageReceipt exists only
     // for re-validating already-stored page receipts.
-    throw new Error('executable resolver evidence is missing; run queue-resolve --lookup and --teach for this page');
+    throw new Error('executable resolver evidence is missing; run apply-page.mjs lookup for this page');
+  }
+  if (progress.evidence_capture === FILE_DERIVED_CAPTURE && evidence.capture !== SNAPSHOT_FILE_CAPTURE) {
+    throw new Error(
+      'hand-authored resolver evidence is not accepted on this run; ' +
+      'stage the page from its snapshot file with apply-page.mjs lookup (evidence-protocol v3)',
+    );
   }
   const page = validatePageReceipt(payload, progress, evidence, role);
   if (page.tab_id !== progress.tab.id) throw new Error('page receipt belongs to a different browser tab');
@@ -985,9 +1034,42 @@ export function recordPageReceipt(role, payload) {
   progress.pages = pages.filter((item) => item.page_id !== page.page_id).concat(page)
     .sort((a, b) => a.page_index - b.page_index);
   progress.review_required = progress.pages.flatMap((item) => item.review_required ?? []);
+  progress.verification_warnings = progress.pages.flatMap((item) => (item.verification_warnings ?? [])
+    .map((warning) => ({ page_index: item.page_index, ...warning })));
   delete progress.pending_resolver_evidence;
   progress.updated_at = new Date().toISOString();
   return page;
+}
+
+// ── Verification fallback (evidence-protocol v3, controlled degradation) ─────
+//
+// When a portal widget genuinely cannot be machine-extracted or machine-
+// verified, the driver records a durable fallback block instead of inventing a
+// generic escape hatch: the run keeps its history, but it can never finalize
+// to review-ready `filled` — the role stays in the manual-review path and the
+// dashboard surfaces the reason. Recording a fallback is allowed only while a
+// run is active, and never for a page already receipted.
+export function recordVerificationFallback(role, payload = {}) {
+  const progress = role?.application_progress;
+  if (!progress || progress.review_ready) {
+    throw new Error('an active application run is required to record a verification fallback');
+  }
+  const reason = requiredText(payload.reason, 'fallback reason');
+  const controls = Array.isArray(payload.control_ids) ? payload.control_ids.map(String) : [];
+  if (!controls.length) throw new Error('fallback control_ids must list the unsupported controls');
+  progress.verification_fallback = {
+    version: 1,
+    reason,
+    control_ids: controls,
+    url: requiredText(payload.url, 'fallback url'),
+    page_index: nonNegativeInteger(payload.page_index, 'fallback page_index'),
+    snapshot_digest: payload.snapshot_digest == null
+      ? null
+      : requiredDigest(payload.snapshot_digest, 'fallback snapshot_digest'),
+    recorded_at: new Date().toISOString(),
+  };
+  progress.updated_at = progress.verification_fallback.recorded_at;
+  return structuredClone(progress.verification_fallback);
 }
 
 export function reviewReadinessErrors(role, {
@@ -1041,6 +1123,10 @@ export function reviewReadinessErrors(role, {
   }
   if (!Array.isArray(progress.pages) || !progress.pages.length) errors.push('no page receipts recorded');
   if (progress.pending_resolver_evidence) errors.push('unconsumed resolver evidence remains for the active page');
+  if (progress.verification_fallback) {
+    errors.push('run recorded a verification fallback (' + progress.verification_fallback.reason +
+      ') — manual candidate review is required; this run cannot be review-ready');
+  }
 
   const pages = Array.isArray(progress.pages) ? progress.pages : [];
   if (pages.length) {
@@ -1056,6 +1142,10 @@ export function reviewReadinessErrors(role, {
       try {
         validatePageReceipt(page, progress, page.resolver_evidence, role);
         if (page.tab_id !== progress.tab?.id) errors.push('page ' + page.page_id + ': browser tab does not match the run ledger');
+        if (progress.evidence_capture === FILE_DERIVED_CAPTURE &&
+            page.resolver_evidence?.capture !== SNAPSHOT_FILE_CAPTURE) {
+          errors.push('page ' + page.page_id + ': resolver evidence was not derived from a snapshot file (evidence-protocol v3)');
+        }
       } catch (err) {
         errors.push('page ' + (page.page_id ?? page.page_index) + ': ' + err.message);
       }
@@ -1451,6 +1541,11 @@ function persistHandoverReceipt(role, progress) {
 export function finalizeApplicationProgress(role, payload) {
   const progress = role?.application_progress;
   if (!progress || progress.review_ready) throw new Error('an active application run is required');
+  if (progress.verification_fallback) {
+    throw new Error('this run recorded a verification fallback (' +
+      progress.verification_fallback.reason +
+      '); it cannot become review-ready — the candidate reviews and submits this application manually');
+  }
   if (!FINALIZE_ALLOWED_STATUSES.has(role.status)) {
     throw new Error(`application receipt may finalize only from: ${[...FINALIZE_ALLOWED_STATUSES].join(', ')}`);
   }
@@ -1588,6 +1683,10 @@ export function beginRole(roleId, payload) {
 
 export function recordRolePage(roleId, payload) {
   return mutateQueue((queue) => recordPageReceipt(roleFromQueue(queue, roleId), payload));
+}
+
+export function recordRoleFallback(roleId, payload) {
+  return mutateQueue((queue) => recordVerificationFallback(roleFromQueue(queue, roleId), payload));
 }
 
 function finalizationPayloadDigest(payload) {

@@ -1,0 +1,38 @@
+- generic [ref=h1]:
+  - banner [ref=h2]:
+    - img "Example Transit logo" [ref=h3]
+    - text: You are applying to Data Engineer
+  - main [ref=h10]:
+    - generic [ref=h20]:
+      - text: Mobile number
+      - textbox "Mobile number" [ref=h21]: "+61 400 000 000"
+    - generic [ref=h24]:
+      - text: Home address
+      - combobox "Home address" [ref=h25]:
+        - generic [ref=h26]: 1 Example Street, Melbourne VIC 3000
+    - generic [ref=h30]:
+      - generic [ref=h31]: Have you ever worked at Example Transit?
+      - radiogroup [ref=h32]:
+        - radio "No" [checked] [ref=h33] [cursor=pointer]
+        - radio "I used to" [ref=h34] [cursor=pointer]
+        - radio "I still do" [ref=h35] [cursor=pointer]
+    - generic [ref=h40]:
+      - generic [ref=h41]: Gender Identity
+      - radiogroup [ref=h42]:
+        - radio "Male" [ref=h43] [cursor=pointer]
+        - radio "Female" [ref=h44] [cursor=pointer]
+        - radio "I prefer not to say" [ref=h45] [cursor=pointer]
+    - generic [ref=h50]:
+      - text: Visa type
+      - combobox "Visa type" [ref=h51]:
+        - option "Citizen" [selected]
+        - option "Permanent resident"
+        - option "Temporary visa"
+      - searchbox [ref=h52]
+    - generic [ref=h60]:
+      - generic [ref=h61]: Upload your resume
+      - button "Choose file" [ref=h62] [cursor=pointer]
+    - generic [ref=h70]:
+      - button "Save and continue" [ref=h71] [cursor=pointer]
+  - contentinfo [ref=h80]:
+    - text: Powered by Example Talent

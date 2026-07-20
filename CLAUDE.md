@@ -422,17 +422,19 @@ Verify a posting is still live before applying — using the cheapest check that
 ## Live Application Execution Contract (CRITICAL)
 
 Before starting or resuming any live application, the browser controller must itself
-read all five current contracts: `modes/_shared.md`, `modes/apply.md`,
-`modes/_custom.md` (when present), `queue-resolve.mjs`, and
+read all six current contracts: `modes/_shared.md`, `modes/apply.md`,
+`modes/_custom.md` (when present), `apply-page.mjs`, `queue-resolve.mjs`, and
 `application-receipt.mjs`. A copied excerpt or prior-agent summary is not a substitute.
-Use `application-receipt.mjs` as the executable per-page and review-readiness gate.
-These are the canonical cross-agent instructions; localized application modes are
-language wrappers only. Every role must have a queue record and stable role ID before
-the form is filled. On every wizard page run the complete extract → `--lookup` → fill
-resolved → L3 all novel → fill → `--teach` (including `[]`) → verify loop before Next.
-Each `--page` payload must also carry the Playwright-extracted
-`upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]` manifest,
-including `[]` when none exist. Attachment evidence is bound to an observed
+Use `apply-page.mjs` as the executable per-page driver (file-derived Evidence Protocol
+v3); `application-receipt.mjs` remains the review-readiness finalizer. These are the
+canonical cross-agent instructions; localized application modes are language wrappers
+only. Every role must have a queue record and stable role ID before the form is filled.
+On every wizard page: Playwright MCP snapshot → `apply-page.mjs lookup` → fill resolved
+→ L3 all novel → fill → re-snapshot → `apply-page.mjs complete` (runs the teach barrier
+including `[]`, machine verification, and page receipt) before Next. Digests, field
+manifests, upload controls (`upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]`,
+including `[]` when none exist), and populated-value checks are derived from snapshot
+files by code — never hand-authored. Attachment evidence is bound to an observed
 `control_id`, the exact current-role local asset path and content SHA-256, and the
 matching portal-displayed basename. Every enabled `cv` control requires the verified CV,
 and every enabled `cover` or `supporting` control requires the verified tailored cover
@@ -448,8 +450,8 @@ dashboard role/request/run/controller/tab and
 independently revalidates that binding.
 Registration confirmation is permitted, but final
 application submission is never permitted. After preflight, start
-`application-receipt.mjs --begin`, record `--page` evidence before every Next, and run
-`--finalize` only after the final summary, the complete upload-control ledger,
+`apply-page.mjs begin`, run `apply-page.mjs complete` before every Next, and run
+`apply-page.mjs finalize` only after the final summary, the complete upload-control ledger,
 control-bound/hash-bound attachment evidence, and
 `## Application Answers` persistence pass. Dashboard Fill/Run actions only enqueue a
 durable `application_request` for the active agent; the dashboard never launches a

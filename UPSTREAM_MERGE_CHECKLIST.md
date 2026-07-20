@@ -122,6 +122,15 @@ These come up in nearly every pull — resolve them the same way each time:
    API-cron, form-fill safety, resolver, cron JWT/RLS, dashboard, DOCX, cover
    formats, answer-cache) and drop legacy in-file provider sections — verify each
    dropped provider has a `tests/providers/*.test.mjs` replacement first.
+8. **Evidence Protocol v3.1 (file-derived receipts) is fork-side.** Keep
+   `apply-page.mjs`, `snapshot-extract.mjs`, the six-file contract
+   (`apply-page.mjs` + the prior five), and the
+   `apply-page.mjs lookup` → fill → `complete` (teach+verify+receipt) loop in
+   `modes/apply.md`, `modes/_custom.md`, `AGENTS.md`/`CLAUDE.md`, SKILL.md, and
+   localized wrappers. Do not accept an upstream reintroduction of hand-authored
+   `--lookup`/`--teach`/`--page` envelopes as the live agent-facing path for new
+   runs. Inline `queue-resolve.mjs --lookup/--teach` remains valid only for PREPARE
+   and historical revalidation.
 
 ## Procedure
 

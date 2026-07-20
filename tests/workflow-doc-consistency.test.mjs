@@ -96,6 +96,7 @@ for (const file of [
   'modes/_shared.md',
   'modes/apply.md',
   'modes/_custom.md',
+  'apply-page.mjs',
   'queue-resolve.mjs',
   'application-receipt.mjs',
 ]) {
@@ -105,7 +106,7 @@ assert.match(applyMode, /This protocol applies to every portal/i);
 assert.match(applyMode, /\*\*For every portal and ATS\*\*/i);
 assert.match(applyMode, /Reports provide JD, company, role, scoring, and\s+application-history context; they are never independent evidence for a candidate fact/i);
 assert.match(applyMode, /revalidate it against the current rendered form and the approved\s+candidate sources/i);
-assert.match(applyMode, /upload_controls` array \(including `\[\]` when none exist\)/i);
+assert.match(applyMode, /upload_controls:\[\{control_id,label,kind,required,multiple,enabled,accepts\}\]/i);
 assert.match(applyMode, /\{control_id,kind,expected,displayed,asset_sha256,verified:true\}/i);
 assert.match(applyMode, /requires a verified CV in every enabled `cv` control/i);
 assert.match(applyMode, /verified cover letter in every enabled `cover` or `supporting` control/i);
@@ -233,11 +234,12 @@ for (const file of localizedApplyFiles) {
   assert.match(text, /1\. `modes\/_shared\.md`/, file);
   assert.match(text, /2\. `modes\/apply\.md`/, file);
   assert.match(text, /3\. `modes\/_custom\.md`/, file);
-  assert.match(text, /4\. `queue-resolve\.mjs`/, file);
-  assert.match(text, /5\. `application-receipt\.mjs`/, file);
-  assert.match(text, /five authoritative files above/i, file);
+  assert.match(text, /4\. `apply-page\.mjs`/, file);
+  assert.match(text, /5\. `queue-resolve\.mjs`/, file);
+  assert.match(text, /6\. `application-receipt\.mjs`/, file);
+  assert.match(text, /six authoritative files above/i, file);
 }
-pass('localized apply wrappers point to the same five-file live contract');
+pass('localized apply wrappers point to the same six-file live contract');
 
 assert.match(read('README.fr.md'), /Évalue les offres.*A-G/i);
 assert.match(read('README.fr.md'), /API ATS\/données déterministes d'abord/i);
@@ -261,6 +263,7 @@ for (const file of crossAgentDocs) {
     'modes/_shared.md',
     'modes/apply.md',
     'modes/_custom.md',
+    'apply-page.mjs',
     'queue-resolve.mjs',
     'application-receipt.mjs',
   ]) {
@@ -273,7 +276,7 @@ for (const file of crossAgentDocs) {
   );
   assert.match(text, /control_id[\s\S]{0,220}(?:asset_sha256|SHA-256)/i, `${file}: attachment hash binding`);
 }
-pass('cross-agent instructions name the same five contracts and upload-evidence schema');
+pass('cross-agent instructions name the same six contracts and upload-evidence schema');
 
 const queueMode = read('modes/queue.md');
 assert.match(queueMode, /upload_controls:\[\{control_id,label,kind,required,multiple,enabled,accepts\}\]/);
@@ -286,9 +289,9 @@ pass('queue PREPARE/apply handoff preserves the upload-control receipt requireme
 if (existsSync(join(ROOT, 'handover.md'))) {
   const handover = read('handover.md');
   assert.match(handover, /earlier\s+\*\*1989 passed \/ 0 failed \/ 0 warnings\*\* snapshot is superseded/i);
-  assert.match(handover, /completed root\s+verification gate is \*\*\d+ passed \/ 0 failed \/ 0 warnings\*\*/i);
+  assert.match(handover, /completed root\s+verification gate is \*\*\d+ passed \/ 0 failed \/ \d+ warnings?\*\*/i);
   assert.doesNotMatch(handover, /final unsandboxed gate and resulting count are\s+still pending/i);
-  assert.match(handover, /five current application-contract files/i);
+  assert.match(handover, /six current application-contract files/i);
   const nextSteps = handover.match(/## Next Steps([\s\S]*?)## Open Questions/)?.[1] ?? '';
   assert.doesNotMatch(nextSteps, /0c\.|✅ DONE|All 23 live selected roles/);
   // The guard's intent is that Next Steps states the browser-batch resume

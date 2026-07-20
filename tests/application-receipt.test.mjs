@@ -74,6 +74,9 @@ function preflight(url, company, title, seed) {
   const snapshotDigest = hash(`${seed}:${url}:${company}:${title}`);
   return {
     controller_id: 'browser-controller:test',
+    // This suite hand-installs synthetic resolver evidence, which v3 runs
+    // reject. The inline-test capture escape only works from test entrypoints.
+    evidence_capture: 'inline-test',
     liveness_evidence: {
       method: 'playwright', checked_url: url, result: 'active', snapshot_digest: snapshotDigest,
     },
@@ -815,6 +818,48 @@ try {
     conditional_rescan_completed: true, verified: true, validation_errors: [], final_page: false,
   }), /must be taught/);
   pass('untaught novel answers can never produce a page receipt');
+
+  // ── Evidence-protocol v3 enforcement ───────────────────────────────────────
+  const v3Role = authorize({
+    id: 'v3:role', company: 'Acme', title: 'Analyst', url: role.url, status: 'prepared',
+    cv_pdf: cvPath, jd_text: role.jd_text,
+    cover_letter_paths: structuredClone(role.cover_letter_paths),
+  }, 'v3-run');
+  const v3Preflight = preflight(role.url, 'Acme', 'Analyst', 'v3');
+  delete v3Preflight.evidence_capture; // production shape: no test escape
+  const v3Run = receipt.beginApplicationProgress(v3Role, {
+    run_id: 'v3-run', tab: { id: 'v3-tab', url: role.url },
+    ...v3Preflight,
+  });
+  assert.equal(v3Run.evidence_capture, 'file-derived');
+  assert.equal(v3Run.evidence_protocol, 'v3');
+  const v3EvidenceId = installResolverEvidence(v3Role, {
+    run_id: v3Run.run_id, tab_id: 'v3-tab', page_id: 'v3-final', page_index: 0, url: role.url,
+  }, { fields: [], resolved: [], novel: [], answers: [] });
+  const v3Digest = v3Role.application_progress.pending_resolver_evidence.snapshot_digest;
+  assert.throws(() => receipt.recordPageReceipt(v3Role, {
+    run_id: v3Run.run_id, tab_id: 'v3-tab', page_id: 'v3-final', page_index: 0,
+    url: role.url, resolver_evidence_id: v3EvidenceId, field_count: 0, fields: [],
+    lookup_completed: true, l3_completed: true, teach_completed: true,
+    conditional_rescan_completed: true, verified: true, validation_errors: [], final_page: true,
+    browser_observation: browserObservation(role.url, [], v3Digest, { finalPage: true, pageKind: 'review' }),
+    upload_controls: [],
+  }), /hand-authored resolver evidence is not accepted.*apply-page\.mjs lookup/s);
+  pass('v3 runs mechanically reject hand-authored resolver evidence (file-derived receipts only)');
+
+  const fallbackBlock = receipt.recordVerificationFallback(v3Role, {
+    reason: 'canvas-based custom widget cannot be machine-extracted',
+    control_ids: ['custom:widget:1'],
+    url: role.url,
+    page_index: 0,
+  });
+  assert.equal(fallbackBlock.reason, 'canvas-based custom widget cannot be machine-extracted');
+  assert.throws(() => receipt.finalizeApplicationProgress(v3Role, {
+    run_id: v3Run.run_id, final_url: role.url,
+    application_answers_report: 'reports/does-not-matter.md', validation_errors: [], attachments: [],
+  }), /verification fallback.*cannot become review-ready/s);
+  assert.ok(receipt.reviewReadinessErrors(v3Role).some((err) => /verification fallback/.test(err)));
+  pass('a recorded verification fallback permanently blocks review-ready finalization');
 } finally {
   if (oldReports == null) delete process.env.CAREER_OPS_REPORTS_DIR;
   else process.env.CAREER_OPS_REPORTS_DIR = oldReports;

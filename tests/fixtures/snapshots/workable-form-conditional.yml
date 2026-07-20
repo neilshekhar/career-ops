@@ -1,0 +1,88 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - link "Acme Energy careers" [ref=e3] [cursor=pointer]:
+      - /url: https://apply.example-portal.com/acme-energy/
+    - textbox "Search jobs" [ref=e4]
+  - main [ref=e10]:
+    - heading "Data Cleanse Analyst" [level=1] [ref=e11]
+    - generic [ref=e12]:
+      - heading "Personal information" [level=2] [ref=e13]
+      - generic [ref=e20]:
+        - text: First name *
+        - textbox "First name *" [ref=e21]: Alex
+      - generic [ref=e24]:
+        - text: Last name *
+        - textbox "Last name *" [ref=e25]: Candidate
+      - generic [ref=e28]:
+        - text: Email *
+        - textbox "Email *" [ref=e29]: alex.candidate@example.com
+      - generic [ref=e32]:
+        - text: Phone *
+        - combobox "Phone country" [ref=e33]:
+          - option "Australia (+61)" [selected]
+          - option "New Zealand (+64)"
+        - textbox [ref=e34]: "0400 000 000"
+      - generic [ref=e38]:
+        - text: Address
+        - textbox "Address" [ref=e39]: 1 Example Street, Melbourne VIC 3000
+      - generic [ref=e42]:
+        - text: Summary
+        - textbox "Summary" [ref=e43]: Data analyst with pipeline automation experience across energy retail.
+    - generic [ref=e50]:
+      - heading "Documents" [level=2] [ref=e51]
+      - generic [ref=e52]:
+        - generic [ref=e53]: Resume *
+        - button "Upload a file or drag and drop here" [ref=e54] [cursor=pointer]
+        - generic [ref=e55]: Alex-Candidate-CV.pdf
+      - generic [ref=e58]:
+        - generic [ref=e59]: Cover letter
+        - button "Upload a file or drag and drop here" [ref=e60] [cursor=pointer]
+    - generic [ref=e70]:
+      - heading "Screening questions" [level=2] [ref=e71]
+      - generic [ref=e80]:
+        - generic [ref=e81]:
+          - strong [ref=e82]: "*"
+          - strong [ref=e83]: Are you a current or previous employee?
+        - radiogroup [ref=e84]:
+          - radio "Are you a current or previous employee? Yes, I am a current Acme Energy employee." [ref=e85] [cursor=pointer]:
+            - radio [checked] [ref=e86]
+          - generic [ref=e87] [cursor=pointer]: Yes, I am a current Acme Energy employee.
+          - radio "Are you a current or previous employee? No, I am not a current or previous employee." [ref=e88] [cursor=pointer]:
+            - generic [ref=e89]:
+              - radio [ref=e90]
+          - generic [ref=e91] [cursor=pointer]: No, I am not a current or previous employee.
+      - generic [ref=e92]:
+        - text: Which team did you work in? *
+        - textbox "Which team did you work in? *" [ref=e93]
+      - generic [ref=e94]:
+        - generic [ref=e95]:
+          - strong [ref=e96]: "*"
+          - strong [ref=e97]: Do you have full working rights in Australia?
+        - radiogroup [ref=e98]:
+          - radio "Do you have full working rights in Australia? Yes" [ref=e99] [cursor=pointer]:
+            - radio [ref=e100]
+          - generic [ref=e101] [cursor=pointer]: "Yes"
+          - radio "Do you have full working rights in Australia? No" [ref=e102] [cursor=pointer]:
+            - radio [ref=e103]
+          - generic [ref=e104] [cursor=pointer]: "No"
+      - generic [ref=e110]:
+        - text: Expected annual salary (AUD) *
+        - textbox "Expected annual salary (AUD) *" [ref=e111]
+      - generic [ref=e114]:
+        - text: Notice period
+        - combobox "Notice period" [ref=e115]:
+          - option "Please Select" [selected]
+          - option "Immediately available"
+          - option "2 weeks"
+          - option "4 weeks"
+      - checkbox "I agree to the privacy policy" [ref=e120] [cursor=pointer]
+      - checkbox "Send me job alerts" [checked] [ref=e121] [cursor=pointer]
+      - textbox "Password" [ref=e124]: hunter2-not-real
+      - textbox "Hidden legacy field" [disabled] [ref=e125]
+    - generic [ref=e130]:
+      - button "Back" [ref=e131] [cursor=pointer]
+      - button "Submit application" [ref=e132] [cursor=pointer]
+  - contentinfo [ref=e140]:
+    - link "Privacy" [ref=e141] [cursor=pointer]:
+      - /url: https://apply.example-portal.com/privacy
+    - textbox "Newsletter email" [ref=e142]

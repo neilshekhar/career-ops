@@ -61,9 +61,17 @@ import {
 import {
   loadStore, mutateScreenerStore, lookupScreener, learnScreener,
 } from './screener-store.mjs';
+import {
+  readSnapshotFile, extractFields, extractUploadControls, extractDisplayedFilenames,
+} from './snapshot-extract.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const RESOLVER_EVIDENCE_VERSION = 1;
+// Evidence-protocol v3: resolver evidence
+// staged from a real snapshot file carries this capture marker. It is the only
+// marker the receipt recorder accepts on new runs — hand-authored envelopes
+// cannot produce page receipts anymore.
+export const SNAPSHOT_FILE_CAPTURE = 'snapshot-file';
 
 // PREPARE-time drafts historically used a normalized label as their key. Live
 // pages additionally have a stable control_id, which must participate in the
@@ -486,7 +494,17 @@ function resolveLiveFieldsAndCommit(roleId, fields, profile, context = null) {
   const queue = loadQueue();
   const sourceRole = queue.roles.find((role) => role.id === roleId);
   if (!sourceRole) throw new Error(`role not found: ${roleId}`);
-  if (context) assertActivePageContext(sourceRole, context);
+  if (context) {
+    assertActivePageContext(sourceRole, context);
+    // v3 runs (begin stamps evidence_capture:'file-derived') refuse inline
+    // envelopes up front: the only staging path is a real snapshot file via
+    // apply-page.mjs lookup. Failing here — not at --page time — keeps the
+    // error actionable while the agent is still on the page.
+    if (sourceRole.application_progress?.evidence_capture === 'file-derived' &&
+        context.capture !== SNAPSHOT_FILE_CAPTURE) {
+      throw new Error('this run requires file-derived evidence: use `node apply-page.mjs lookup` with a snapshot file instead of an inline --lookup envelope');
+    }
+  }
   // Validate and canonicalize live controls before resolution can touch even a
   // cache-use counter. PREPARE-time fields intentionally retain their legacy
   // label-only shape.
@@ -544,6 +562,13 @@ function resolveLiveFieldsAndCommit(roleId, fields, profile, context = null) {
         lookup_fingerprint: evidenceHash(lookupCore),
         lookup_completed_at: new Date().toISOString(),
         teach: null,
+        // Capture provenance + machine-extracted manifests live OUTSIDE
+        // lookupCore so historical fingerprints keep validating unchanged.
+        ...(context.capture ? { capture: context.capture } : {}),
+        ...(context.snapshot_path ? { snapshot_path: context.snapshot_path } : {}),
+        ...(context.upload_controls ? { upload_controls: structuredClone(context.upload_controls) } : {}),
+        ...(context.displayed_filenames ? { displayed_filenames: [...context.displayed_filenames] } : {}),
+        ...(context.excluded_controls?.length ? { excluded_controls: [...context.excluded_controls] } : {}),
       };
       progress.pending_resolver_evidence = resolverEvidence;
       progress.updated_at = resolverEvidence.lookup_completed_at;
@@ -585,6 +610,75 @@ function liveResolve(roleId, jsonArg) {
   const profile = loadProfile();
   const envelope = pageEnvelope(jsonArg, '--lookup', 'fields');
   return resolveLiveFieldsAndCommit(roleId, envelope.items, profile, envelope);
+}
+
+// ── Snapshot-file live resolve (evidence-protocol v3) ────────────────────────
+
+/**
+ * Resolve a live wizard page directly from a Playwright MCP snapshot file.
+ * The digest, timestamp, field manifest, and upload-control manifest are all
+ * derived from the file by `snapshot-extract.mjs` — never typed by an agent —
+ * and the staged pending evidence carries `capture: 'snapshot-file'`, which
+ * `application-receipt.mjs` requires before it will record a page receipt on
+ * a new run. `excludeControls` supports the driver's skip flow (re-staging a
+ * page without controls the candidate flow proved non-applicable).
+ */
+export function liveResolveFromSnapshot(roleId, {
+  pageIndex, url, snapshotPath, excludeControls = [],
+}) {
+  const profile = loadProfile();
+  const queue = loadQueue();
+  const role = queue.roles.find((item) => item.id === roleId);
+  if (!role) throw new Error(`role not found: ${roleId}`);
+  const progress = role.application_progress;
+  if (!progress || progress.review_ready) {
+    throw new Error('an active application-receipt run is required before snapshot lookup');
+  }
+
+  const snap = readSnapshotFile(snapshotPath);
+  const excluded = new Set(excludeControls.map(String));
+  const extracted = extractFields(snap.tree);
+  const uploadControls = extractUploadControls(snap.tree);
+  const displayedFilenames = extractDisplayedFilenames(snap.tree);
+  const fields = extracted
+    .filter((field) => !excluded.has(field.control_id))
+    .map((field) => ({
+      control_id: field.control_id,
+      label: field.label,
+      type: field.type,
+      options: field.options,
+      required: field.required,
+      help: null,
+    }));
+
+  const context = {
+    run_id: progress.run_id,
+    tab_id: progress.tab?.id,
+    page_id: `page-${nonNegativeInteger(pageIndex, 'pageIndex')}-${snap.digest.slice(0, 12)}-${randomUUID().slice(0, 8)}`,
+    page_index: nonNegativeInteger(pageIndex, 'pageIndex'),
+    url: requiredText(url, 'url'),
+    snapshot_digest: snap.digest,
+    observed_at: snap.observed_at,
+    evidence_id: null,
+    capture: SNAPSHOT_FILE_CAPTURE,
+    snapshot_path: snap.path,
+    upload_controls: uploadControls,
+    displayed_filenames: displayedFilenames,
+    excluded_controls: [...excluded],
+  };
+
+  const result = resolveLiveFieldsAndCommit(roleId, fields, profile, context);
+  return {
+    ...result,
+    extraction: {
+      snapshot_path: snap.path,
+      snapshot_digest: snap.digest,
+      observed_at: snap.observed_at,
+      fields: extracted,
+      upload_controls: uploadControls,
+      displayed_filenames: displayedFilenames,
+    },
+  };
 }
 
 // ── --teach ───────────────────────────────────────────────────────────────────

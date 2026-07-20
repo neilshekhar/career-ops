@@ -171,7 +171,7 @@ pass('tracker metadata writer cannot lose exact reveal/PDF gates or lifecycle pr
 const validWrapper = `
 # Local apply alias
 > This file is a localization wrapper.
-Read \`modes/apply.md\`, \`modes/_custom.md\`, \`queue-resolve.mjs\`, and
+Read \`modes/apply.md\`, \`modes/_custom.md\`, \`apply-page.mjs\`, \`queue-resolve.mjs\`, and
 \`application-receipt.mjs\`.
 Localization may change language only and must never change workflow behavior.
 `;

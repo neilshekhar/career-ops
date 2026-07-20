@@ -172,11 +172,14 @@ credential store, resolver teach writes, or receipt ledger.
 
 Before any live action, the designated controller must itself read current
 `modes/_shared.md`, `modes/apply.md`, `modes/_custom.md` when present,
-`queue-resolve.mjs`, and `application-receipt.mjs`; a copied excerpt or parent summary is
-not a substitute. Every live page must run the full lookup → fill resolved → L3 all novel
-→ fill → teach (including `[]`) → verify barrier before Next and carry the
-Playwright-extracted `upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]`
-manifest. Attachment evidence binds the observed `control_id` to the exact current-role
+`apply-page.mjs`, `queue-resolve.mjs`, and `application-receipt.mjs`; a copied excerpt or
+parent summary is not a substitute. Every live page must run the full
+`apply-page.mjs lookup` → fill resolved → L3 all novel → fill → re-snapshot →
+`apply-page.mjs complete` (teach including `[]` + machine verification + page receipt)
+barrier before Next. Digests and the Playwright-extracted
+`upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]`
+manifest are derived from snapshot files on disk. Attachment evidence binds the observed
+`control_id` to the exact current-role
 local asset path, its content SHA-256, and the matching portal-displayed basename. Every
 enabled `cv` control receives the verified CV; every enabled `cover` or `supporting`
 control receives the verified tailored cover letter. `attachments_not_applicable_reason`
@@ -187,7 +190,7 @@ evidence v2 is bound to the active dashboard role/request/run/controller/tab wit
 `node credentials-store.mjs --bind-registration <role-id> '@acceptance.json'`, then
 validated again by
 `commitAcceptedRegistrationCredentials(host, email, password, acceptanceEvidence)`.
-The binding may precede receipt `--begin` while the request is queued; an in-progress
+The binding may precede receipt begin while the request is queued; an in-progress
 request must also match `application_progress.tab`. A caller-authored digest alone cannot
 persist a password, and an existing exact-host credential is never overwritten.
 The controller fills every question, flags conservative inferences for the combined review,
@@ -213,9 +216,11 @@ Every localized live-application alias (`takdeem`, `bewerben`, `postuler`,
 `basvuru`, and localized files named `apply`) executes root `modes/apply.md` as
 the single workflow. Load the selected locale's `_shared.md` only for language and
 regional vocabulary, then load root `modes/apply.md`, `modes/_custom.md` when
-present, the current `queue-resolve.mjs` contract, and `application-receipt.mjs`.
-The five-file controller read list above remains mandatory. Use
-`application-receipt.mjs` for the mandatory per-page evidence and the only valid
+present, `apply-page.mjs`, the current `queue-resolve.mjs` contract, and
+`application-receipt.mjs`.
+The six-file controller read list above remains mandatory. Use
+`apply-page.mjs` for per-page file-derived lookup/complete and
+`application-receipt.mjs` as the only valid
 `prepared` (or legacy `prefilled`) → `filled` promotion. A localized wrapper may not
 replace, omit, or reorder queue, auth, resolver/teach, tab, persistence, review, or
 never-submit behavior.

@@ -1268,7 +1268,7 @@ const customApplyMode = existsSync(join(ROOT, 'modes/_custom.md'))
   : null;
 const receiptSource = readFile('application-receipt.mjs');
 if (
-  /upload_controls` array \(including `\[\]` when none exist\)/.test(applyMode) &&
+  /upload_controls:\[\{control_id,label,kind,required,multiple,enabled,accepts\}\]/.test(applyMode) &&
   /\{control_id,kind,expected,displayed,asset_sha256,verified:true\}/.test(applyMode) &&
   /verified CV in every enabled `cv` control/.test(applyMode) &&
   /verified cover letter in every enabled `cover` or `supporting` control/.test(applyMode) &&

@@ -9,15 +9,19 @@ and submission.
 
 ## Required current contracts
 
-Before any live action, the browser controller must itself read all five current files:
+Before any live action, the browser controller must itself read all six current files:
 
 1. `modes/_shared.md`
 2. `modes/apply.md`
 3. `modes/_custom.md` when present
-4. `queue-resolve.mjs`
-5. `application-receipt.mjs`
+4. `apply-page.mjs`
+5. `queue-resolve.mjs`
+6. `application-receipt.mjs`
 
 A copied excerpt, earlier-session reading, or another agent's summary is not a substitute.
+`apply-page.mjs` is the only agent-facing page driver for new runs (Evidence Protocol v3
+file-derived receipts). Digests, manifests, teach, verification, and page receipts are
+derived from Playwright MCP snapshot files on disk — never hand-serialized by the agent.
 
 ## Queue integration
 
@@ -28,8 +32,8 @@ company+title. A queue record and stable role ID are a hard precondition for liv
   `cv_pdf`, `cover_letter_paths`, and `free_text_fields`. Exact current-role drafts may
   resume verbatim. All other fields pass through the per-page resolver loop below.
 - **If no queue record exists:** ingest/create the record first, then resume with its role
-  ID. Never use an untracked legacy/manual fallback because `--lookup`, `--teach`, page
-  checkpoints, and final persistence all require that ID.
+  ID. Never use an untracked legacy/manual fallback because `apply-page.mjs` lookup,
+  complete, page checkpoints, and final persistence all require that ID.
 
 This protocol applies to every portal — SEEK, Indeed, JobAdder, Gem, Workday,
 PulseSoftware, Greenhouse, Lever, Ashby, and any other — including direct browser-tool
@@ -283,20 +287,22 @@ After liveness and destination match are verified and the role has its own prese
 begin the durable run ledger before touching page fields:
 
 ```bash
-node application-receipt.mjs --begin <role-id> '@/tmp/<slug>-run.json'
+node apply-page.mjs begin <role-id> '@/tmp/<slug>-run.json'
 ```
 
 The object must include the dashboard response's exact opaque `controller_id`, identify
 the browser tab (`tab.id`, `tab.url`, `tab.title`), and include
 structured `liveness_evidence` plus `destination_evidence`; bare verification booleans are
-rejected. Each evidence object records `method`, `checked_url`, and `result`. Hash the raw
-`check-liveness.mjs`/ATS response into `evidence_digest`; for Playwright (including non-ATS
-pages), hash the browser snapshot/DOM text into `snapshot_digest`. Destination evidence
-also records `observed_company`, `observed_title`, and `observed_requisition` (use
-`"not shown"` only when the page exposes none). The gate derives liveness/match booleans
-from `result: "active"` and `result: "matched"`. Keep the request's `run_id` and
-`controller_id` with that tab; never reuse either binding for another controller, role,
-or tab. The executable begin gate accepts only a queue
+rejected. Each evidence object records `method`, `checked_url`, and `result`. Prefer
+`evidence_path` / `snapshot_path` file paths when available — the driver hashes those
+files itself. Hash the raw `check-liveness.mjs`/ATS response into `evidence_digest` only
+when a file path is unavailable; for Playwright (including non-ATS pages), pass the
+`.playwright-mcp/page-*.yml` snapshot path so the driver derives `snapshot_digest` and
+`observed_at`. Destination evidence also records `observed_company`, `observed_title`, and
+`observed_requisition` (use `"not shown"` only when the page exposes none). The gate
+derives liveness/match booleans from `result: "active"` and `result: "matched"`. Keep the
+request's `run_id` and `controller_id` with that tab; never reuse either binding for
+another controller, role, or tab. The executable begin gate accepts only a queue
 role already in `prepared` state or a legacy non-review-ready `prefilled` checkpoint being
 resumed **and** a durable queued dashboard `application_request` whose role ID, run ID,
 `active-agent` controller, and `controller_id` match the receipt payload and the queue's
@@ -306,9 +312,11 @@ into `in-progress`; it also executes `verify-userdata.mjs` and binds a hash-boun
 stamp to the exact current candidate sources, JD context, policy, CV, cover assets, and
 file hashes. Successful finalization reruns that quality gate, rejects changed/stale assets,
 and marks the same request `review-ready`. A bare role status, hand-written run ID, stale
-request, or filename-only asset claim cannot authorize browser filling.
+request, or filename-only asset claim cannot authorize browser filling. Every new begin
+stamps the run `evidence_protocol: 'v3'` and `evidence_capture: 'file-derived'` — hand-
+authored lookup envelopes can never produce page receipts on that run.
 
-A `filled` role is never queued back into `--begin`: a valid receipt is already review-ready.
+A `filled` role is never queued back into begin: a valid receipt is already review-ready.
 If an inherited/corrupt `filled` row fails verification, preserve its evidence and run
 `node application-receipt.mjs --repair-filled <role-id>`; this archives the failed ledger,
 returns the role to `prepared`, and allows one fresh dashboard request without overwriting
@@ -340,52 +348,34 @@ its fill begins.
 **For every portal and ATS**, including structured ATSes and custom-portal roles
 (`ats: custom` — SEEK, JobAdder, Gem, Workday, Amazon, Vic Gov, etc.):
 
-Repeat this loop on **every wizard page** as it becomes visible:
+Repeat this loop on **every wizard page** as it becomes visible. Digests, field
+manifests, upload controls, teach, verification, and page receipts are derived by
+`apply-page.mjs` from Playwright MCP snapshot **files** under `.playwright-mcp/` —
+never hand-authored by the agent:
 
-1. **Snapshot and extract.** Take a Playwright MCP browser snapshot, hash its canonical
-   text/DOM representation as SHA-256, and record its capture time. Collect every editable
-   field with a stable DOM-derived identity:
-   `{control_id, label, type, options?, required, help?}`. `control_id` must uniquely and
-   stably identify the control on this rendered page (for example its DOM id/name plus
-   occurrence index); a label alone is not sufficient when controls repeat.
-   - **Include the `options` array** for every ordinary select/radio/checkbox field. Without
-     it, deterministic option-mapping and learned option picks cannot fire. For huge or
-     virtualized selects, do not dump hundreds/thousands of options into model context:
-     query the DOM for a compact exact/prefix match from the profile value, provide a
-     small verified candidate set, and use L3 if needed. A bounded/uncertain selection is
-     `reusable: false` and `review_required: true`.
-   - **Exclude upload/file fields from `fields[]` only** — they do not go through the
-     text/option resolver. Still extract every live upload control from the rendered DOM
-     into the required page-level
-     `upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]`
-     manifest. `kind` is exactly `cv`, `cover`, `supporting`, or `other`; `accepts` is
-     the visible/DOM accept constraint or an empty value (an enabled control with an empty
-     constraint accepts any file type). Use `upload_controls:[]` only when Playwright
-     confirms that this page has no upload control.
-   - **Include** cover-letter and KSC textareas (labels matching
-     `/cover.?letter/i` or `/key.+selection|selection.+criteria|ksc/i`) — the
-     resolver reuses only an exact current-role draft; otherwise it routes them
-     straight to `novel` (never L1/L2/cross-role cache).
+1. **Snapshot.** Take a Playwright MCP browser snapshot. The file lands on disk as
+   `.playwright-mcp/page-*.yml` automatically. Do not inline the accessibility tree,
+   digests, or field manifests into model context for the receipt path.
 
-2. **Run live lookup (Layer 1+2, zero LLM tokens).** Write a page object to the temp
-   file: `{run_id, tab_id, page_id, page_index, url, snapshot_digest, observed_at,
-   fields:[...]}`. `snapshot_digest` is the SHA-256 digest from step 1 and `observed_at`
-   is its ISO timestamp. Then run:
+2. **Lookup (Layer 1+2, zero LLM tokens).** Run:
    ```
-   node queue-resolve.mjs --lookup <role-id> '@/tmp/<slug>-page-N.json'
+   node apply-page.mjs lookup <role-id> '{"page_index":N,"url":"<page-url>","snapshot":".playwright-mcp/page-….yml"}'
    ```
-   This applies deterministic profile rules (Layer 1), the exact-label learned screener
-   store (Layer 1.5), then the semantic answer cache (Layer 2, cosine ≥ 0.85 +
-   `reusable` + entity match). It writes hits into `role.drafts` and prints
-   `{resolved, novel, evidence_id}`. Retain that `evidence_id` for this page only.
+   The driver parses the snapshot file, extracts editable fields and
+   `upload_controls:[{control_id,label,kind,required,multiple,enabled,accepts}]`
+   (including `[]` when none exist), hashes the file for `snapshot_digest`, runs
+   L1/L1.5/L2 via `queue-resolve.mjs`, stages pending evidence with
+   `capture:'snapshot-file'`, and prints compact `{resolved, novel, evidence_id,
+   upload_controls, …}`. Cover-letter and KSC textareas route to `novel` unless an
+   exact current-role draft already exists. Huge/virtualized selects stay bounded —
+   the driver caps options in model-visible output.
 
 3. **Fill resolved fields verbatim.** Each entry in `resolved[]` carries the
-   `answer` text directly — read it from `resolved[i].answer`; no separate
-   `role.drafts` reload is needed. Note provenance inline:
+   `answer` text directly — read it from `resolved[i].answer`. Note provenance inline:
    - `✓ deterministic` — profile rule (name, email, salary, work-rights, etc.)
    - `✓ learned` — exact-label screener store hit (filled silently, no confirmation)
    - `✓ cache 0.91` — semantic cache hit (score shown)
-   - `✓ model` — prior `--teach` answer for this role
+   - `✓ model` — prior teach answer for this role
 
    **All store and cache fills are silent** — first-use or not. Everything is visible
    in the end-of-batch review; no per-field confirmation pause is needed.
@@ -401,66 +391,47 @@ Repeat this loop on **every wizard page** as it becomes visible:
    truthful response it supports, fill it, and attach `review_required: true` plus a short
    `review_note`. There is no "Ask candidate" or blank-field branch during the page loop.
 
-5. **Teach this page before Next — mandatory barrier.** Build the documented `--teach`
-   page object with the same run/tab/page/index/URL/snapshot digest/observation time, the
-   lookup `evidence_id`, and `answers:[...]` containing this page's L3 answers. Every
-   answer repeats the corresponding `control_id`, then run:
-   `node queue-resolve.mjs --teach <role-id> '@/tmp/<slug>-page-N-answers.json'`.
-   Run it with `answers:[]` when there were no novel fields (successful no-op). Never move to a
-   later page with un-taught novel answers. `review_required` always forces
-   `reusable: false` and role-local storage.
+5. **Re-snapshot and complete (teach + verify + page receipt).** Take another Playwright
+   MCP snapshot after filling, then run:
+   ```
+   node apply-page.mjs complete <role-id> '{"after_snapshot":".playwright-mcp/page-….yml","answers":[…],"attachments":[…],"final_page":false}'
+   ```
+   `answers` lists **novel fields only** (`control_id`, `answer`, optional
+   `reusable` / `review_required` / `review_note`). Use `"answers":[]` when lookup
+   reported no novel fields — the teach barrier still runs (successful no-op). The
+   driver: runs the teach barrier against the staged novel set, machine-verifies
+   populated values in the after-snapshot (critical fields hard-fail; ordinary
+   unverifiable widgets become `verification_warnings` with
+   `verified_in_snapshot:false`), builds Playwright observations
+   (`before`, `rescan`, `after`) from the snapshot files (lookup file = before;
+   field-set comparison = rescan; after file = after), hashes attachment assets, and
+   records the page receipt. Never move
+   to a later page without a successful complete. If conditional fields appeared,
+   complete fails with the new control list — re-run lookup on the new snapshot, answer
+   the new questions, and complete again. Direct browser filling is never a substitute:
+   a role is **not review-ready** without file-derived lookup/complete receipts.
 
-6. **Verify and branch.** Re-snapshot after filling, rescan the editable-control manifest,
-   and take a final validation snapshot. Confirm every visible/required question is
-   populated, the intended option is visibly selected, file chips show the current role's
-   assets, and inline validation is clear. Re-extract the upload-control manifest after
-   conditional rendering and keep each stable `control_id` bound to its label, kind,
-   required/multiple/enabled state, and accepted types. For every displayed upload, record
-   attachment evidence as
-   `{control_id,kind,expected,displayed,asset_sha256,verified:true}`. `expected` is the
-   exact current-role local asset path, `displayed` is the portal-rendered filename, their
-   basenames must match, and `asset_sha256` is the SHA-256 of that exact validated role
-   asset's contents. If filling caused new editable inputs to appear,
-   repeat steps 1–5 for the complete stable control set on the same page. Record three
-   Playwright observations (`before`, `rescan`, `after`), each with URL, snapshot digest,
-   ISO capture time, and the exact ordered `field_manifest`. The `after` observation also
-   records an ordered `populated_manifest` of `{control_id, answer_digest}` (SHA-256 of the
-   exact filled answer) and `validation_errors: []`.
-
-7. **Record the page receipt.** Run `application-receipt.mjs --page` before any navigation.
-   Its payload contains the same `run_id` and `tab_id`, the resolver `evidence_id` as
-   `resolver_evidence_id`, zero-based `page_index`, current URL, `final_page: false`,
-   the Playwright-extracted `upload_controls` array (including `[]` when none exist),
-   control-bound/hash-bound `attachments`, the structured `browser_observation`, and one
-   `fields[]` entry for every extracted question. Each attachment must reference a
-   `control_id` observed on this or an earlier receipted page; each field records its
-   `control_id`, label/type/required flag, exact filled
-   answer, `resolution` (`resolved` or `novel`), provenance (`deterministic`, `learned`,
-   `cache`, or `model`), whether it was taught, and any review flag/note. Set the lookup,
-   L3/no-novel, teach, conditional-rescan, and verification booleans true only after those
-   operations actually completed. Those booleans are not proof: the receipt consumes the
-   matching executable lookup/teach evidence from the queue and requires Playwright MCP
-   `before`/`rescan`/`after` manifests. The lookup snapshot and timestamp must equal the
-   `before` observation; every manifest/control and populated answer hash must match the
-   receipt. It rejects missing answers, untaught novel fields, validation errors,
-   upload-control identity drift, attachments without an observed `control_id`, attachment
-   content-hash mismatches, mismatched evidence, or a different tab.
-
-8. **Advance the page.** Click a navigation button matching
+6. **Advance the page.** Click a navigation button matching
    `Continue | Next | Save and continue | Save & continue | Review | Proceed | Next step | Next page`
    to move forward. **Never click a final-submit button** (Submit / Submit application /
    Send application / Confirm and submit / Apply now / Submit my application / Submit now,
    or an equivalent final control). Stop when the page shows a review/summary (entered data
    echoed, no further editable inputs visible).
 
-**Embed unavailable:** if the embedding endpoint is down, `--lookup` returns all
+**Embed unavailable:** if the embedding endpoint is down, lookup returns all
 non-deterministic fields as novel — the apply continues normally; L3 answers them inside
 the current page loop.
 
 **Pre-resolved drafts from `--pre`:** if `--pre` ran at prepare-time, `role.drafts`
-may already contain fields. `--lookup` validates and reuses exact current-role drafts when
+may already contain fields. Lookup validates and reuses exact current-role drafts when
 they still match the live options; stale option picks fall through for re-resolution.
 Drafts for fields not present on the live form are silently ignored.
+
+**Unsupported widgets:** if a control genuinely cannot be machine-extracted or
+machine-verified, record
+`node apply-page.mjs fallback <role-id> '{"reason":"…","control_ids":[…],"url":"…","page_index":N}'`.
+That run can never become review-ready `filled` — the candidate reviews and submits
+manually. Do not invent a generic escape hatch.
 
 ## Work authorization and sponsorship
 
@@ -542,17 +513,15 @@ Notes:
 - [Personalization suggestions the candidate should review]
 ```
 
-Treat the summary as the last contiguous receipt page. Run lookup and teach with the
-same documented page-object envelopes, using `fields:[]` and then `answers:[]` plus the
-returned `evidence_id`; verify the echoed values and attachments, then record a zero-field
-`application-receipt.mjs --page` payload with `final_page: true`. Its Playwright observation
-must use `page_kind: "review"`, contain exact empty before/rescan/after manifests, and record
-the visible final control as `submit_boundary: {present:true, control_id, label}`. A zero-field
+Treat the summary as the last contiguous receipt page. Snapshot it, then run
+`apply-page.mjs lookup` (expecting no editable fields) and
+`apply-page.mjs complete` with `"answers":[]`, `"final_page":true`, and the complete
+verified attachment ledger (or `attachments_not_applicable_reason` when the ledger
+proves none). The driver records the zero-field review page with
+`page_kind: "review"` and the observed `submit_boundary`. A zero-field
 receipt is rejected on any non-final/form page. Exactly one final page is allowed, and it
-must be the last page index for that run. The payload still includes the current page's
-Playwright-extracted `upload_controls` array (often `[]`) plus the complete verified
-attachment ledger; attachment `control_id` values may refer to upload controls observed
-on earlier receipted pages.
+must be the last page index for that run. Attachment `control_id` values may refer to
+upload controls observed on earlier receipted pages.
 
 ## Step 8 — Persist application snapshot
 
@@ -580,16 +549,16 @@ node application-answers.mjs --report reports/NNN-company-role-date.md --role <r
 Then finalize the executable gate:
 
 ```bash
-node application-receipt.mjs --finalize <role-id> '@/tmp/<slug>-final.json'
+node apply-page.mjs finalize <role-id> '{"application_answers_report":"reports/NNN-….md","attachments":[…]}'
 ```
 
-The final payload supplies the same `run_id`, exact final-page URL, the report path,
-`validation_errors: []`, and the complete control-bound attachment entries
-`{control_id,kind,expected,displayed,asset_sha256,verified:true}` (or a truthful
+The driver builds the full finalize payload (same `run_id`, exact final-page URL,
+`validation_errors: []`, control-bound attachment entries
+`{control_id,kind,expected,displayed,asset_sha256,verified:true}` — or a truthful
 `attachments_not_applicable_reason` only when the complete page ledger proves that no
-enabled upload control accepts an attachment). `expected` is the exact current-role local
-asset path; `displayed` is the portal-visible basename/filename, and the two basenames
-must match.
+enabled upload control accepts an attachment) and calls the receipt finalizer.
+`expected` is the exact current-role local asset path; `displayed` is the portal-visible
+basename/filename, and the two basenames must match.
 Finalization combines the `upload_controls` manifests from every receipted page, verifies
 that each attachment points to an observed control and the current role asset's content
 hash, requires a verified CV in every enabled `cv` control, and requires the role's
@@ -598,9 +567,11 @@ verified cover letter in every enabled `cover` or `supporting` control. An enabl
 `reports/`, is in `State: prefilled`, contains every recorded field label and answer, and
 that each displayed attachment matches an existing `cv_pdf`/`cover_letter_paths` asset for
 the role. It reruns the full source/asset quality validator and requires the result to match
-the hash-bound quality evidence created at receipt begin. After the other checks and handover receipt pass, the finalizer itself atomically
-changes the report to `State: filled`. Only this command may promote a new `prepared` run,
-or an existing legacy `prefilled` checkpoint, to review-ready `filled`.
+the hash-bound quality evidence created at receipt begin. A run carrying a verification
+fallback block cannot finalize. After the other checks and handover receipt pass, the
+finalizer itself atomically changes the report to `State: filled`. Only this command may
+promote a new `prepared` run, or an existing legacy `prefilled` checkpoint, to
+review-ready `filled`.
 
 ## Step 9 — Present one combined review
 
@@ -632,7 +603,8 @@ If the candidate confirms that they submitted the application:
 If the form has more questions than the visible ones:
 - Scroll the live page/container automatically and aggregate every exposed control into
   one ordered, de-duplicated `control_id` manifest for the complete wizard page. Run one
-  resolver/teach/verification receipt cycle against that complete stable manifest—not a
+  `apply-page.mjs` lookup/complete (teach + verification) receipt cycle against that
+  complete stable manifest—not a
   separate receipt for each viewport. If filling reveals conditional controls, rebuild
   the complete manifest and rerun the page cycle before recording its sole receipt.
 - If browser automation is unavailable and only screenshots/text are possible, process
