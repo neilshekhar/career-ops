@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.21.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.20.2...career-ops-v1.21.0) (2026-07-22)
+
+
+### Features
+
+* **apply:** lean-llm-v1 lifecycle ending at prefilled ([0ecc7e8](https://github.com/neilshekhar/career-ops/commit/0ecc7e82a8337f0daf2e5fd77563bcb917d8a6bf))
+* **dashboard:** lean prefilled review and Mark Submitted copy ([07f7be8](https://github.com/neilshekhar/career-ops/commit/07f7be823e2050a58b8bd4a8002a9cf301a9a212))
+
+
+### Bug Fixes
+
+* **apply:** a finished lean run is review-ready, not re-fillable ([1ef3cf5](https://github.com/neilshekhar/career-ops/commit/1ef3cf51508efbc14f579e6cd555cfe4bfac8509))
+* **apply:** derive live receipts from Playwright snapshot files ([8e950da](https://github.com/neilshekhar/career-ops/commit/8e950da23ed5dd26a120ef465e09fd279b4300d7))
+* **apply:** gate lean page-done/finish on untaught novel fields ([d4580be](https://github.com/neilshekhar/career-ops/commit/d4580be2ceeb09cb84197f5cf2775f81edd725be))
+* **pdf:** restore cover-letter 11.5pt/1.55 body typography ([42c90e9](https://github.com/neilshekhar/career-ops/commit/42c90e9997739bc893102c9496c2842c4d248129))
+* **resolve:** Oracle phone, visa-type, blank teach, and honeypot skips ([3a927e5](https://github.com/neilshekhar/career-ops/commit/3a927e5ad4646d37c0fda5e4f09f271914204006))
+* **tracker:** match Mark Submitted job URL to eval report **URL:** ([acf0ad9](https://github.com/neilshekhar/career-ops/commit/acf0ad9701f282b143d839cb2b8cdd6f9e80ec00))
+
 ## [1.20.2](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.20.1...career-ops-v1.20.2) (2026-07-18)
 
 
