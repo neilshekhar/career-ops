@@ -33,6 +33,34 @@ export function isLeanProgress(progress) {
       && progress?.execution_protocol !== EXECUTION_PROTOCOL_RECEIPT);
 }
 
+/**
+ * Teach barrier for lean terminal writers.
+ *
+ * receipt-v3's `complete` (completeCommand) structurally cannot skip teaching —
+ * it invokes liveTeach itself when evidence.teach is unset. Lean has no such
+ * auto-teach, so an agent can silently reach a terminal command (page-done or
+ * finish) without ever deciding whether a novel answer was worth caching. Gate
+ * on the CURRENT pending lookup evidence: any novel field that was never taught
+ * (reusable:true or reusable:false, decided per field) blocks the command.
+ *
+ * A page with no novel fields (pure uploads, fully resolved) has an empty
+ * `novel` array and is never gated. A successful `queue-resolve.mjs --teach`
+ * — including an explicit no-op teach — seals `pending.teach`, which clears the
+ * gate. Each `--lookup` overwrites `pending_resolver_evidence` and resets
+ * `teach` to null, so the gate always keys off the most recent observation
+ * (re-observe on a risk trigger, accordion expansion, etc.), never a stale one.
+ */
+export function assertLeanTeachBarrier(progress, command) {
+  const pending = progress?.pending_resolver_evidence;
+  if (pending && Array.isArray(pending.novel) && pending.novel.length > 0 && !pending.teach) {
+    throw new Error(
+      'page has untaught novel field(s); run queue-resolve.mjs --teach for this page '
+      + '(reusable:true or reusable:false, decided per field) before apply-page.mjs '
+      + command,
+    );
+  }
+}
+
 export function isReceiptProgress(progress) {
   return progress?.execution_protocol === EXECUTION_PROTOCOL_RECEIPT
     || progress?.receipt_required === true
@@ -86,6 +114,7 @@ export function recordLeanPage(roleId, payload = {}) {
         'recordLeanPage is only valid for lean-llm-v1 runs; use apply-page complete for receipt-v3',
       );
     }
+    assertLeanTeachBarrier(progress, 'page-done');
     const pageIndex = Number(payload.page_index);
     if (!Number.isInteger(pageIndex) || pageIndex < 0) {
       throw new Error('page_index must be a non-negative integer');
@@ -249,6 +278,12 @@ export function finishLean(roleId, payload = {}) {
     if (!isLeanProgress(progress)) {
       throw new Error('finishLean is only valid for lean-llm-v1 runs');
     }
+    // Close the page-done bypass: an agent can lookup → fill → finish on the
+    // final page without ever calling page-done, which would let untaught novel
+    // fields slip through the same gap page-done now guards. Gate finish on the
+    // current pending evidence before writing the compact review or promoting
+    // the queue to prefilled.
+    assertLeanTeachBarrier(progress, 'finish');
     if (!Array.isArray(progress.lean_pages) || progress.lean_pages.length === 0) {
       throw new Error('lean finish requires at least one recorded lean page');
     }

@@ -316,6 +316,79 @@ try {
   assert.equal(mid.status, 'prepared');
   pass('page-done records lean_pages without page receipts or status promotion');
 
+  // ── Teach-barrier gate: untaught novel fields block the lean terminal ──────
+  // writers (page-done AND finish). receipt-v3's `complete` auto-teaches, so it
+  // structurally can't skip; lean must enforce the decision explicitly.
+  function setPending(novel, teach) {
+    store.mutateQueue((queue) => {
+      const role = queue.roles.find((r) => r.id === roleId);
+      role.application_progress.pending_resolver_evidence = {
+        evidence_id: 'ev-gate', run_id: 'lean-run', page_index: 0, novel, teach,
+      };
+    });
+  }
+  function clearPending() {
+    store.mutateQueue((queue) => {
+      const role = queue.roles.find((r) => r.id === roleId);
+      delete role.application_progress.pending_resolver_evidence;
+    });
+  }
+
+  // (a) A page whose lookup surfaced novel fields but was never taught blocks
+  //     BOTH page-done and finish.
+  setPending([{ control_id: 'q1', label: 'Why do you want to work here?' }], null);
+  assert.throws(
+    () => lean.recordLeanPage(roleId, { page_index: 2, url, label: 'Screening' }),
+    /untaught novel field/i,
+  );
+  assert.throws(
+    () => lean.finishLean(roleId, {
+      final_url: `${url}/review`,
+      final_control: 'Submit application',
+      application_answers_report: reportRel,
+    }),
+    /untaught novel field/i,
+  );
+  // The blocked finish must not have written the report or promoted the queue.
+  const blocked = store.loadQueue().roles.find((r) => r.id === roleId);
+  assert.equal(blocked.status, 'prepared');
+  assert.notEqual(blocked.application_progress.lean_review_ready, true);
+  pass('untaught novel field blocks both page-done and finish (no report / no promotion)');
+
+  // (b) Once the page has been taught (pending.teach sealed) page-done proceeds.
+  //     A page whose novels all turned out non-reusable still carries a sealed
+  //     teach — the gate demands the decision, not that anything be cached.
+  setPending(
+    [{ control_id: 'q1', label: 'Why do you want to work here?' }],
+    { noop: false, completed_at: '2026-07-20T00:02:00.000Z' },
+  );
+  const taughtEntry = lean.recordLeanPage(roleId, { page_index: 2, url, label: 'Screening' });
+  assert.equal(taughtEntry.page_index, 2);
+  pass('page-done proceeds once the page has been taught');
+
+  // (c) A page with zero novel fields (pure uploads / fully L1-L2 resolved) is
+  //     never gated, even with teach still null.
+  setPending([], null);
+  const noNovelEntry = lean.recordLeanPage(roleId, { page_index: 3, url, label: 'Uploads' });
+  assert.equal(noNovelEntry.page_index, 3);
+  pass('page-done is not gated when the page had no novel fields');
+
+  // (d) A no-op teach seal (empty novel + sealed teach) also clears the gate,
+  //     mirroring a `queue-resolve.mjs --teach` no-op barrier.
+  setPending([], { noop: true, completed_at: '2026-07-20T00:03:00.000Z' });
+  const noopEntry = lean.recordLeanPage(roleId, { page_index: 4, url, label: 'Consent' });
+  assert.equal(noopEntry.page_index, 4);
+  pass('page-done accepts a no-op teach seal');
+
+  // Restore the pristine (no pending, pages 0-1 only) state so the real finish
+  // flow below still asserts exactly two completed pages.
+  clearPending();
+  store.mutateQueue((queue) => {
+    const role = queue.roles.find((r) => r.id === roleId);
+    role.application_progress.lean_pages = role.application_progress.lean_pages
+      .filter((p) => p.page_index < 2);
+  });
+
   const snap = answers.snapshotFromApplicationProgress(mid.application_progress, {
     important_answers: [{ label: 'Why this role?', answer: 'SQL reporting fit', source: 'model' }],
   });
