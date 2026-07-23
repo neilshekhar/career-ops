@@ -84,6 +84,15 @@ assert(
 );
 pass('credential generation remains policy-aware and persistence remains acceptance-gated');
 
+assert(
+  checkCredentialRuntime(
+    'credentials-store.mjs',
+    credentialRuntime.replaceAll('portal_host: exactHost', 'portal_host: key'),
+  ).some((item) => item.message.includes('distinguish the exact host')),
+  'guard must reject commit metadata that labels a tenant-qualified credential key as a portal host',
+);
+pass('credential commit metadata distinguishes the exact host from the tenant-qualified key');
+
 const applicationSafety = readFileSync(join(ROOT, 'application-safety.mjs'), 'utf8');
 assert.deepEqual(checkApplicationSafetyRuntime('application-safety.mjs', applicationSafety), []);
 assert(
@@ -332,6 +341,8 @@ assert(
   ).some((item) => item.message.includes('fallback job URL')),
   'guard must reject dashboard tracker writes that always force fallback job URLs through --report',
 );
+pass('dashboard tracker writes do not force fallback job URLs through exact report matching');
+
 assert(
   checkDashboardRuntime(
     'dashboard-server.mjs',

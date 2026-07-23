@@ -196,10 +196,11 @@ try {
     evidence,
   );
   assert.deepEqual(Object.keys(committed).sort(), [
-    'accepted_at', 'committed', 'created_at', 'portal_host', 'updated_at',
+    'accepted_at', 'committed', 'created_at', 'portal_host', 'portal_key', 'updated_at',
   ]);
   assert.equal(committed.committed, true);
   assert.equal(committed.portal_host, host);
+  assert.equal(committed.portal_key, host);
   assert.equal(Object.prototype.hasOwnProperty.call(committed, 'password'), false);
 
   const stored = JSON.parse(readFileSync(storePath, 'utf8'));
@@ -215,6 +216,8 @@ try {
 
   const idempotent = credentials.upsertCredentials(host, email, password, evidence);
   assert.equal(idempotent.committed, true);
+  assert.equal(idempotent.portal_host, host);
+  assert.equal(idempotent.portal_key, host);
   const replacement = credentials.generatePassword({ rejectedPasswords: [password] });
   assert.throws(
     () => credentials.upsertCredentials(host, email, replacement, evidence),
@@ -341,8 +344,10 @@ try {
   assert.equal(tenantStore[`${tenantHost}?company=tenanta`].password, passwordA);
   assert.equal(tenantStore[`${tenantHost}?company=tenantb`].password, passwordB);
   assert.equal(Object.prototype.hasOwnProperty.call(tenantStore, tenantHost), false);
-  assert.equal(committedTenantA.portal_host, `${tenantHost}?company=tenanta`);
-  assert.equal(committedTenantB.portal_host, `${tenantHost}?company=tenantb`);
+  assert.equal(committedTenantA.portal_host, tenantHost);
+  assert.equal(committedTenantB.portal_host, tenantHost);
+  assert.equal(committedTenantA.portal_key, `${tenantHost}?company=tenanta`);
+  assert.equal(committedTenantB.portal_key, `${tenantHost}?company=tenantb`);
   pass('two tenants on one host commit to distinct keys derived from the registration URL');
 
   assert.equal(

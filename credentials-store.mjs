@@ -995,7 +995,8 @@ export function commitAcceptedRegistrationCredentials(
           existing.registration_evidence_sha256 === evidenceSha256) {
         return {
           committed: true,
-          portal_host: key,
+          portal_host: exactHost,
+          portal_key: key,
           accepted_at: accepted.accepted_at,
           created_at: existing.created_at,
           updated_at: existing.updated_at,
@@ -1017,7 +1018,8 @@ export function commitAcceptedRegistrationCredentials(
     saveStore(store);
     return {
       committed: true,
-      portal_host: key,
+      portal_host: exactHost,
+      portal_key: key,
       accepted_at: accepted.accepted_at,
       created_at: store[key].created_at,
       updated_at: now,
@@ -1029,8 +1031,8 @@ export function commitAcceptedRegistrationCredentials(
  * One-time maintenance move: re-key an existing stored credential (e.g. a
  * bare-host entry that turns out to belong to one tenant of a multi-tenant
  * host) to its correct key. Never overwrites an existing destination entry
- * and never touches the stored password value. Secret-free: does not read or
- * print the password.
+ * and never changes the stored password value. Its result is secret-safe: it
+ * does not return or print the password.
  */
 export function rekeyPortalCredential(oldKey, newKey) {
   const fromKey = normalizePortalKey(oldKey);

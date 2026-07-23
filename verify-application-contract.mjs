@@ -990,6 +990,12 @@ export function checkCredentialRuntime(file, source) {
         'credentials can persist before exact-host registration acceptance is validated',
       ));
     }
+    if (!/portal_host:\s*exactHost/.test(commit) || !/portal_key:\s*key/.test(commit)) {
+      errors.push(issue(
+        file,
+        'credential commit metadata does not distinguish the exact host from the tenant-qualified portal key',
+      ));
+    }
   }
   const validateEvidence = functionBody(source, 'validateAcceptedRegistrationEvidence');
   if (!validateEvidence) {
