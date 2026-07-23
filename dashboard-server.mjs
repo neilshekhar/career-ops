@@ -158,9 +158,16 @@ function writeTrackerTsv(role, decision, { receiptId = null, manualSubmission = 
   const args = [
     'set-status.mjs', role.company, status,
     '--role', role.title,
-    '--report', reportTarget,
     '--json',
   ];
+  // --report reliably matches when the application lifecycle has persisted its
+  // own Application Answers report. The role.url fallback can legitimately
+  // diverge from an earlier evaluation report's URL header and stall a
+  // skip/review/manual-submit decision. --receipt requires --report, so always
+  // pair those even during a retry.
+  if (receiptId || role.application_progress?.application_answers_report) {
+    args.push('--report', reportTarget);
+  }
   if (notes) args.push('--note', notes);
   if (receiptId) args.push('--receipt', receiptId);
   // Candidate manual submissions have no finalized receipt to verify; the

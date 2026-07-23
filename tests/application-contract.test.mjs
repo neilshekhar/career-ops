@@ -287,7 +287,11 @@ function writeTrackerTsv(role, decision, { receiptId = null, manualSubmission = 
   const status = 'Applied';
   const stagedStatus = decision === 'submitted' ? 'Evaluated' : status;
   const tsv = [role.company, role.title, stagedStatus, score];
-  const args = ['set-status.mjs', role.company, 'Applied', '--report', role.report, '--receipt', receiptId];
+  const args = ['set-status.mjs', role.company, 'Applied'];
+  if (receiptId || role.application_progress?.application_answers_report) {
+    args.push('--report', reportTarget);
+  }
+  if (receiptId) args.push('--receipt', receiptId);
   if (manualSubmission) args.push('--external');
   return execFileSync(process.execPath, args);
 }
@@ -318,6 +322,16 @@ function apiRoleDecision() {
 }
 `;
 assert.deepEqual(checkDashboardRuntime('dashboard-server.mjs', safeDashboard), []);
+assert(
+  checkDashboardRuntime(
+    'dashboard-server.mjs',
+    safeDashboard.replace(
+      'if (receiptId || role.application_progress?.application_answers_report)',
+      'if (true)',
+    ),
+  ).some((item) => item.message.includes('fallback job URL')),
+  'guard must reject dashboard tracker writes that always force fallback job URLs through --report',
+);
 assert(
   checkDashboardRuntime(
     'dashboard-server.mjs',

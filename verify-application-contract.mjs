@@ -464,6 +464,14 @@ export function checkDashboardRuntime(file, source) {
     ]) {
       if (!pattern.test(trackerWriter)) errors.push(issue(file, `tracker decision writer is missing ${description}`));
     }
+    if (!source.includes(
+      'if (receiptId || role.application_progress?.application_answers_report)',
+    ) || !trackerWriter.includes("args.push('--report', reportTarget)")) {
+      errors.push(issue(
+        file,
+        'tracker decision writer uses a fallback job URL as exact report disambiguation',
+      ));
+    }
     if (/Non-fatal: the TSV|tracker write-back failed|console\.warn\([^\n]*tracker/i.test(trackerWriter)) {
       errors.push(issue(file, 'tracker decision failure is treated as non-fatal'));
     }
