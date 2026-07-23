@@ -239,6 +239,238 @@ try {
     /active receipt run\/tab/,
   );
   pass('post-begin validation is additionally bound to application_progress tab evidence');
+
+  // ── Multi-tenant host keying (career10.successfactors.com-style ATS) ──────
+  const tenantHost = 'career10.successfactors.com';
+  const makeTenantRole = (roleId, tenant, tabIdSuffix) => {
+    const runId = `apply-tenant-${tabIdSuffix}`;
+    const tabIdLocal = `tab-tenant-${tabIdSuffix}`;
+    const requestIdLocal = `${runId}:${roleId}`;
+    const registrationUrl = `https://${tenantHost}/career?company=${tenant}`;
+    const roleObj = {
+      id: roleId,
+      company: tenant,
+      title: 'Analyst',
+      url: registrationUrl,
+      status: 'prepared',
+      application_request: {
+        version: 1,
+        request_id: requestIdLocal,
+        run_id: runId,
+        role_id: roleId,
+        source: 'dashboard-fill',
+        state: 'queued',
+        controller: 'active-agent',
+        controller_id: controllerId,
+        requested_at: '2026-07-16T02:59:00.000Z',
+        url: registrationUrl,
+        contract: [
+          'modes/apply.md', 'modes/_custom.md', 'queue-resolve.mjs',
+          'application-receipt.mjs',
+        ],
+      },
+    };
+    const evidenceLocal = {
+      version: credentials.REGISTRATION_ACCEPTANCE_EVIDENCE_VERSION,
+      classification: 'registration-accepted',
+      result: 'accepted',
+      portal_host: tenantHost,
+      registration_url: registrationUrl,
+      account_email: email,
+      account_created: true,
+      application_submission_detected: false,
+      role_id: roleId,
+      application_request_id: requestIdLocal,
+      run_id: runId,
+      controller_id: controllerId,
+      tab_id: tabIdLocal,
+      observation_source: 'playwright-mcp',
+      acceptance_signal: 'authenticated',
+      accepted_at: '2026-07-16T03:00:00.000Z',
+      snapshot_digest: 'b'.repeat(64),
+      registration_control_id: 'create-account',
+    };
+    return { roleObj, evidenceLocal, requestIdLocal, tabIdLocal };
+  };
+
+  const tenantA = makeTenantRole('tenant:analyst-a', 'tenanta', 'a');
+  const tenantB = makeTenantRole('tenant:analyst-b', 'tenantb', 'b');
+  const tenantQueue = {
+    version: 1,
+    settings: {
+      application_controller: {
+        version: 1,
+        controller: 'active-agent',
+        controller_id: controllerId,
+        max_active_roles: 4,
+        created_at: '2026-07-16T02:58:00.000Z',
+        updated_at: '2026-07-16T02:59:00.000Z',
+      },
+    },
+    roles: [tenantA.roleObj, tenantB.roleObj],
+  };
+  writeFileSync(queuePath, `${JSON.stringify(tenantQueue, null, 2)}\n`);
+
+  for (const { roleObj, evidenceLocal } of [tenantA, tenantB]) {
+    writeFileSync(evidencePath, `${JSON.stringify(evidenceLocal, null, 2)}\n`);
+    execFileSync(
+      process.execPath,
+      [
+        join(ROOT, 'credentials-store.mjs'),
+        '--bind-registration',
+        roleObj.id,
+        `@${evidencePath}`,
+      ],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, CAREER_OPS_DATA_DIR: dataPath, CAREER_OPS_QUEUE_BACKEND: 'local' },
+      },
+    );
+  }
+
+  const passwordA = credentials.generatePassword();
+  const passwordB = credentials.generatePassword({ rejectedPasswords: [passwordA] });
+  const committedTenantA = credentials.commitAcceptedRegistrationCredentials(
+    tenantHost, email, passwordA, tenantA.evidenceLocal,
+  );
+  const committedTenantB = credentials.commitAcceptedRegistrationCredentials(
+    tenantHost, email, passwordB, tenantB.evidenceLocal,
+  );
+
+  const tenantStore = JSON.parse(readFileSync(storePath, 'utf8'));
+  assert.equal(tenantStore[`${tenantHost}?company=tenanta`].password, passwordA);
+  assert.equal(tenantStore[`${tenantHost}?company=tenantb`].password, passwordB);
+  assert.equal(Object.prototype.hasOwnProperty.call(tenantStore, tenantHost), false);
+  assert.equal(committedTenantA.portal_host, `${tenantHost}?company=tenanta`);
+  assert.equal(committedTenantB.portal_host, `${tenantHost}?company=tenantb`);
+  pass('two tenants on one host commit to distinct keys derived from the registration URL');
+
+  assert.equal(
+    credentials.getCredentials(tenantHost, tenantA.evidenceLocal.registration_url).password,
+    passwordA,
+  );
+  assert.equal(
+    credentials.getCredentials(tenantHost, tenantB.evidenceLocal.registration_url).password,
+    passwordB,
+  );
+  assert.equal(credentials.getCredentials(tenantHost), null);
+  assert.throws(
+    () => credentials.getCredentials(tenantHost, `https://${tenantHost}/career`),
+    /missing its company tenant parameter/,
+  );
+  pass('tenant-qualified lookups never fall back to a bare-host entry');
+
+  assert.throws(
+    () => credentials.derivePortalKey(tenantHost, `https://other.test/career?company=tenanta`),
+    /does not match the exact portal host/,
+  );
+  pass('portal key derivation rejects a URL host that does not match the exact host');
+
+  // Only ATS families with grounded shared-host URL shapes receive a tenant
+  // qualifier. A generic company= filter on an unrelated site stays bare-host
+  // keyed, avoiding a false credential split.
+  assert.equal(
+    credentials.derivePortalKey(
+      'jobs.example.test',
+      'https://jobs.example.test/search?company=tenant-a',
+    ),
+    'jobs.example.test',
+  );
+  assert.equal(
+    credentials.derivePortalKey(
+      'jobs.smartrecruiters.com',
+      'https://jobs.smartrecruiters.com/acme/search?company=division-a',
+    ),
+    'jobs.smartrecruiters.com',
+  );
+  pass('unrecognized company query parameters do not split a bare-host credential realm');
+
+  assert.equal(
+    credentials.derivePortalKey(
+      'secure.dc2.pageuppeople.com',
+      'https://secure.dc2.pageuppeople.com/apply/311/applicationForm/',
+    ),
+    'secure.dc2.pageuppeople.com?client=311',
+  );
+  assert.equal(
+    credentials.derivePortalKey(
+      'sjobs.brassring.com',
+      'https://sjobs.brassring.com/TGnewUI/Search/Home/Home?siteid=6106&partnerid=16030',
+    ),
+    'sjobs.brassring.com?partnerid=16030&siteid=6106',
+  );
+  assert.equal(
+    credentials.derivePortalKey(
+      'workforcenow.adp.com',
+      'https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?ccId=1&cid=b0e24f83-6e4d-492d-9d6a-bc0fea197d6a',
+    ),
+    'workforcenow.adp.com?cid=b0e24f83-6e4d-492d-9d6a-bc0fea197d6a',
+  );
+  assert.equal(
+    credentials.derivePortalKey(
+      'jobs.dayforcehcm.com',
+      'https://jobs.dayforcehcm.com/en-US/odc/CANDIDATEPORTAL/profile',
+    ),
+    'jobs.dayforcehcm.com?client=odc&site=CANDIDATEPORTAL',
+  );
+  assert.equal(
+    credentials.derivePortalKey(
+      'www.dayforcehcm.com',
+      'https://www.dayforcehcm.com/CandidatePortal/en-US/thechronicle',
+    ),
+    'www.dayforcehcm.com?client=thechronicle',
+  );
+  assert.equal(
+    credentials.derivePortalKey(
+      'recruiting.ultipro.com',
+      'https://recruiting.ultipro.com/MAR1036MBCI/JobBoard/board-id/OpportunityDetail',
+    ),
+    'recruiting.ultipro.com?company=MAR1036MBCI',
+  );
+  pass('recognized shared-host ATS families derive stable query/path tenant keys');
+
+  assert.throws(
+    () => credentials.derivePortalKey(
+      tenantHost,
+      `https://${tenantHost}/career?company=tenanta&Company=tenantb`,
+    ),
+    /Ambiguous portal tenant parameter/,
+  );
+  pass('conflicting duplicate tenant parameters fail closed');
+
+  assert.throws(
+    () => credentials.normalizePortalKey('jobs.example.test?company=tenant-a'),
+    /not supported for this portal host/,
+  );
+  assert.throws(
+    () => credentials.derivePortalKey(
+      'sjobs.brassring.com',
+      'https://sjobs.brassring.com/TGnewUI/Search/Home/Home?partnerid=16030',
+    ),
+    /incomplete partnerid\/siteid/,
+  );
+  pass('rekey and known shared-host inputs reject incomplete or unsupported tenant keys');
+
+  assert.equal(
+    credentials.normalizePortalKey('Career10.SuccessFactors.com?company=tenanta-renamed'),
+    `${tenantHost}?company=tenanta-renamed`,
+  );
+  const rekeyed = credentials.rekeyPortalCredential(
+    `${tenantHost}?company=tenanta`,
+    `https://${tenantHost}/career?company=tenanta-renamed`,
+  );
+  assert.equal(rekeyed.rekeyed, true);
+  const afterRekey = JSON.parse(readFileSync(storePath, 'utf8'));
+  assert.equal(afterRekey[`${tenantHost}?company=tenanta-renamed`].password, passwordA);
+  assert.equal(Object.prototype.hasOwnProperty.call(afterRekey, `${tenantHost}?company=tenanta`), false);
+  assert.throws(
+    () => credentials.rekeyPortalCredential(
+      `${tenantHost}?company=tenanta-renamed`,
+      `${tenantHost}?company=tenantb`,
+    ),
+    /Refusing to overwrite/,
+  );
+  pass('rekeyPortalCredential moves a stored entry without overwriting an existing key');
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }

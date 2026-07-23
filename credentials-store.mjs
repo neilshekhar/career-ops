@@ -15,7 +15,7 @@
  *   normalizePortalHost(host)           → exact canonical host
  *   generatePassword(policy?)           → compliant random password
  *   passwordMeetsPolicy(password, policy?) → boolean
- *   getCredentials(host)                → { email, password, created_at } | null
+ *   getCredentials(host, url?)          → { email, password, created_at } | null
  *   bindAcceptedRegistrationObservation(role, evidence, { queue }) → metadata
  *   commitAcceptedRegistrationCredentials(host, email, pw, evidence) → metadata
  *   upsertCredentials(host, email, pw, evidence) → compatibility alias requiring evidence
@@ -46,6 +46,190 @@ export function normalizePortalHost(host) {
     throw new Error('Invalid portal host');
   }
   return value;
+}
+
+const SUCCESSFACTORS_HOST = /(?:^|\.)successfactors\.(?:com|eu|cn)$/i;
+const SUCCESSFACTORS_SHARED_HOST = /^career\d+\./i;
+const PAGEUP_HOST = /(?:^|\.)pageuppeople\.com$/i;
+const BRASSRING_HOST = /(?:^|\.)brassring\.com$/i;
+const UKG_RECRUITING_HOST = /^recruiting\d*\.ultipro\.(?:com|ca)$/i;
+const ADP_WORKFORCE_NOW_HOST = 'workforcenow.adp.com';
+const DAYFORCE_JOBS_HOST = 'jobs.dayforcehcm.com';
+const DAYFORCE_LEGACY_HOST = 'www.dayforcehcm.com';
+
+function portalTenantValue(value, label) {
+  const text = String(value ?? '').normalize('NFKC').trim();
+  if (!text || text.length > 256 || /[\u0000-\u001f\u007f]/.test(text)) {
+    throw new Error(`Invalid ${label} portal tenant identifier`);
+  }
+  return text;
+}
+
+function queryParam(parsed, name) {
+  const values = [];
+  for (const [key, value] of parsed.searchParams) {
+    if (key.toLowerCase() === name.toLowerCase()) values.push(value);
+  }
+  if (values.length === 0) return null;
+  const distinct = [...new Set(values)];
+  if (distinct.length !== 1) {
+    throw new Error(`Ambiguous portal tenant parameter: ${name}`);
+  }
+  return portalTenantValue(distinct[0], name);
+}
+
+function decodedPathSegments(parsed) {
+  return parsed.pathname.split('/').filter(Boolean).map((segment) => {
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      throw new Error('Invalid percent-encoding in portal URL path');
+    }
+  });
+}
+
+function portalKeyFromParts(exactHost, parts) {
+  if (!parts.length) return exactHost;
+  const params = new URLSearchParams();
+  for (const [name, value] of parts) {
+    params.append(name, portalTenantValue(value, name));
+  }
+  return `${exactHost}?${params.toString()}`;
+}
+
+/**
+ * Return only credential-realm identifiers that are documented by the ATS URL
+ * family. Do not treat a generic `company=` query parameter as authoritative:
+ * unrelated portals legitimately use that name for filters and attribution.
+ */
+function tenantPartsFromPortalUrl(exactHost, parsed) {
+  if (SUCCESSFACTORS_HOST.test(exactHost)) {
+    const company = queryParam(parsed, 'company');
+    if (!company && SUCCESSFACTORS_SHARED_HOST.test(exactHost)) {
+      throw new Error('Shared SuccessFactors portal URL is missing its company tenant parameter');
+    }
+    return company ? [['company', company]] : [];
+  }
+
+  if (PAGEUP_HOST.test(exactHost)) {
+    const segments = decodedPathSegments(parsed);
+    if (segments[0]?.toLowerCase() !== 'apply') return [];
+    if (!segments[1]) throw new Error('PageUp apply URL is missing its client tenant path');
+    return [['client', segments[1]]];
+  }
+
+  if (BRASSRING_HOST.test(exactHost)) {
+    const partnerId = queryParam(parsed, 'partnerid');
+    const siteId = queryParam(parsed, 'siteid');
+    if ((partnerId && !siteId) || (!partnerId && siteId)) {
+      throw new Error('BrassRing portal URL has an incomplete partnerid/siteid tenant pair');
+    }
+    // Both values identify the candidate portal. With neither value present,
+    // this is only a generic platform page and remains bare-host keyed.
+    return partnerId && siteId
+      ? [['partnerid', partnerId], ['siteid', siteId]]
+      : [];
+  }
+
+  if (exactHost === ADP_WORKFORCE_NOW_HOST) {
+    const clientId = queryParam(parsed, 'cid');
+    return clientId ? [['cid', clientId]] : [];
+  }
+
+  if (exactHost === DAYFORCE_JOBS_HOST) {
+    const segments = decodedPathSegments(parsed);
+    if (/^[a-z]{2}-[a-z]{2}$/i.test(segments[0] ?? '')) segments.shift();
+    if (!segments[0]) return [];
+    const parts = [['client', segments[0]]];
+    if (segments[1] && !/^(?:jobs|job|profile)$/i.test(segments[1])) {
+      parts.push(['site', segments[1]]);
+    }
+    return parts;
+  }
+
+  if (exactHost === DAYFORCE_LEGACY_HOST) {
+    const segments = decodedPathSegments(parsed);
+    if (segments[0]?.toLowerCase() !== 'candidateportal') return [];
+    let index = 1;
+    if (/^[a-z]{2}-[a-z]{2}$/i.test(segments[index] ?? '')) index++;
+    return segments[index] ? [['client', segments[index]]] : [];
+  }
+
+  if (UKG_RECRUITING_HOST.test(exactHost)) {
+    const segments = decodedPathSegments(parsed);
+    return segments[0] && segments.some((part) => part.toLowerCase() === 'jobboard')
+      ? [['company', segments[0]]]
+      : [];
+  }
+
+  return [];
+}
+
+// Some ATS platforms host credentially-distinct employer tenants behind one
+// hostname. The tenant is always derived from the observed portal URL using
+// the host family's documented URL shape, never from a free caller-supplied
+// tenant field. Ordinary hosts and unmatched URL shapes remain bare-host keyed.
+export function derivePortalKey(host, url) {
+  const exactHost = normalizePortalHost(host);
+  if (url == null) return exactHost;
+  let parsed;
+  try {
+    parsed = new URL(String(url));
+  } catch (error) {
+    throw new Error(`Invalid portal URL: ${error.message}`);
+  }
+  if (!['https:', 'http:'].includes(parsed.protocol)) {
+    throw new Error('Portal URL must use http or https');
+  }
+  if (normalizePortalHost(parsed.host) !== exactHost) {
+    throw new Error('Portal URL host does not match the exact portal host');
+  }
+  return portalKeyFromParts(exactHost, tenantPartsFromPortalUrl(exactHost, parsed));
+}
+
+/**
+ * Canonicalize either an observed portal URL or one of the persisted key
+ * formats emitted above. Used by the one-time rekey maintenance path so a
+ * typo/case variant cannot move the only password to an unreachable key.
+ */
+export function normalizePortalKey(keyOrUrl) {
+  const input = String(keyOrUrl ?? '').trim();
+  if (!input) throw new Error('Portal credential key is required');
+  if (/^https?:\/\//i.test(input)) {
+    const parsed = new URL(input);
+    return derivePortalKey(parsed.host, parsed.toString());
+  }
+
+  const separator = input.indexOf('?');
+  const exactHost = normalizePortalHost(separator === -1 ? input : input.slice(0, separator));
+  if (separator === -1) return exactHost;
+  const rawQuery = input.slice(separator + 1);
+  if (!rawQuery) throw new Error('Portal credential key has an empty tenant qualifier');
+  const parsed = new URL(`https://${exactHost}/?${rawQuery}`);
+  const params = [...parsed.searchParams].map(([name, value]) => [
+    name.toLowerCase(),
+    portalTenantValue(value, name),
+  ]);
+
+  let allowed;
+  if (SUCCESSFACTORS_HOST.test(exactHost) || UKG_RECRUITING_HOST.test(exactHost)) {
+    allowed = ['company'];
+  } else if (PAGEUP_HOST.test(exactHost)) {
+    allowed = ['client'];
+  } else if (BRASSRING_HOST.test(exactHost)) {
+    allowed = ['partnerid', 'siteid'];
+  } else if (exactHost === ADP_WORKFORCE_NOW_HOST) {
+    allowed = ['cid'];
+  } else if ([DAYFORCE_JOBS_HOST, DAYFORCE_LEGACY_HOST].includes(exactHost)) {
+    allowed = params.some(([name]) => name === 'site') ? ['client', 'site'] : ['client'];
+  } else {
+    throw new Error('Tenant-qualified credential keys are not supported for this portal host');
+  }
+  if (params.length !== allowed.length ||
+      params.some(([name], index) => name !== allowed[index])) {
+    throw new Error(`Portal credential key must use: ${allowed.join(', ')}`);
+  }
+  return portalKeyFromParts(exactHost, params);
 }
 
 // ── I/O ───────────────────────────────────────────────────────────────────────
@@ -457,10 +641,15 @@ export function generatePassword(policy = {}) {
 /**
  * Get stored credentials for a portal host.
  * @param {string} host  — e.g. 'jobs.careers.vic.gov.au'
+ * @param {string} [url] — the exact page URL being logged into; required to
+ *   resolve multi-tenant hosts (e.g. career10.successfactors.com?company=...).
+ *   A lookup that carries a tenant param matches only that tenant's key —
+ *   never falls back to the bare-host entry, which would silently return a
+ *   different tenant's credentials.
  * @returns {{ email: string, password: string, created_at: string } | null}
  */
-export function getCredentials(host) {
-  const key = normalizePortalHost(host);
+export function getCredentials(host, url) {
+  const key = derivePortalKey(host, url);
   return loadStore()[key] ?? null;
 }
 
@@ -546,6 +735,9 @@ function acceptedRegistrationEvidence(host, email, evidence) {
   if (normalizePortalHost(registrationUrl.host) !== exactHost) {
     throw new Error('Accepted registration evidence URL belongs to a different portal host');
   }
+  // Tenant is derived from this already-validated URL, never from a
+  // caller-supplied field, so it cannot be spoofed independent of the URL.
+  const portalKey = derivePortalKey(exactHost, registrationUrl.toString());
   const accountEmail = requiredCredentialText(
     evidence.account_email,
     'registration evidence account_email',
@@ -573,6 +765,7 @@ function acceptedRegistrationEvidence(host, email, evidence) {
     classification: 'registration-accepted',
     result: 'accepted',
     portal_host: exactHost,
+    portal_key: portalKey,
     registration_url: registrationUrl.toString(),
     account_email: accountEmail,
     account_created: true,
@@ -784,14 +977,15 @@ export function commitAcceptedRegistrationCredentials(
   password,
   evidence,
 ) {
-  const key = normalizePortalHost(host);
+  const exactHost = normalizePortalHost(host);
   const normalizedEmail = requiredCredentialText(email, 'email');
   const stagedPassword = requiredCredentialText(password, 'password');
   const accepted = validateAcceptedRegistrationEvidence(
-    key,
+    exactHost,
     normalizedEmail,
     evidence,
   );
+  const key = accepted.portal_key;
   return withStoreLock(() => {
     const store = loadStore();
     const evidenceSha256 = registrationEvidenceDigest(accepted);
@@ -832,6 +1026,36 @@ export function commitAcceptedRegistrationCredentials(
 }
 
 /**
+ * One-time maintenance move: re-key an existing stored credential (e.g. a
+ * bare-host entry that turns out to belong to one tenant of a multi-tenant
+ * host) to its correct key. Never overwrites an existing destination entry
+ * and never touches the stored password value. Secret-free: does not read or
+ * print the password.
+ */
+export function rekeyPortalCredential(oldKey, newKey) {
+  const fromKey = normalizePortalKey(oldKey);
+  const toKey = normalizePortalKey(newKey);
+  if (fromKey === toKey) throw new Error('Old and new portal credential keys must differ');
+  return withStoreLock(() => {
+    const store = loadStore();
+    if (!Object.hasOwn(store, fromKey)) {
+      throw new Error(`No stored credentials found for key: ${fromKey}`);
+    }
+    if (Object.hasOwn(store, toKey)) {
+      throw new Error(`Refusing to overwrite existing credentials at key: ${toKey}`);
+    }
+    store[toKey] = {
+      ...store[fromKey],
+      rekeyed_from: fromKey,
+      rekeyed_at: new Date().toISOString(),
+    };
+    delete store[fromKey];
+    saveStore(store);
+    return { rekeyed: true, from: fromKey, to: toKey };
+  });
+}
+
+/**
  * Backward-compatible name. A fourth, exact-host acceptance-evidence argument
  * is now mandatory; three-argument callers fail closed instead of persisting a
  * password before the portal confirms account creation.
@@ -856,9 +1080,18 @@ function loadRegistrationObservationArgument(argument) {
 }
 
 async function runCredentialStoreCli(argv) {
+  if (argv[0] === '--rekey') {
+    if (!argv[1] || !argv[2] || argv.length !== 3) {
+      throw new Error('Usage: node credentials-store.mjs --rekey <old-key> <new-key-or-portal-url>');
+    }
+    const result = rekeyPortalCredential(argv[1], argv[2]);
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
   if (argv[0] !== '--bind-registration' || !argv[1] || !argv[2] || argv.length !== 3) {
     throw new Error(
-      'Usage: node credentials-store.mjs --bind-registration <role-id> @acceptance.json',
+      'Usage: node credentials-store.mjs --bind-registration <role-id> @acceptance.json\n' +
+      '       node credentials-store.mjs --rekey <old-key> <new-key-or-portal-url>',
     );
   }
   const roleId = String(argv[1]).trim();

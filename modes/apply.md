@@ -132,7 +132,17 @@ The same exact-host state machine applies to deterministic and custom ATS paths:
 
 1. Follow the posting's Apply route in its own tab, then derive the credential key from
    `new URL(page.url()).host` **after every redirect**. Never use the discovery/board host
-   when a different host renders the login or registration form.
+   when a different host renders the login or registration form. Some ATS platforms (e.g.
+   SAP SuccessFactors' `career10.successfactors.com`) host multiple, credentially distinct
+   employer tenants behind one hostname. SuccessFactors uses `company=`, while PageUp,
+   BrassRing, ADP Workforce Now, Dayforce, and legacy UKG Recruiting use their own
+   documented query/path tenant shapes. Pass the full current page URL (not just the host)
+   to `getCredentials(host, url)` and preserve the tenant-bearing registration URL in
+   `registration_url` when capturing acceptance evidence, even if the accepted page has
+   redirected elsewhere on the same host. Registration commit derives the same key from
+   that evidence automatically. Tenant treatment is restricted to recognized ATS URL
+   families; an unrelated portal's generic `company=` filter remains bare-host keyed, and
+   a tenant-qualified lookup never falls back to another tenant's bare-host credential.
 2. Classify the current page before touching credentials:
    - **Registration form + no exact-host credential:** read candidate PII from
      `config/profile.yml`, inspect the displayed/DOM password constraints, pass those
@@ -158,7 +168,8 @@ The same exact-host state machine applies to deterministic and custom ATS paths:
      `rejectedPasswords` policy list and generate a different compliant replacement.
      A missing store entry does not prove the account is new; if
      the portal says the email already exists, move to the existing-account path.
-   - **Sign-in form + exact-host credential:** call `getCredentials(host)` and attempt one
+   - **Sign-in form + exact-host credential:** call `getCredentials(host, url)` (passing the
+     current page URL so a multi-tenant host resolves the right tenant) and attempt one
      sign-in without logging or exposing the values. If rejected or still on the login
      wall, treat the stored password as stale; never overwrite it.
    - **Sign-in form + no credential, or rejected stored credential:** alert the candidate once,

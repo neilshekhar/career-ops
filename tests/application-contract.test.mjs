@@ -66,7 +66,7 @@ assert(
     'credentials-store.mjs',
     credentialRuntime.replace(
       `const accepted = validateAcceptedRegistrationEvidence(
-    key,
+    exactHost,
     normalizedEmail,
     evidence,
   );`,
