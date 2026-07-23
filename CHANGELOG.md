@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.21.1](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.21.0...career-ops-v1.21.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* **apply:** follow registration links from sign-in ([efde1cf](https://github.com/neilshekhar/career-ops/commit/efde1cfd1183673f50915e2889551fda698ba98e))
+* **credentials:** distinguish host from realm key ([b895327](https://github.com/neilshekhar/career-ops/commit/b895327b75f338829a46c0370427d6368ed4bab2))
+* **credentials:** key shared ATS portals by credential realm ([16b3b32](https://github.com/neilshekhar/career-ops/commit/16b3b32a8890dccc2095a8c101effb4af382e1fb))
+* **dashboard:** avoid fallback URL report mismatches ([622d59d](https://github.com/neilshekhar/career-ops/commit/622d59dcd7b28889145dece8595b915c971485a7))
+
 ## [1.21.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.20.2...career-ops-v1.21.0) (2026-07-22)
 
 
