@@ -114,6 +114,21 @@ assert.doesNotMatch(applyMode, /use it as a base and refine/i);
 assert.doesNotMatch(applyMode, /existing A-H report blocks/i);
 pass('deep-eval keeps oferta evaluation separate from PREPARE asset creation');
 
+assert.match(
+  applyMode,
+  /Sign-in form \+ no exact-host credential[\s\S]{0,420}Register[\s\S]{0,80}Create account[\s\S]{0,80}Sign up/i,
+);
+assert.match(applyMode, /registration route is visible[\s\S]{0,420}classify the resulting page again/i);
+assert.match(
+  applyMode,
+  /If no registration route is visible[\s\S]{0,300}signed in manually/i,
+);
+assert.match(
+  applyMode,
+  /Rejected stored credential[\s\S]{0,420}Never create a duplicate[\s\S]{0,120}overwrite the\s+credential/i,
+);
+pass('apply mode enforces register-before-manual-login routing');
+
 const followup = read('modes/followup.md');
 assert.match(followup, /A report is not evidence for a candidate fact/i);
 assert.match(followup, /article-digest\.md/);
@@ -147,6 +162,16 @@ assert.match(
   /every enabled `cover` or `supporting` control[\s\S]{0,180}verified(?: tailored)? cover letter/i,
 );
 pass('autofill overview mirrors the executable upload-control and content-hash gate');
+
+assert.match(
+  autofillOverview,
+  /sign-in page with no exact-host credential[\s\S]{0,240}Register \/ Create account \/ Sign up route/i,
+);
+assert.match(
+  autofillOverview,
+  /parks for candidate login only when no registration route is visible[\s\S]{0,220}stored-credential attempt fails/i,
+);
+pass('autofill overview mirrors register-before-manual-login routing');
 
 const applyButton = read('web/src/components/apply-button.tsx');
 assert.match(applyButton, /const hasUrl =/);

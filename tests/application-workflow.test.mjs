@@ -339,6 +339,11 @@ assert.doesNotMatch(apply, /legacy fallback/i);
 if (custom !== null) {
   assert.match(custom, /There are no "unsupported" form questions/);
   assert.match(custom, /one browser-controller owns all live tabs/);
+  assert.match(custom, /Before parking for human login[\s\S]{0,180}Register \/ Create account \/ Sign up controls/i);
+  assert.match(
+    custom,
+    /no exact-host credential exists and a Register path is visible[\s\S]{0,180}follow Register and create the account/i,
+  );
   assert.match(custom, /only path allowed to promote[\s\S]{0,180}review-ready `filled`/);
   assert.match(custom, /upload_controls:\[\{control_id,label,kind,required,multiple,enabled,accepts\}\]/);
   assert.match(custom, /asset_sha256,verified:true/);

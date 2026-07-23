@@ -331,6 +331,8 @@ export function checkAutofillOverview(file, source) {
     ['L3 completion', /\bL3\b/],
     ['lean page-done', /apply-page\.mjs page-done|page-done/],
     ['lean finish', /apply-page\.mjs finish|\bfinish\b[\s\S]{0,40}prefilled/i],
+    ['sign-in registration-route scan', /sign-in page with no exact-host credential[\s\S]{0,240}Register \/ Create account \/ Sign up route/i],
+    ['manual-login fallback boundary', /parks for candidate login only when no registration route is visible[\s\S]{0,220}stored-credential attempt fails/i],
     ['combined review boundary', /final combined review|compact lean review/i],
     ['candidate-only final submission', /only the candidate clicks the final application submission control/i],
   ]);
@@ -810,6 +812,11 @@ export function checkCanonicalApplyMode(file, source) {
     ['candidate-only submission', /candidate reviews and submits; the agent never clicks a final/i],
     ['non-Playwright draft-only boundary', /Without Playwright[\s\S]{0,360}draft-only checkpoint[\s\S]{0,360}Do not transfer transcription or unfinished live filling/i],
     ['hands-off hidden-employer duplicate handling', /If an agency hides the end employer[\s\S]{0,620}do not stop the batch to ask for[\s\S]{0,80}client name or another authorization/i],
+    ['sign-in registration-route scan', /Sign-in form \+ no exact-host credential[\s\S]{0,420}Register[\s\S]{0,80}Create account[\s\S]{0,80}Sign up/i],
+    ['registration-route reclassification', /registration route is visible[\s\S]{0,420}classify the resulting page again/i],
+    ['existing-account duplicate guard', /candidate has already said[\s\S]{0,220}have an account[\s\S]{0,220}do not create another one/i],
+    ['manual-login fallback boundary', /If no registration route is visible[\s\S]{0,300}signed in manually/i],
+    ['rejected-login no-overwrite boundary', /Rejected stored credential[\s\S]{0,420}Never create a duplicate[\s\S]{0,120}overwrite the\s+credential/i],
     ['historical receipt-v3 appendix', /receipt-v3|Historical receipt/i],
   ]);
   const workflowCount = (source.match(/^## Workflow\s*$/gm) || []).length;
@@ -864,6 +871,8 @@ export function checkCustomApplyContract(file, source) {
     ],
     ['fill-every-question rule', /There are no "unsupported" form questions/],
     ['exact-host account state machine', /exact host has no stored entry[\s\S]{0,500}create the account/i],
+    ['sign-in registration-route override', /Before parking for human login[\s\S]{0,180}Register \/ Create account \/ Sign up controls/i],
+    ['visible registration-route follow', /no exact-host credential exists and a Register path is visible[\s\S]{0,180}follow Register and create the account/i],
     ['park-and-continue login behavior', /parked while the controller continues the other roles/i],
     ['one-browser-controller concurrency rule', /one browser-controller owns all live tabs/i],
     ['all-run hands-off duplicate route decision', /Duplicate handling \(all authorized runs\)[\s\S]{0,520}without an intermediate prompt/i],

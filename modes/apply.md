@@ -172,10 +172,23 @@ The same exact-host state machine applies to deterministic and custom ATS paths:
      current page URL so a multi-tenant host resolves the right tenant) and attempt one
      sign-in without logging or exposing the values. If rejected or still on the login
      wall, treat the stored password as stale; never overwrite it.
-   - **Sign-in form + no credential, or rejected stored credential:** alert the candidate once,
-     keep the tab/session open, continue other applications, and return after they have
-     signed in manually and the application form is visible. Never create a duplicate,
-     reset/change a password, or start account recovery.
+   - **Sign-in form + no exact-host credential:** before parking for human login, scan the
+     full rendered/accessibility snapshot for a visible **Register**, **Create account**,
+     **Sign up**, or equivalent new-account control. A sign-in heading is not evidence that
+     registration is unavailable. If a registration route is visible, follow/toggle it in
+     the same role tab, re-derive the credential key from the current URL after any redirect,
+     and classify the resulting page again. When it is a registration form, create the
+     account under the registration branch above. Workday sign-in pages commonly expose
+     **Create Account** on the sign-in screen and must receive this treatment. If the
+     candidate has already said in the current conversation that they have an account for
+     this credential realm, do not create another one; use the manual existing-account path.
+     If no registration route is visible, alert the candidate once, keep the tab/session
+     open, continue other applications, and return after they have signed in manually and
+     the application form is visible.
+   - **Rejected stored credential or sign-in still at the login wall:** treat the stored
+     password as stale, alert the candidate once, keep the tab/session open, continue other
+     applications, and return after manual sign-in. Never create a duplicate, overwrite the
+     credential, reset/change a password, or start account recovery.
    - **CAPTCHA, email verification, OTP/MFA, security question, password change, or
      recovery:** the candidate completes it in the browser. Do not ask them to paste a secret into
      chat. Park and poll the tab non-blockingly while other applications continue.
