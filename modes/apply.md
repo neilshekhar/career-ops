@@ -120,6 +120,42 @@ That UI first obtains a short-lived, role-bound, one-use nonce from
 `confirmation_nonce` to `POST /api/role/:id/decision {decision:"submitted", ...}`.
 The agent must not infer submission, synthesize either request, or bypass the candidate UI.
 
+### Hard stop: any Submit-labeled control on the application form (2026-07-24)
+
+While filling or navigating pages of the application form itself, never click any control whose visible label contains a terminal-submission verb — **Submit**, **Submit application**, **Send application**, **Confirm and submit**, Submit my application, or Submit now (case-insensitive, in any language the form renders) — no matter what step or position in a wizard it appears to occupy. Judging whether a labelled-Submit button is "the final one" is not reliable: on 2026-07-24 a single-page guest apply flow (Coles Group, Phenom-hosted) had exactly one control, labelled "SUBMIT," that the agent had already seen once on a failed-validation round-trip and misread as an intermediate step; clicking it a second time submitted the live application without candidate review. Advance a page only via a control labelled **Continue**, **Next**, **Save and continue**, **Review**, Proceed, Next step, or Next page. If the only available advance control contains "Submit" in its label, stop there, leave the tab open, and surface it in the final combined review instead of clicking it.
+
+This hard stop applies to the application-form fill/navigation loop only. It does not
+override the two other control classes this contract authorizes elsewhere. Each is
+identified by page/form context, **never by a button's label**:
+
+- **Posting-entry Apply (Step 1/5).** On a verified, liveness-checked job posting, follow
+  the **Apply / Apply now / Start application** control to open the application form. This
+  is navigation, not submission — the control only opens the form and is never a
+  **Submit**-labelled control. If it redirects to the employer's ATS (Workday, Greenhouse,
+  Lever, etc.) and that destination shows *another* Apply / Start-application control
+  before any form has loaded, clicking it is still opening the form and is permitted: one
+  application may take more than one such navigation hop. Re-verify the destination
+  company, role, and host still match the intended role after each redirect (Step 2 /
+  Step 5) before continuing. What ends posting-entry Apply-clicking is **not a click
+  count** but the appearance of the **application UI itself** — a login wall, a
+  registration form, the application fields, or a review/summary page. From that moment
+  the posting-entry click is spent: never click **Apply / Apply now** (or a plain
+  **Apply**) again, in any position, for the rest of that application.
+- **Account-registration confirmation (Login-gated portals, below).** On a genuine new
+  sign-up form, the registration confirmation click is permitted even when its control is
+  labelled **Register**, **Sign up**, **Create account**, or plain **Submit** on that
+  registration form. This carve-out is scoped to the registration page only, verified by
+  registration-form context (identity + password fields present, no application form
+  visible); it never licenses a **Submit** click on the application form itself.
+
+Within the application form, do not attempt to distinguish an "intermediate"
+Submit-labelled control from "the final one" — every control whose visible label
+**contains** "Submit" (a substring match, in any language the form renders) is a hard
+stop, full stop. That substring rule is the authoritative live-click gate for the agent.
+`application-safety.mjs` exports a narrower enumerated regex for deterministic automated
+checks; it is a backstop, not the live gate, and a green test run never certifies that a
+live click was safe — only the agent's own adherence to this prose does.
+
 ---
 
 ## Login-gated portals (standing procedure)
@@ -198,9 +234,11 @@ The same exact-host state machine applies to deterministic and custom ATS paths:
    session destruction.
 4. For Workday/PageUp and other CV-parsed forms, verify and correct every pre-filled value
    against `config/profile.yml`; do not fill blanks only.
-5. Leave the browser/tab open at final review. Never click any final action whose normalized
-   label is **Submit, Submit application, Send application, Confirm and submit, Apply now,
-   Submit my application, or Submit now** (or an equivalent final control).
+5. Leave the browser/tab open at final review. Any Submit-labelled control on the
+   application form is the unconditional hard stop defined above regardless of wizard
+   position; and once the application UI has opened, **Apply / Apply now** (or a plain
+   **Apply**) is never clicked again either, in any position — the single posting-entry
+   Apply click is already spent.
 6. Only after the candidate actually submits: capture any visible confirmation metadata
    and leave the outcome for the candidate to record through the dashboard's explicit
    **Submitted** confirmation UI. The dashboard obtains a role-bound one-use nonce from
@@ -478,10 +516,11 @@ hand-author field manifests for the driver.
 
 8. **Advance the page.** Click a navigation button matching
    `Continue | Next | Save and continue | Save & continue | Review | Proceed | Next step | Next page`
-   to move forward. **Never click a final-submit button** (Submit / Submit application /
-   Send application / Confirm and submit / Apply now / Submit my application / Submit now,
-   or an equivalent final control). Stop when the page shows a review/summary (entered data
-   echoed, no further editable inputs visible).
+   to move forward. **Never click any control whose label contains "Submit"** — see
+   "Hard stop: any Submit-labeled control" above; this applies even if it is the only
+   visible advance control on the page. Stop when the page shows a review/summary
+   (entered data echoed, no further editable inputs visible), or when the only advance
+   control is Submit-labelled.
 
 **Embed unavailable:** if the embedding endpoint is down, lookup returns all
 non-deterministic fields as novel — the apply continues normally; L3 answers them inside
@@ -552,8 +591,8 @@ answer-quality rules are:
 7. **Disclosure discipline**: Answer logistics questions truthfully when asked, but do not volunteer sensitive or HR-only details in unrelated motivation/fit answers.
 
 At the final portal review/summary page, verify echoed answers at a glance and prepare a
-**compact lean review** without clicking a final action. The candidate reviews and submits;
-the agent never clicks a final action.
+**compact lean review** without clicking any Submit-labelled control (see "Hard stop"
+above). The candidate reviews and submits; the agent never clicks it.
 
 ```text
 ## Responses for [Company] — [Role] (lean-llm-v1)
@@ -631,7 +670,8 @@ lean fill state (`prefilled` / partial / blocked), displayed CV and cover filena
 deterministic/learned/cache/model counts, knockout answers, all `review_required`
 answers with notes, and any login/tool blocker.
 Leave every tab open. The candidate reviews and submits; the agent never clicks a final
-action.
+action, including any control whose label contains "Submit" regardless of wizard
+position (see "Hard stop: any Submit-labeled control" above).
 
 ## Step 10 — Post-apply (only after candidate confirmation)
 
