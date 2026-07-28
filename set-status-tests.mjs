@@ -818,21 +818,37 @@ writeFailureCase: {
     const restore = () => process.platform === 'win32'
       ? execFileSync('icacls', [roDir, '/remove:d', '*S-1-1-0'])
       : chmodSync(roDir, 0o755);
-    // The deny itself can fail for platform reasons (icacls unavailable, an
-    // elevated runner, a filesystem that ignores the ACL). That is a missing
-    // precondition, not a defect in set-status — skip rather than crash the
-    // whole suite from outside the try/finally below.
-    let denied = true;
+    // This case needs an unwritable directory. Whether that is achievable is a
+    // platform question: icacls may be missing, the runner may be elevated, or
+    // the filesystem may ignore the ACL entirely — all of which are missing
+    // preconditions, not defects in set-status. Establish the precondition and
+    // PROVE it holds before asserting anything, and never let a platform error
+    // escape this block (an uncaught throw here crashes the whole suite, which
+    // is how this first surfaced on the Windows CI leg).
+    const cleanup = () => {
+      try { restore(); } catch { /* best effort */ }
+      try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    };
+    let denied = false;
     try {
       denyWrite();
-    } catch (e) {
-      denied = false;
-      pass(`write-failure: skipped (cannot deny writes on this platform — ${e.message})`);
-    }
+      // Verify the deny actually bites. If a probe file can still be created,
+      // the directory is writable and the case cannot test what it claims to.
+      const probe = join(roDir, '.write-probe');
+      try {
+        writeFileSync(probe, 'x');
+        rmSync(probe, { force: true });
+      } catch {
+        denied = true;
+      }
+    } catch { /* deny itself failed — handled below */ }
+
     if (!denied) {
-      rmSync(dir, { recursive: true, force: true });
+      pass('write-failure: skipped (this platform will not make the directory unwritable)');
+      cleanup();
       break writeFailureCase;
     }
+
     try {
       const r = runSetStatus(['2', 'Applied', '--external', '--json'], { tracker, lock });
       let parsed = null;
@@ -843,8 +859,7 @@ writeFailureCase: {
         fail(`write-failure: code=${r.code} json=${parsed?.code}\n${r.stdout}${r.stderr}`);
       }
     } finally {
-      restore();
-      rmSync(dir, { recursive: true, force: true });
+      cleanup();
     }
   }
 }
