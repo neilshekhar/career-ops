@@ -259,6 +259,20 @@ These come up in nearly every pull — resolve them the same way each time:
    live agent-facing path. Inline `queue-resolve.mjs --lookup/--teach` remains valid
    only for PREPARE and historical revalidation.
 
+9. **Upstream community-infrastructure workflows are deleted, not merged.** santifer's repo runs
+   community automation that is meaningless on a private fork and, worse, fails loudly or carries
+   an unnecessary trigger. Delete these on every pull that reintroduces them:
+   `.github/workflows/manifesto-guestbook.yml`, `gh-events-feed.yml`, `ledger-bot.yml`,
+   `signature-ci.yml`. Rationale (2026-07-28): `manifesto-guestbook` fires on **every push** and
+   fails permanently here because `DISCORD_MANIFESTO_WEBHOOK` does not exist on the fork — it dies
+   on `fetch('')`, so nothing is posted upstream, but every push gets a red X. `gh-events-feed` has
+   the same shape on `pull_request_target`, the write-scoped trigger class this fork has no reason
+   to carry. `ledger-bot` (discussions) and `signature-ci` (PR signature validation) are dormant
+   community infra. Verify with `ls .github/workflows/` after resolving; nothing in the codebase
+   references them (only a historical CHANGELOG line). **Keep** `MANIFESTO.md`, `SIGNATURES.md`,
+   `CONTRIBUTORS.md`, `.all-contributorsrc`, and `.github/PULL_REQUEST_TEMPLATE/sign-manifesto.md` —
+   inert documents whose deletion buys nothing and guarantees conflict churn on every future merge.
+
 ## Procedure
 
 0. **Fetch upstream without tags:** `git fetch upstream --no-tags`. Upstream
