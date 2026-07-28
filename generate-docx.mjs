@@ -21,7 +21,7 @@
 
 import { execFile } from 'child_process';
 import { writeFileSync, existsSync, unlinkSync, mkdirSync } from 'fs';
-import { join, dirname, basename, extname } from 'path';
+import { basename, dirname, extname, isAbsolute, join } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { promisify } from 'util';
@@ -139,9 +139,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     initReferenceDoc().catch(err => { console.error(err.message); process.exit(1); });
   } else if (args.length >= 2) {
     const [input, output] = args;
+    // isAbsolute, not startsWith('/'): a Windows path like C:\\cv.docx has no
+    // leading slash and would be joined onto cwd, producing a nonsense path.
     generateDocx(
-      input.startsWith('/') ? input : join(process.cwd(), input),
-      output.startsWith('/') ? output : join(process.cwd(), output),
+      isAbsolute(input) ? input : join(process.cwd(), input),
+      isAbsolute(output) ? output : join(process.cwd(), output),
     ).then(() => {
       console.log(`✅ Generated: ${basename(output)}`);
     }).catch(err => {

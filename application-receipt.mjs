@@ -12,7 +12,7 @@
 import {
   existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, rmSync, statSync,
 } from 'fs';
-import { basename, dirname, join, relative, resolve } from 'path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { createHash, randomUUID } from 'crypto';
 
@@ -1254,7 +1254,10 @@ export function reviewReadinessErrors(role, {
 export function validateApplicationAnswersReport(pathValue, progress = null, expectedState = 'filled') {
   const absolute = resolve(ROOT, requiredText(pathValue, 'application_answers_report'));
   const withinReports = relative(REPORTS_DIR, absolute);
-  if (!withinReports || withinReports.startsWith('..') || resolve(REPORTS_DIR, withinReports) !== absolute) {
+  // isAbsolute: on Windows, relative() across drives returns the absolute target,
+  // passing every other rung. See application-receipt-integrity.mjs.
+  if (!withinReports || withinReports.startsWith('..') || isAbsolute(withinReports) ||
+      resolve(REPORTS_DIR, withinReports) !== absolute) {
     throw new Error('application_answers_report must be a file inside reports/');
   }
   if (!existsSync(absolute)) throw new Error('application_answers_report does not exist');
@@ -1385,7 +1388,10 @@ function replaceApplicationAnswersState(pathValue, fromState, toState) {
 function applicationAnswersState(pathValue) {
   const absolute = resolve(ROOT, requiredText(pathValue, 'application_answers_report'));
   const withinReports = relative(REPORTS_DIR, absolute);
-  if (!withinReports || withinReports.startsWith('..') || resolve(REPORTS_DIR, withinReports) !== absolute) {
+  // isAbsolute: on Windows, relative() across drives returns the absolute target,
+  // passing every other rung. See application-receipt-integrity.mjs.
+  if (!withinReports || withinReports.startsWith('..') || isAbsolute(withinReports) ||
+      resolve(REPORTS_DIR, withinReports) !== absolute) {
     throw new Error('application_answers_report must be a file inside reports/');
   }
   if (!existsSync(absolute)) throw new Error('application_answers_report does not exist');

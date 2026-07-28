@@ -5,33 +5,23 @@ import {
   chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 
-import { pass, ROOT } from './helpers.mjs';
+import { pass, ROOT, getBash, toBashPath } from './helpers.mjs';
 
 console.log('\nBatch runner hardening');
 
 const runner = join(ROOT, 'batch', 'batch-runner.sh');
 const source = readFileSync(runner, 'utf8');
-const bash = process.env.BASH || '/bin/bash';
+// This suite drives batch-runner.sh through a real interpreter. Resolve it with
+// the shared helper rather than hardcoding /bin/bash: on Windows that path does
+// not exist (spawnSync then reports status null, not an exit code), while Git
+// Bash does — getBash() finds it and toBashPath() converts D:\... to the /d/...
+// form that interpreter can open. Both are identity operations off Windows.
+const bash = getBash();
 
-// This whole suite drives batch-runner.sh through a real interpreter — syntax
-// check, render, verify, and signal handling all spawn bash. Windows runners have
-// none at /bin/bash, where spawnSync reports status null rather than an exit code.
-// Probe once and skip the suite as a unit; guarding individual rungs just moves
-// the same failure further down the file.
-const bashProbe = spawnSync(bash, ['-n', runner]);
-const hasBash = bashProbe.status !== null;
-
-bashDependent: {
-if (!hasBash) {
-  pass(`batch-runner suite skipped (no bash interpreter at ${bash})`);
-  break bashDependent;
-}
-
-assert.equal(bashProbe.status, 0,
-  `bash -n rejected batch-runner.sh: ${bashProbe.stderr}`);
+assert.equal(spawnSync(bash, ['-n', toBashPath(runner)]).status, 0);
 assert.doesNotMatch(source, /--dangerously-skip-permissions/);
 assert.match(source, /--permission-mode dontAsk/);
 assert.match(source, /--safe-mode/);
@@ -55,7 +45,8 @@ try {
   ].join('\n');
   const renderResult = spawnSync(
     bash,
-    ['-c', renderScript, 'batch-test', runner, template, rendered, specialUrl],
+    ['-c', renderScript, 'batch-test', toBashPath(runner), toBashPath(template),
+      toBashPath(rendered), specialUrl],
     { cwd: ROOT, encoding: 'utf8' },
   );
   assert.equal(renderResult.status, 0, renderResult.stderr);
@@ -134,7 +125,7 @@ try {
   ].join('\n');
   const verify = (skipPdf) => spawnSync(
     bash,
-    ['-c', verifyScript, 'batch-test', runner, project, String(skipPdf)],
+    ['-c', verifyScript, 'batch-test', toBashPath(runner), toBashPath(project), String(skipPdf)],
     { cwd: ROOT, encoding: 'utf8' },
   );
 
@@ -192,9 +183,10 @@ try {
   ].join('\n') + '\n');
   chmodSync(fakeClaude, 0o755);
 
-  const child = spawn(bash, [join(batchDir, 'batch-runner.sh')], {
+  const child = spawn(bash, [toBashPath(join(batchDir, 'batch-runner.sh'))], {
     cwd: interruptProject,
-    env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, TMPDIR: tempDir },
+    // delimiter, not ':' — Windows separates PATH entries with ';'.
+    env: { ...process.env, PATH: `${fakeBin}${delimiter}${process.env.PATH}`, TMPDIR: tempDir },
     stdio: 'ignore',
   });
   const workerTempFiles = () => readdirSync(tempDir, { withFileTypes: true }).flatMap((entry) => {
@@ -219,5 +211,4 @@ try {
   pass('TERM reaches managed workers and removes both temporary JD and prompt files');
 } finally {
   rmSync(temp, { recursive: true, force: true });
-}
 }

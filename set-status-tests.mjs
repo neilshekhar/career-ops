@@ -314,6 +314,37 @@ const TRACKER_REVEAL = `# Applications Tracker
   rmSync(sb.dir, { recursive: true, force: true });
 }
 
+// ── 4e3. A report link that escapes the allowed roots is never read ─
+// The containment guard around extractUrlFromLinkedReport is what stops a
+// tracker cell from pointing set-status at an arbitrary file. It is checked
+// with path.relative() rather than a hardcoded separator (a `${root}/` prefix
+// test silently rejects every path on Windows) — so prove the traversal case
+// still fails on whatever platform this runs.
+{
+  const outside = mkdtempSync(join(tmpdir(), 'co-setstatus-outside-'));
+  const escapeReport = join(outside, 'escape.md');
+  writeFileSync(escapeReport, '# Elsewhere\n\n**URL:** https://evil.test/job/1\n');
+  const sb = makeSandbox(`# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | PDF | Report | Notes |
+|---|------|---------|------|-------|--------|-----|--------|-------|
+| 75 | 2026-07-21 | Escapee | Data Analyst | 4.0/5 | Evaluated | ❌ | [075](${escapeReport.replace(/\\/g, '/')}) | traversal probe |
+`);
+  const result = runSetStatus([
+    'Escapee', 'Applied',
+    '--role', 'Data Analyst',
+    '--report', 'https://evil.test/job/1',
+    '--external', '--json',
+  ], sb);
+  if (result.code !== 0 && !/\| 75 \|[^\n]+\| Applied \|/.test(readTracker(sb))) {
+    pass('resolution: a report path outside the allowed roots is refused, not read');
+  } else {
+    fail(`resolution: traversal guard did not hold\n${result.stdout}${result.stderr}\n${readTracker(sb)}`);
+  }
+  rmSync(outside, { recursive: true, force: true });
+  rmSync(sb.dir, { recursive: true, force: true });
+}
+
 // ── 4f. Receipt identity and submitted readiness are revalidated ─
 // Receipt identity checks intentionally use URL reports here so the test can
 // fail before touching the real reports/ or handover.md user surfaces.

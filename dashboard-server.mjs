@@ -16,7 +16,7 @@
 import http from 'http';
 import { randomUUID } from 'crypto';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
-import { join, dirname, extname, resolve } from 'path';
+import { join, dirname, extname, isAbsolute, relative, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 import yaml from 'js-yaml';
@@ -367,7 +367,11 @@ function extractUrlFromLinkedReport(target) {
   if (!target || /^https?:\/\//i.test(target)) return null;
 
   const reportPath = resolve(dirname(APPS_FILE), target);
-  if (reportPath !== ROOT && !reportPath.startsWith(`${ROOT}/`)) return null;
+  // A hardcoded `${ROOT}/` prefix never matches on Windows, where resolve()
+  // returns backslashes — the guard then rejected every legitimate report.
+  // relative() + isAbsolute keeps the traversal protection on every platform.
+  const rel = relative(ROOT, reportPath);
+  if (reportPath !== ROOT && (rel.startsWith('..') || isAbsolute(rel))) return null;
   if (!existsSync(reportPath)) return null;
 
   try {

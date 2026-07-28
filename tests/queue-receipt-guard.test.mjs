@@ -3,11 +3,38 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 
 import { pass } from './helpers.mjs';
 
 console.log('\nQueue receipt transition guard');
+
+// ── Cross-drive containment ────────────────────────────────────────────────
+// The Windows CI leg put the repo on D: and the OS temp dir on C:. path.relative()
+// between two different drives returns the ABSOLUTE target rather than a '..'
+// walk, so a containment guard built only from "falsy / starts with .. /
+// round-trips through resolve()" passes a file on another drive as contained —
+// application-receipt-integrity.mjs accepted a caller-authored report artifact
+// that way. The isAbsolute() rung is the only one that catches it. Assert the
+// invariant under win32 semantics so it holds on every platform, and prove the
+// rung is load-bearing rather than decorative.
+{
+  const root = 'D:\\a\\career-ops\\career-ops\\reports';
+  const otherDrive = 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\co\\report.md';
+  const rel = win32.relative(root, otherDrive);
+
+  assert.ok(rel, 'precondition: a cross-drive relative path is not empty');
+  assert.ok(!rel.startsWith('..'), 'precondition: it does not start with ..');
+  assert.equal(win32.resolve(root, rel), otherDrive,
+    'precondition: it round-trips through resolve(), so that rung cannot catch it either');
+
+  const withoutIsAbsolute = !(!rel || rel.startsWith('..') || win32.resolve(root, rel) !== otherDrive);
+  const withIsAbsolute = !(!rel || rel.startsWith('..') || win32.isAbsolute(rel)
+    || win32.resolve(root, rel) !== otherDrive);
+  assert.equal(withoutIsAbsolute, true, 'the pre-fix guard shape wrongly treats another drive as contained');
+  assert.equal(withIsAbsolute, false, 'the isAbsolute rung is what rejects it');
+  pass('cross-drive paths are only excluded by the isAbsolute rung, so containment guards must keep it');
+}
 
 const dataDir = mkdtempSync(join(tmpdir(), 'career-ops-queue-receipt-'));
 const queuePath = join(dataDir, 'apply-queue.json');

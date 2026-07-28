@@ -273,6 +273,18 @@ These come up in nearly every pull — resolve them the same way each time:
    `CONTRIBUTORS.md`, `.all-contributorsrc`, and `.github/PULL_REQUEST_TEMPLATE/sign-manifesto.md` —
    inert documents whose deletion buys nothing and guarantees conflict churn on every future merge.
 
+10. **The fork's CI matrix is `[ubuntu-latest, macos-latest]` — never Windows.** Upstream added a
+    three-OS matrix (#1762) because it ships to Windows users. This fork does not: the engine runs
+    on the maintainer's macOS machine, and ubuntu covers container/Actions parity. When an upstream
+    pull re-adds `windows-latest` to `.github/workflows/test.yml`, remove it again. Rationale
+    (2026-07-28): the leg produced five Windows-only failures in a single catch-up — a hardcoded
+    `/bin/bash`, an `icacls` ACL precondition, a loader hook registered as a raw path, and two
+    path-containment guards — none of which affect any platform this fork runs on. **Do not confuse
+    the leg with the defects it exposed:** the cross-drive containment holes were real and are fixed
+    (`isAbsolute` rung in `set-status.mjs`, `application-receipt.mjs` ×2,
+    `application-receipt-integrity.mjs`, `dashboard-server.mjs`), guarded by a platform-independent
+    test in `tests/queue-receipt-guard.test.mjs`. Keep those fixes; drop the leg.
+
 ## Procedure
 
 0. **Fetch upstream without tags:** `git fetch upstream --no-tags`. Upstream

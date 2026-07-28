@@ -39,7 +39,7 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import { join, dirname, isAbsolute, resolve as resolvePath } from 'path';
+import { join, dirname, isAbsolute, relative as relativePath, resolve as resolvePath } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
 import { roleFuzzyMatch } from './role-matcher.mjs';
@@ -259,7 +259,16 @@ function extractUrlFromLinkedReport(target, { fromTracker = false } = {}) {
   const base = fromTracker ? dirname(APPS_FILE) : CAREER_OPS;
   const reportPath = isAbsolute(target) ? resolvePath(target) : resolvePath(base, target);
   const allowedRoots = [CAREER_OPS, dirname(APPS_FILE)];
-  if (!allowedRoots.some((root) => reportPath === root || reportPath.startsWith(`${root}/`))) {
+  // Separator-agnostic containment: a hardcoded `${root}/` never matches on
+  // Windows, where resolvePath() returns backslashes — the guard then rejected
+  // every legitimate report and job-URL resolution silently failed. relative()
+  // keeps the traversal protection (a path outside root yields a leading '..'
+  // or stays absolute) on every platform.
+  const within = (root) => {
+    const rel = relativePath(root, reportPath);
+    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+  };
+  if (!allowedRoots.some(within)) {
     return null;
   }
   if (!existsSync(reportPath)) return null;

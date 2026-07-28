@@ -10,7 +10,7 @@
 
 import { createHash } from 'crypto';
 import { existsSync, readFileSync, realpathSync } from 'fs';
-import { basename, dirname, join, relative, resolve } from 'path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { applicationActionDecision, isFinalApplicationActionLabel } from './application-safety.mjs';
 import { APPLICATION_QUALITY_EVIDENCE_VERSION } from './verify-userdata.mjs';
@@ -965,7 +965,12 @@ function reportArtifact(progress, expectedReportState) {
   const canonicalRoot = realpathSync(allowedRoot);
   const canonicalReport = realpathSync(absolute);
   const withinReports = relative(canonicalRoot, canonicalReport);
-  if (!withinReports || withinReports.startsWith('..') ||
+  // isAbsolute is load-bearing on Windows: relative() between two DIFFERENT
+  // drives returns the absolute target (e.g. repo on D:, artifact on C:), which
+  // is neither falsy nor '..'-prefixed and round-trips through resolve() — so
+  // the other three rungs all pass and a file on another drive reads as
+  // contained. Matches the guard shape in application-source-contract.mjs.
+  if (!withinReports || withinReports.startsWith('..') || isAbsolute(withinReports) ||
       resolve(canonicalRoot, withinReports) !== canonicalReport) {
     throw new Error('Application Answers report artifact must be inside the canonical reports/ root');
   }
