@@ -1,5 +1,9 @@
 # Personal data (user fills these)
 cv.md
+# Proof points from the user's own portfolio/writing — personal, never committed.
+# Previously ignored only via .git/info/exclude, which a fresh clone does not
+# inherit, so an npm user's digest could be staged by accident (#F5-1).
+article-digest.md
 data/applications.md
 data/apply-queue.json
 data/local-enrichments.json

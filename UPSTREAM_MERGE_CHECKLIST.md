@@ -22,15 +22,85 @@ Use an environment with `go` on PATH and `git init` rights for the other full-su
 ## The Gate
 
 ### 1. Engine zero-diff
+
 The apply/queue engine is Neil's, not upstream's. An upstream merge must **not** change
-a single byte of it. This diff must be **empty**:
+a single byte of it.
+
+> **Pick the command that matches your timing.** The gate above says to run it with the
+> merge resolved and staged but **not yet committed** — and at that moment `HEAD` still
+> points at the pre-merge `main` commit, so `git diff main..HEAD` compares `main` to
+> itself and is **empty no matter what the index contains**. That form is a silent
+> no-op in exactly the situation this gate is meant to cover. Use `--cached`.
+
+Define the protected runtime once. This is the current live application/queue engine,
+including its controller, asset gates, and verification boundary:
 
 ```bash
-git diff main..HEAD -- \
-  queue-ingest.mjs queue-resolve.mjs queue-store.mjs \
-  supabase-client.mjs mint-cron-jwt.mjs \
-  form-fill.mjs login-core.mjs generate-docx.mjs
+PROTECTED_ENGINE_PATHS=(
+  application-answers.mjs
+  application-receipt-integrity.mjs
+  application-receipt.mjs
+  application-request.mjs
+  application-safety.mjs
+  application-source-contract.mjs
+  answer-cache.mjs
+  apply-page.mjs
+  cover-quality.mjs
+  credentials-store.mjs
+  cv-tailoring.mjs
+  dashboard-auth.mjs
+  dashboard-launch.mjs
+  dashboard-server.mjs
+  dashboard/web/app.js
+  field-rules.mjs
+  form-fill.mjs
+  generate-docx.mjs
+  generation-provenance.mjs
+  lean-application.mjs
+  login-core.mjs
+  mint-cron-jwt.mjs
+  one-shot-request.mjs
+  prepare-application.mjs
+  queue-ingest.mjs
+  queue-resolve.mjs
+  queue-store.mjs
+  queue-sweep.mjs
+  run-partition.mjs
+  screener-store.mjs
+  set-status.mjs
+  snapshot-extract.mjs
+  supabase-client.mjs
+  tracker-status-map.mjs
+  verify-application-contract.mjs
+  verify-userdata.mjs
+)
 ```
+
+**Staged, not yet committed (the default timing above)** — both commands must exit
+zero. `--exit-code` is intentional: a visible diff is not merely advisory; it fails
+the gate.
+
+```bash
+git diff --cached --exit-code main -- "${PROTECTED_ENGINE_PATHS[@]}"
+git diff --exit-code -- "${PROTECTED_ENGINE_PATHS[@]}"
+git diff --cached --check
+git diff --check
+git status --short
+```
+
+The first command catches staged merge resolutions. The second independently catches
+well-formed but unstaged edits; `git diff --check` only detects whitespace errors and
+cannot replace it. `git status --short` remains the final human-readable inventory.
+
+**Already committed on the topic branch** — only then is the range form valid, and it
+must also fail automatically on a non-empty diff:
+
+```bash
+git diff --exit-code main...HEAD -- "${PROTECTED_ENGINE_PATHS[@]}"
+```
+
+An empty diff is only evidence when the command matches the state of the tree. If you
+are unsure which applies, run **both** — a genuinely clean merge passes both.
 
 If any engine file differs, **stop and show why** before doing anything else. A
 non-empty diff means the merge silently re-pointed engine behavior — that is a hard
@@ -94,6 +164,58 @@ node generate-docx.mjs   # (or the cover-letter path) must produce a valid .docx
 Confirm the features the pull was supposed to bring are actually present. For the
 2026-06-22 catch-up these were `modes/cover.md`, `generate-cover-letter.mjs`, and
 `modes/interview.md`; for future pulls, list and check whatever that pull adds.
+
+### 10. Secret and browser paths still ignored
+An upstream `.gitignore` rewrite can silently un-ignore a credential path. Every one of
+these must print a matching ignore rule:
+
+```bash
+git check-ignore -v \
+  career_ops_signing_key_private.json \
+  .browser-profiles/ \
+  .playwright-mcp/ \
+  data/portal-credentials.json \
+  article-digest.md
+```
+
+A path that prints nothing is **not ignored**. Fix the tracked `.gitignore` before
+landing — `.git/info/exclude` does not count, because a fresh clone never inherits it.
+
+---
+
+## Topic Merges: dependency safety, not path safety
+
+**A new upstream file is not safe merely because the fork never touched that path.**
+Providers, modes, liveness fixes, and tests routinely depend on edits to shared
+registries and utilities that *do* collide. The redirect-SSRF topic, for example,
+modifies existing liveness and test files alongside its new code, so it cannot be
+banked by copying only the collision-free files.
+
+Likewise, a count of paths changed on both sides since the merge base is **not** a
+conflict count — git auto-merges many of them. Every overlap needs review; none of them
+should be pre-announced as a conflict.
+
+Merge in dependency-aware topics, in this order, one topic per branch:
+
+1. Security and liveness.
+2. Scanner providers **plus** their shared registries, utilities, and tests.
+3. PDF/CV theming and section infrastructure.
+4. Tracker/status/locking changes.
+5. New modes **plus** their router and docs integration.
+6. Dashboard changes.
+7. Documentation-only / manifesto material (normally omitted from the private fork).
+
+For each topic: branch from `main` → apply the complete dependency set → preserve fork
+identity and the protected engine → run the staged diff in §1 → run the focused tests →
+run the full gate → commit and review before starting the next topic.
+
+**Semantic review, never a blind append.** Upstream blacklist-approval and portal-login
+blocks must be reconciled against One-shot's no-intermediate-prompt authorization, the
+fork's exact-host account/login workflow, and the never-submit boundary. Topic-level
+tests must prove new providers and modes are actually registered and callable.
+
+Use `git merge --no-commit --no-ff upstream/main` only for a full merge, and never rely
+on "conflicts will stop it from auto-committing."
 
 ---
 
