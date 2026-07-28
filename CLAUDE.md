@@ -105,6 +105,10 @@ AI-powered, CLI-agnostic job search automation: pipeline tracking, offer evaluat
 | `templates/cv-template.tex` | LaTeX/Overleaf template for CVs |
 | `generate-pdf.mjs` | Playwright: HTML to PDF |
 | `verify-userdata.mjs` | Read-only queue, work-rights, and generated application asset quality gate |
+| `one-shot-request.mjs` | Durable One-shot chain the active agent drains: `list`/`next`/`claim`/`verify`/`dispatch`/`filling`/`complete`/`park`/`resume`/`reconcile`. Carries the candidate's ORIGINAL Run intent forward so no second click is needed; `verify` runs the executable asset gate, so a failed gate structurally cannot reach a fill. Never opens a browser. |
+| `application-request.mjs` | Shared browser-controller lease + the four-active-role cap. One implementation used by both the dashboard and the One-shot drain. |
+| `cv-tailoring.mjs` | Contextual tailoring gate (zero model tokens): identical normalized CV text *triggers a check* against the roles' stored requirements, failing only when they differ materially and no source-supported `cv_reuse_justification` exists. Identical cover bodies across companies always fail unless a confirmed duplicate route. |
+| `cover-quality.mjs` | Locale-aware greeting/sign-off ladders, deterministic banned-term parsing from the `voice-dna.md` machine-readable block, and normalized opening/closing skeleton fingerprints. |
 | `generate-latex.mjs` | LaTeX CV validator + pdflatex compiler |
 | `article-digest.md` | Compact proof points from portfolio (optional) |
 | `interview-prep/story-bank.md` | Accumulated STAR+R stories across evaluations |
@@ -277,6 +281,38 @@ Store any insights the user shares in `config/profile.yml` (under narrative), `m
 
 **After every evaluation, learn.** If the user says "this score is too high, I wouldn't apply here" or "you missed that I have experience in X", update your understanding in `modes/_profile.md`, `config/profile.yml`, or `article-digest.md`. The system should get smarter with every interaction without putting personalization into system-layer files.
 
+#### Step 5b: Article digest — explicit import / build / skip (optional, ask ONCE)
+
+The digest is where detailed proof points live. It is **optional** and must never
+block setup, evaluation, or applying. Do not leave it to chance in a general
+question — offer the three choices explicitly:
+
+> "Optional: an *article digest* holds your detailed proof points — the metrics,
+> project write-ups, and case studies your CV only summarises. It makes tailored
+> CVs and cover letters noticeably more specific. Three options:
+> 1. **Import** — paste an existing `article-digest.md`, or point me at one
+> 2. **Build it together** — give me projects, articles, links, metrics, and what
+>    *you personally* contributed, and I'll structure it
+> 3. **Skip** — you can add it any time later with `/career-ops add`
+>
+> Which would you like?"
+
+Rules:
+
+- Write it to `article-digest.md` (user layer, gitignored by the tracked
+  `.gitignore`). Never populate it with sample or placeholder claims.
+- **Confirm every metric, project, and authorship claim** against what the user
+  actually said. Never infer that using a tool means the user built it —
+  tool-of-trade conflation is the most common fabrication pattern and is
+  forbidden.
+- Record the outcome so this is **not asked again**: append
+  `article_digest_onboarding: provided` or `: skipped` under `onboarding:` in
+  `config/profile.yml`. Check for that key before offering.
+- Token-efficient: reuse what the user already said in this conversation, build
+  the Markdown structure deterministically, and make **no** extra generation call
+  when they skip or supply a ready digest. Use one bounded summarization turn only
+  when they ask you to turn raw material into concise proof points.
+
 #### Step 6: Ready
 Once all files exist, confirm:
 > "You're all set! You can now:
@@ -432,6 +468,16 @@ driver wraps. `application-receipt.mjs` remains the review-readiness finalizer f
 opt-in **receipt-v3** only. These are the canonical cross-agent instructions; localized
 application modes are language wrappers only. Every role must have a queue record and
 stable role ID before the form is filled.
+
+**One-shot is executable, not a prompt.** When the candidate presses Run with
+One-shot on, the dashboard writes a durable `one_shot_request` carrying their
+ORIGINAL `selection_intent_id`. Drain it with `one-shot-request.mjs`
+(`next` → `claim` → PREPARE → `verify` → `dispatch` → `filling`; lean `finish`
+closes it). **Never mint a fresh `candidate_selection_confirmation` after
+PREPARE** — that record is a candidate attestation and forging one corrupts the
+provenance chain. The asset gate IS the approval: under One-shot, do not pause to
+ask the candidate to eyeball a CV or cover. Run `node one-shot-request.mjs next`
+at session start; a non-empty `pending` list is authorized work left unfinished.
 
 **Default lean loop:** after preflight, `apply-page.mjs begin` → on every wizard page
 observe → `apply-page.mjs lookup` → fill resolved → L3 all novel → teach reusable

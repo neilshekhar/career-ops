@@ -12,8 +12,7 @@ These files contain your personal data, customizations, and work product. Update
 | `config/profile.yml` | Your identity, targets, comp range |
 | `modes/_profile.md` | Your archetypes, narrative, negotiation scripts |
 | `modes/_custom.md` | Your house rules, custom workflows & output preferences (procedural — survives updates) |
-| `voice-dna.md` | Your writing voice guardrail — banned words, anti-AI-slop rules, tone (optional) |
-| `article-digest.md` | Your proof points from portfolio |
+| `article-digest.md` | Your proof points from portfolio (personal — gitignored; the agent offers import/build/skip during onboarding) |
 | `interview-prep/story-bank.md` | Your accumulated STAR+R stories |
 | `interview-prep/{company}-{role}.md` | Company-specific interview prep reports (written by `/career-ops interview-prep`) |
 | `interview-prep/sessions/*.md` | Interview sessions — real transcripts + mock sessions (sensitive: real names/companies; gitignored except scaffold). Drives `patterns` Step 1b targeting signal and `interview-redflag` analysis. Scaffold files (`README.md`, `.gitkeep`) are system-owned. |
@@ -44,6 +43,12 @@ These files contain system logic, scripts, templates, and instructions that impr
 |------|---------|
 | `modes/_shared.md` | Scoring system, global rules, tools |
 | `modes/_custom.template.md` | Template seed for the user's `modes/_custom.md` |
+| `voice-dna.md` | **Opinionated shared writing default**, tracked and shipped to every install. Governs *how* generated prose reads (banned vocabulary, anti-AI-slop rules, formatting), and **never** introduces a factual claim about the candidate. Its `career-ops:banned-terms` block is the machine-readable list `cover-quality.mjs` parses deterministically. Do **not** edit it for personal preferences — put those in `modes/_custom.md`, `application_quality.banned_terms_allow` / `banned_terms_add`, or `writing-samples/`. There is deliberately no `voice-dna.template.md`: the real file *is* the default. |
+| `cover-quality.mjs` | Locale-aware greeting/sign-off ladders, banned-term parsing, skeleton fingerprints (zero model tokens) |
+| `cv-tailoring.mjs` | Contextual identical-CV / duplicate-cover checks (zero model tokens) |
+| `application-request.mjs` | Shared browser-controller lease + four-active-role cap for durable application requests |
+| `one-shot-request.mjs` | Durable One-shot chain (prepare → gate → fill → review-ready) drained by the active agent |
+| `install-browser.mjs` | postinstall Chromium bootstrap with a genuine fallback; non-fatal by design |
 | `modes/oferta.md` | Evaluation mode instructions |
 | `modes/pdf.md` | PDF generation instructions |
 | `modes/scan.md` | Portal scanner instructions |

@@ -22,3 +22,21 @@ jobs:
       - name: Go dashboard tests
         run: go test ./...
         working-directory: dashboard
+
+  node18-smoke:
+    name: Node 18 minimum-version smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '18'
+      # Keep the minimum-version leg small and browser-free. It exercises the
+      # actual no-node:sqlite tracker fallback plus doctor/package contracts.
+      - run: npm install --ignore-scripts
+      - name: Run packaging and runtime smoke
+        run: |
+          node --check doctor.mjs
+          node --check tracker.mjs
+          node tests/packaging-parity.test.mjs
+          node doctor.mjs --setup

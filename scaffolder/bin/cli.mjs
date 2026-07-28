@@ -145,18 +145,51 @@ async function main() {
     die("git clone failed. Check your network connection and try again.");
   }
 
-  // 2. Install dependencies.
+  // 2. Install dependencies. This is REQUIRED core setup: without node_modules
+  // nothing runs, so a failure here must fail the command rather than print
+  // "career-ops is ready" over a broken workspace.
   console.log("\n→ Installing dependencies (npm install) ...");
   try {
     execFileSync(NPM, ["install"], { cwd: target, stdio: "inherit" });
   } catch {
-    console.warn('\n! npm install failed — you can re-run it manually later with "npm install".');
+    die(
+      `npm install failed in ${display}.\n\n`
+      + "  career-ops cannot run without its dependencies, so setup stopped here rather\n"
+      + "  than leaving you with a workspace that looks ready but is not.\n\n"
+      + "  To finish manually:\n"
+      + `      cd ${target}\n`
+      + "      npm install\n"
+      + "      npm run doctor",
+    );
   }
 
   // 2b. Bootstrap CLI skill entrypoints (covers CLIs added after the cloned release).
   const bootstrapped = ensureSkillEntrypoints(target);
   if (bootstrapped.length > 0) {
     console.log(`\n→ Bootstrapped ${bootstrapped.length} CLI skill entrypoint(s) for this workspace`);
+  }
+
+  // 2c. Verify the workspace before claiming it is ready.
+  //
+  // `--setup` checks only the CORE RUNTIME tier (Node, dependencies, fonts,
+  // writable data/output/reports). It deliberately does not check cv.md /
+  // profile.yml / portals.yml: their absence is what triggers the agent's
+  // conversational onboarding, so requiring them here would fail every fresh
+  // install. Optional PDF/browser, live-apply, and DOCX gaps stay warnings.
+  console.log("\n→ Verifying the workspace (node doctor.mjs --setup) ...");
+  let doctorOk = true;
+  try {
+    execFileSync(process.execPath, ["doctor.mjs", "--setup"], { cwd: target, stdio: "inherit" });
+  } catch {
+    doctorOk = false;
+  }
+  if (!doctorOk) {
+    die(
+      `the workspace in ${display} is not usable yet — see the doctor output above.\n\n`
+      + "  Fix the ✗ items, then re-check:\n"
+      + `      cd ${target}\n`
+      + "      npm run doctor",
+    );
   }
 
   // 3. Next steps. We do NOT scaffold cv.md / profile.yml / portals.yml here:

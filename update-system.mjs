@@ -16,7 +16,7 @@
  */
 
 import { execFile, execFileSync, execSync } from 'child_process';
-import { readFileSync, writeFileSync, existsSync, unlinkSync, rmSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, rmSync, mkdirSync } from 'fs';
 import { join, dirname, posix as pathPosix } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import {
@@ -163,9 +163,20 @@ const SYSTEM_PATHS = [
   'application-receipt-integrity.mjs',
   'application-receipt.mjs',
   'application-safety.mjs',
+  'application-request.mjs',
   'answer-cache.mjs',
   'apply-page.mjs',
   'lean-application.mjs',
+  'one-shot-request.mjs',
+  'cv-tailoring.mjs',
+  'cover-quality.mjs',
+  'install-browser.mjs',
+  // Opinionated SHARED writing default, not personal data. It governs how
+  // generated prose reads and never carries a factual claim about the
+  // candidate, so every install should receive improvements to it. Personal
+  // overrides belong in modes/_custom.md, application_quality.banned_terms_*,
+  // or writing-samples/ — never in this file.
+  'voice-dna.md',
   'benchmark-evidence-protocol.mjs',
   'benchmark-lean-application.mjs',
   'credentials-store.mjs',
@@ -372,7 +383,6 @@ const USER_PATHS = [
   'config/profile.yml',
   'modes/_profile.md',
   'modes/_custom.md',
-  'voice-dna.md',
   'portals.yml',
   'article-digest.md',
   'interview-prep/',
@@ -522,6 +532,85 @@ function mergePathLists(...lists) {
     }
   }
   return merged;
+}
+
+export const LEGACY_VOICE_DNA_BACKUP_DIR = 'writing-samples';
+export const LEGACY_VOICE_DNA_MIGRATION_MARKER =
+  'writing-samples/.voice-dna-system-ownership-migrated';
+
+/**
+ * Resolve how an installed updater classified voice-dna.md.
+ *
+ * The ownership transition is special: older releases explicitly classified
+ * this file as personal, so the new updater must not silently replace a user's
+ * edited copy merely because the target release now ships a shared default.
+ */
+export function voiceDnaOwnershipFromUpdaterSource(source) {
+  const system = extractArrayFromSource(String(source || ''), 'SYSTEM_PATHS');
+  const user = extractArrayFromSource(String(source || ''), 'USER_PATHS');
+  if (system.includes('voice-dna.md')) return 'system';
+  if (user.includes('voice-dna.md')) return 'user';
+  return 'unknown';
+}
+
+/**
+ * Preserve a legacy voice-dna.md before the updater installs the new shared
+ * baseline. The original stays untouched here; the normal system checkout runs
+ * only after this function succeeds.
+ *
+ * A marker makes the migration one-time. Existing backup content is never
+ * overwritten: a numbered sibling is selected if needed.
+ */
+export function preserveLegacyVoiceDna(
+  root,
+  incomingContent,
+  { log = (message) => console.log(message) } = {},
+) {
+  const markerPath = join(root, ...LEGACY_VOICE_DNA_MIGRATION_MARKER.split('/'));
+  if (existsSync(markerPath)) return { status: 'already-migrated', paths: [] };
+
+  const localPath = join(root, 'voice-dna.md');
+  if (!existsSync(localPath)) return { status: 'missing', paths: [] };
+
+  const localContent = readFileSync(localPath);
+  const incoming = Buffer.isBuffer(incomingContent)
+    ? incomingContent
+    : Buffer.from(String(incomingContent ?? ''), 'utf8');
+  const migrationDir = join(root, LEGACY_VOICE_DNA_BACKUP_DIR);
+  mkdirSync(migrationDir, { recursive: true });
+
+  const paths = [LEGACY_VOICE_DNA_MIGRATION_MARKER];
+  let backup = null;
+  if (!localContent.equals(incoming)) {
+    const stem = 'voice-dna-legacy-pre-system';
+    let suffix = 1;
+    while (true) {
+      const filename = `${stem}${suffix === 1 ? '' : `-${suffix}`}.md`;
+      const candidate = join(migrationDir, filename);
+      if (!existsSync(candidate)) {
+        writeFileSync(candidate, localContent);
+        backup = `${LEGACY_VOICE_DNA_BACKUP_DIR}/${filename}`;
+        paths.push(backup);
+        break;
+      }
+      if (readFileSync(candidate).equals(localContent)) {
+        backup = `${LEGACY_VOICE_DNA_BACKUP_DIR}/${filename}`;
+        paths.push(backup);
+        break;
+      }
+      suffix++;
+    }
+  }
+
+  writeFileSync(
+    markerPath,
+    'voice-dna.md ownership migrated from user layer to shared system default\n',
+    'utf8',
+  );
+  if (backup) {
+    log(`Preserved your legacy voice-dna.md at ${backup} before installing the shared default.`);
+  }
+  return { status: backup ? 'preserved' : 'unchanged', backup, paths };
 }
 
 // Files the self-reexec stage must check out so the TARGET update-system.mjs
@@ -851,6 +940,33 @@ async function apply() {
     // target updater's SYSTEM_PATHS is now the source of truth for new files.
     const updatePaths = mergePathLists(SYSTEM_PATHS, remoteSystemPaths, BOOTSTRAP_PATHS);
 
+    // One-time ownership migration for voice-dna.md. The backup branch is the
+    // pre-update truth even during self-reexec, so it tells us whether the
+    // installed release treated voice-dna.md as user-owned. Preserve any
+    // differing local content BEFORE the system checkout can replace it.
+    const expectedMigrationPaths = new Set();
+    if (updatePaths.includes('voice-dna.md')) {
+      let previousOwnership = 'unknown';
+      try {
+        const previousUpdater = git('show', `${backupBranch}:update-system.mjs`);
+        previousOwnership = voiceDnaOwnershipFromUpdaterSource(previousUpdater);
+      } catch {
+        // Unknown is handled conservatively below: preserving an extra backup is
+        // preferable to losing a legacy user customization.
+      }
+      if (previousOwnership !== 'system') {
+        try {
+          const incomingVoiceDna = git('show', 'FETCH_HEAD:voice-dna.md');
+          const migration = preserveLegacyVoiceDna(ROOT, incomingVoiceDna);
+          for (const path of migration.paths) expectedMigrationPaths.add(path);
+        } catch (err) {
+          throw new Error(
+            `Could not preserve legacy voice-dna.md before its ownership migration: ${err.message}`,
+          );
+        }
+      }
+    }
+
     for (const path of updatePaths) {
       try {
         git('checkout', 'FETCH_HEAD', '--', path);
@@ -922,6 +1038,7 @@ async function apply() {
       for (const entry of gitStatusEntries()) {
         const file = entry.path;
         if (initialStatusPaths.has(file)) continue;
+        if (expectedMigrationPaths.has(file)) continue;
         // Explicit SYSTEM_PATHS entries override USER_PATHS prefix matches.
         // (e.g. writing-samples/README.md is system-owned doc inside a user dir.)
         if (updatePaths.includes(file)) continue;

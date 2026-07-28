@@ -3,6 +3,9 @@
   "version": "1.21.1",
   "description": "AI-powered job search pipeline — works with any AI coding CLI (Claude Code, OpenCode, Gemini, Codex, Qwen)",
   "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test": "node test-all.mjs",
     "doctor": "node doctor.mjs",
@@ -46,7 +49,7 @@
     "launch": "node dashboard-launch.mjs",
     "apply:plan": "node form-fill.mjs",
     "docx": "node generate-docx.mjs",
-    "postinstall": "npx playwright install chromium --with-deps || npx playwright install chromium --with-deps"
+    "postinstall": "node install-browser.mjs"
   },
   "keywords": [
     "ai",

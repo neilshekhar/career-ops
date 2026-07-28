@@ -2,7 +2,7 @@
 
 When the user runs `/career-ops interview`, execute this interactive profile/CV interview flow.
 
-The purpose of this mode is to conduct a conversational interview to extract rich context, specific project tasks, technologies used, and measurable business impact to build or enhance `cv.md`, `config/profile.yml`, and `modes/_profile.md`.
+The purpose of this mode is to conduct a conversational interview to extract rich context, specific project tasks, technologies used, and measurable business impact to build or enhance `cv.md`, `config/profile.yml`, `modes/_profile.md`, and optionally `article-digest.md`.
 
 ---
 
@@ -13,6 +13,8 @@ The purpose of this mode is to conduct a conversational interview to extract ric
 - Read `cv.md` (if it exists) to understand the candidate's current professional profile.
 - Read `config/profile.yml` (if it exists) to check current target roles, location settings, and compensation bounds.
 - Read `modes/_profile.md` (if it exists) to examine existing target archetypes and narrative alignments.
+- Read `article-digest.md` if it exists. It is optional user-layer context, never a
+  prerequisite.
 
 ### 2. Interview Structure & Tone
 
@@ -53,15 +55,52 @@ Ask about adjacent experience or forgotten skills:
 
 ---
 
+### Step 4b: Optional article digest — import / build / skip
+
+First inspect `config/profile.yml` for
+`onboarding.article_digest_onboarding`. If it is already `provided` or
+`skipped`, **do not offer this choice again**. The user can still ask to revisit
+it explicitly.
+
+If the key is absent, ask this as one question:
+
+> "Optional: would you like to import an existing article digest, build one
+> together from your projects/articles/case studies, or skip it for now?"
+
+- **Import:** accept a ready `article-digest.md` supplied by the user. Preserve
+  its factual content; do not spend another generation turn rewriting it.
+- **Build:** collect projects, articles, links, metrics, and what the user
+  personally contributed, one question at a time. Use at most one bounded
+  summarization turn to structure the confirmed material.
+- **Skip:** create no digest and spend no generation turn on it. Skipping never
+  blocks onboarding, evaluation, PREPARE, or applying.
+
+Persist the choice under `onboarding:` in `config/profile.yml`:
+
+```yaml
+onboarding:
+  article_digest_onboarding: provided # or skipped
+```
+
+For import/build, write `article-digest.md` only after confirming every metric,
+project, and authorship claim from material the user actually supplied. Never
+infer authorship from tool use, a repository mention, or a link alone. Never add
+sample or placeholder claims.
+
+---
+
 ## Step 5 — Apply Updates
 
 Once the interview is complete, or once enough new details have been collected:
 1. **Update `cv.md`**: Update the professional summary, rewrite project bullet points to incorporate the new keywords and metrics, and append new skills.
 2. **Update `config/profile.yml`**: Update the targets, compensation, and narrative sections.
 3. **Update `modes/_profile.md`**: Map the new projects/proof points to the target archetypes and update the adaptive framing rules.
-4. Run `node doctor.mjs` silently to verify project integrity.
-5. Provide a summary of the files updated:
+4. **Optionally update `article-digest.md`**: only for the confirmed import/build
+   branches in Step 4b. It remains absent after skip.
+5. Run `node doctor.mjs` silently to verify project integrity.
+6. Provide a summary of the files actually updated:
    > "✅ Interactive interview completed! Updated your profile:
    > - **CV**: Refined summaries and project bullets with new metrics.
    > - **Profile config**: Updated target roles and comp expectations.
-   > - **Custom framing**: Integrated project mappings into _profile.md."
+   > - **Custom framing**: Integrated project mappings into _profile.md.
+   > - **Article digest**: Added confirmed proof points. *(include only when written)*"

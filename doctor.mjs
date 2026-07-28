@@ -5,9 +5,9 @@
  * Checks all prerequisites and prints a pass/fail checklist.
  */
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'fs';
+import { delimiter, join, dirname } from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 import yaml from 'js-yaml';
 import { discoverPlugins, pluginRoots, pluginStatus } from './plugins/_engine.mjs';
 import { resolveExtractorMode } from './browser-extract.mjs';
@@ -21,6 +21,28 @@ const JSON_OUT = argv.includes('--json');
 // --strict adds a live ATS-slug probe of portals.yml (network). Opt-in so the
 // default `npm run doctor` stays fast and fully offline.
 const STRICT = argv.includes('--strict');
+// --setup checks only the CORE RUNTIME tier. The scaffolder uses it to verify a
+// fresh clone before claiming success, WITHOUT demanding the four user-layer
+// files whose absence is exactly what triggers conversational onboarding.
+const SETUP_ONLY = argv.includes('--setup');
+
+/**
+ * Readiness tiers (Finding 5 #4).
+ *
+ * `core` is the only tier that can fail a fresh install. Everything else is a
+ * capability: absent means "that feature is unavailable", not "setup is broken".
+ * A user who never runs a live application should never be blocked by a missing
+ * browser controller.
+ */
+export const READINESS_TIERS = Object.freeze({
+  core: 'Core runtime (required)',
+  onboarding: 'Onboarding data (agent-guided)',
+  evaluation: 'Local evaluation',
+  localBrowser: 'Local Chromium (PDF / CLI extraction / liveness fallback)',
+  scan: 'Scan / JD extraction',
+  liveApply: 'Live-apply browser controller',
+  docx: 'DOCX cover letters',
+});
 
 // ANSI colors (only on TTY)
 const isTTY = process.stdout.isTTY;
@@ -29,24 +51,129 @@ const red = (s) => isTTY ? `\x1b[31m${s}\x1b[0m` : s;
 const yellow = (s) => isTTY ? `\x1b[33m${s}\x1b[0m` : s;
 const dim = (s) => isTTY ? `\x1b[2m${s}\x1b[0m` : s;
 
+// Is `cmd` resolvable on PATH? Manual lookup so it works cross-platform without
+// spawning which/where, and without any dependency.
+function onPath(cmd) {
+  const exts = process.platform === 'win32' ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';') : [''];
+  for (const dir of (process.env.PATH || '').split(delimiter)) {
+    if (!dir) continue;
+    for (const ext of exts) {
+      try {
+        if (existsSync(join(dir, cmd + ext))) return true;
+      } catch { /* unreadable PATH entry — keep looking */ }
+    }
+  }
+  return false;
+}
+
+/**
+ * The declared engine floor, read from the root package.json so the runtime
+ * check and the published contract can never disagree.
+ */
+export function declaredNodeFloor(root) {
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+    const range = String(pkg?.engines?.node || '');
+    const match = range.match(/(\d+)/);
+    return match ? Number(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 function checkNodeVersion() {
-  const major = parseInt(process.versions.node.split('.')[0]);
-  if (major >= 18) {
-    return { pass: true, label: `Node.js >= 18 (v${process.versions.node})` };
+  const major = parseInt(process.versions.node.split('.')[0], 10);
+  const floor = declaredNodeFloor(projectRoot) ?? 18;
+  if (major >= floor) {
+    return { pass: true, tier: 'core', label: `Node.js >= ${floor} (v${process.versions.node})` };
   }
   return {
     pass: false,
-    label: `Node.js >= 18 (found v${process.versions.node})`,
-    fix: 'Install Node.js 18 or later from https://nodejs.org',
+    tier: 'core',
+    label: `Node.js >= ${floor} (found v${process.versions.node})`,
+    fix: `Install Node.js ${floor} or later from https://nodejs.org`,
+  };
+}
+
+/**
+ * The SQLite tracker index is an optimization, not the product.
+ *
+ * `node:sqlite` only exists on newer Node, but the markdown tracker works
+ * everywhere. Raising the engine floor to keep the index would break installs on
+ * the LTS most of the npm audience runs — and low-friction install is this
+ * package's whole value. So: report it as available-or-not, never as a failure.
+ */
+async function checkSqliteIndex() {
+  const origEmit = process.emitWarning;
+  process.emitWarning = () => {};
+  try {
+    await import('node:sqlite');
+    return { pass: true, tier: 'evaluation', label: 'Tracker SQLite index available (optional)' };
+  } catch {
+    return {
+      warn: true,
+      tier: 'evaluation',
+      label: `Tracker SQLite index unavailable on v${process.versions.node} (optional — the markdown tracker works)`,
+      fix: [
+        'The fast `node tracker.mjs` index needs node:sqlite (Node 22.5+ without a flag).',
+        'Everything still works from data/applications.md; only the index is skipped.',
+      ],
+    };
+  } finally {
+    process.emitWarning = origEmit;
+  }
+}
+
+/**
+ * DOCX readiness. Pandoc absence is only a real problem when the profile
+ * actually requires or prefers DOCX for portal uploads — then PREPARE would fail
+ * later, so surface it now.
+ */
+function checkDocx(root) {
+  const available = onPath('pandoc');
+  let required = false;
+  try {
+    const profilePath = join(root, 'config', 'profile.yml');
+    if (existsSync(profilePath)) {
+      const profile = yaml.load(readFileSync(profilePath, 'utf8')) || {};
+      const formats = profile?.application_quality?.cover_required_formats;
+      required = Array.isArray(formats) && formats.map(String).includes('docx');
+    }
+  } catch { /* malformed profile is reported by its own check */ }
+
+  if (available) {
+    return { pass: true, tier: 'docx', label: 'DOCX cover letters available (pandoc found)' };
+  }
+  if (required) {
+    return {
+      pass: false,
+      tier: 'docx',
+      label: 'DOCX is required by config/profile.yml but pandoc is not installed',
+      fix: [
+        'application_quality.cover_required_formats includes "docx", so PREPARE will fail.',
+        'Install pandoc (https://pandoc.org/installing.html), or remove "docx" from that list.',
+      ],
+    };
+  }
+  return {
+    warn: true,
+    tier: 'docx',
+    label: 'DOCX cover letters unavailable (pandoc not installed — optional)',
+    fix: [
+      'DOCX out-parses PDF on Workday, Greenhouse, Lever, iCIMS and Taleo, and some',
+      'AU government / university portals require it. Install pandoc to enable it:',
+      'https://pandoc.org/installing.html',
+    ],
   };
 }
 
 function checkDependencies() {
   if (existsSync(join(projectRoot, 'node_modules'))) {
-    return { pass: true, label: 'Dependencies installed' };
+    return { pass: true, tier: 'core', label: 'Dependencies installed' };
   }
   return {
     pass: false,
+    tier: 'core',
     label: 'Dependencies not installed',
     fix: 'Run: npm install',
   };
@@ -58,9 +185,13 @@ async function checkPlaywright() {
     ({ chromium } = await import('playwright'));
   } catch {
     return {
-      pass: false,
-      label: 'Playwright chromium not installed',
-      fix: 'Run: npx playwright install chromium',
+      warn: true,
+      tier: 'localBrowser',
+      label: 'Local Chromium unavailable (Playwright package is not installed)',
+      fix: [
+        'Run `npm install`, then `npx playwright install chromium`.',
+        'PDF rendering, CLI extraction, and non-ATS liveness fallback are unavailable until then.',
+      ],
     };
   }
   // Validate by launching — chromium.executablePath() points at Chrome for Testing
@@ -71,11 +202,16 @@ async function checkPlaywright() {
   let browser;
   try {
     browser = await chromium.launch({ headless: true });
-    return { pass: true, label: 'Playwright chromium installed' };
+    return {
+      pass: true,
+      tier: 'localBrowser',
+      label: 'Local Chromium launch succeeded (PDF / CLI extraction / liveness fallback)',
+    };
   } catch {
     return {
-      pass: false,
-      label: 'Playwright chromium not installed',
+      warn: true,
+      tier: 'localBrowser',
+      label: 'Local Chromium launch failed (PDF / CLI extraction / liveness fallback unavailable)',
       fix: 'Run: npx playwright install chromium',
     };
   } finally {
@@ -83,16 +219,19 @@ async function checkPlaywright() {
   }
 }
 
-// The browser tools (`browser_navigate` / `browser_snapshot`) that scan / pipeline /
-// apply rely on are provided by the Playwright MCP server, usually registered through a
-// project-level MCP config (for example `.mcp.json`, `.claude/settings.json`, or
-// `.claude/settings.local.json`). When no common config is detected, SPA job boards can
-// silently return empty or stale content (#522), so doctor surfaces a non-fatal warning
-// instead of letting it fail invisibly.
-const PLAYWRIGHT_MCP_WARNING = 'Playwright MCP tools not detected';
+// Doctor can launch local Chromium, but it cannot invoke tools owned by the
+// active agent CLI. Reading a config file is therefore only evidence that a
+// Playwright MCP server was REFERENCED, never proof that `browser_navigate` /
+// `browser_snapshot` are installed, connected, or callable in this session.
+const LIVE_BROWSER_UNVERIFIED = 'Live browser-controller capability not verified by doctor';
 
-function playwrightMcpConfigured(root) {
-  const configFiles = ['.mcp.json', '.claude/settings.json', '.claude/settings.local.json'];
+function playwrightMcpConfigReferenced(root) {
+  const configFiles = [
+    '.mcp.json',
+    '.claude/settings.json',
+    '.claude/settings.local.json',
+    '.cursor/mcp.json',
+  ];
   for (const rel of configFiles) {
     const file = join(root, ...rel.split('/'));
     if (!existsSync(file)) continue;
@@ -111,36 +250,101 @@ function playwrightMcpConfigured(root) {
 }
 
 // Report which scan/JD extractor is active (config/profile.yml → scan.extractor).
-// `mcp` (default) uses the browser MCP; `cli` uses browser-extract.mjs. When cli
-// is selected but the helper is missing, the modes fall back to MCP — surface
-// that as a warning, never a failure.
-function checkScanExtractor(root) {
+// `mcp` (default) uses browser tools owned by the active CLI; doctor cannot
+// capability-test those tools. `cli` uses browser-extract.mjs and is ready only
+// when the helper exists AND the local Chromium launch above succeeded.
+function checkScanExtractor(root, chromiumUsable) {
   const mode = resolveExtractorMode(join(root, 'config', 'profile.yml'));
   if (mode === 'cli') {
-    if (existsSync(join(root, 'browser-extract.mjs'))) {
-      return { pass: true, label: 'Scan extractor: cli (browser-extract.mjs)' };
+    if (!existsSync(join(root, 'browser-extract.mjs'))) {
+      return {
+        warn: true,
+        tier: 'scan',
+        label: 'Scan extractor: CLI selected, but browser-extract.mjs is missing',
+        fix: [
+          'Restore browser-extract.mjs, or set `scan.extractor: mcp` in config/profile.yml.',
+          'The MCP fallback is usable only if the active CLI exposes its browser tools.',
+        ],
+      };
+    }
+    if (chromiumUsable) {
+      return {
+        pass: true,
+        tier: 'scan',
+        label: 'Scan extractor: CLI helper ready (local Chromium launch verified)',
+      };
     }
     return {
       warn: true,
-      label: 'Scan extractor: cli set, but browser-extract.mjs is missing — falls back to MCP',
-      fix: ['Restore browser-extract.mjs, or set `scan.extractor: mcp` in config/profile.yml.'],
+      tier: 'scan',
+      label: 'Scan extractor: CLI selected, but local Chromium is unavailable',
+      fix: [
+        'Run `npx playwright install chromium` to enable browser-extract.mjs.',
+        'ATS API scanning still works; browser-backed boards and JD extraction need Chromium or active MCP tools.',
+      ],
     };
   }
-  return { pass: true, label: 'Scan extractor: mcp (default)' };
-}
-
-function checkPlaywrightMcp(root) {
-  if (playwrightMcpConfigured(root)) {
-    return { pass: true, label: 'Playwright MCP server configured' };
-  }
+  const configReference = playwrightMcpConfigReferenced(root);
   return {
     warn: true,
-    label: PLAYWRIGHT_MCP_WARNING,
+    tier: 'scan',
+    label: configReference
+      ? 'Scan extractor: MCP selected; project config reference found, capability not verified'
+      : 'Scan extractor: MCP selected; active CLI browser tools not verified',
     fix: [
-      'Browser-driven JD fetching and liveness checks (scan / pipeline / apply) need the',
-      'Playwright MCP server. No project-level MCP config was detected in `.mcp.json`',
-      'or `.claude/settings*.json`, so SPA job boards may return empty or stale content.',
-      'Tracking: https://github.com/santifer/career-ops/issues/506',
+      'Doctor cannot invoke MCP tools. Confirm `browser_navigate` and `browser_snapshot`',
+      'are available in the active CLI before relying on browser-backed boards or JD extraction.',
+      'ATS API scanning remains available without MCP.',
+    ],
+  };
+}
+
+// Per-CLI setup for the browser controller that live apply drives. career-ops
+// never writes into a user's CLI config — that is invasive across supported
+// CLIs, and the absence of a PROJECT `.mcp.json` does not prove the
+// user lacks a GLOBAL one. We only report observable configuration/PATH signals
+// and print setup hints; this is explicitly NOT an MCP capability probe.
+const BROWSER_CONTROLLER_SETUP = [
+  { cmd: 'claude', name: 'Claude Code', hint: 'claude mcp add playwright -- npx -y @playwright/mcp@latest' },
+  { cmd: 'cursor', name: 'Cursor', hint: 'add a `playwright` server in Cursor Settings > Tools & MCP (project scope: .cursor/mcp.json)' },
+  { cmd: 'codex', name: 'Codex', hint: 'codex mcp add playwright -- npx -y @playwright/mcp@latest' },
+  { cmd: 'opencode', name: 'OpenCode', hint: 'add a `playwright` entry to your opencode.json `mcp` block' },
+  { cmd: 'gemini', name: 'Gemini CLI', hint: 'add a `playwright` entry to ~/.gemini/settings.json `mcpServers`' },
+  { cmd: 'qwen', name: 'Qwen Code', hint: 'add a `playwright` entry to your Qwen settings `mcpServers`' },
+  { cmd: 'kimi', name: 'Kimi', hint: 'add a `playwright` entry to your Kimi MCP configuration' },
+  { cmd: 'copilot', name: 'GitHub Copilot CLI', hint: 'add a `playwright` entry to your Copilot CLI MCP config' },
+  { cmd: 'agy', name: 'Antigravity CLI', hint: 'add a `playwright` entry to your Antigravity MCP config' },
+  { cmd: 'grok', name: 'Grok Build CLI', hint: 'add a `playwright` entry to your Grok Build MCP config' },
+];
+
+/**
+ * Report live-apply browser-controller readiness without overstating it.
+ *
+ * A project config reference and an installed CLI are setup hints only. Local
+ * Chromium is a separate capability and is NOT evidence that the active CLI can
+ * drive the shared live-application tab. The apply contract verifies the actual
+ * browser tools at execution time.
+ */
+function checkBrowserController(root) {
+  const configReference = playwrightMcpConfigReferenced(root);
+  const detected = BROWSER_CONTROLLER_SETUP.filter((entry) => onPath(entry.cmd));
+  const setupLines = detected.length
+    ? detected.map((entry) => `${entry.name}:  ${entry.hint}`)
+    : ['No supported CLI detected on PATH yet. Install one, then re-run `npm run doctor`.'];
+  return {
+    warn: true,
+    tier: 'liveApply',
+    label: configReference
+      ? `${LIVE_BROWSER_UNVERIFIED} (project MCP config reference found)`
+      : `${LIVE_BROWSER_UNVERIFIED} (no project MCP config reference found)`,
+    fix: [
+      configReference
+        ? 'A readable config entry does not prove the server started or its tools are callable.'
+        : 'A global MCP configuration may still exist; doctor cannot inspect the active CLI session.',
+      'Before live apply, confirm `browser_navigate` and `browser_snapshot` are available.',
+      'Setup hint for each detected CLI:',
+      ...setupLines,
+      'Scanning, JD extraction, and liveness checks keep working without MCP when `scan.extractor: cli` and local Chromium are available.',
     ],
   };
 }
@@ -186,9 +390,9 @@ function prereqPresent(root, path) {
 
 function checkPrereq({ path, fix }) {
   if (prereqPresent(projectRoot, path)) {
-    return { pass: true, label: `${path} found` };
+    return { pass: true, tier: 'onboarding', label: `${path} found` };
   }
-  return { pass: false, label: `${path} not found`, fix };
+  return { pass: false, tier: 'onboarding', label: `${path} not found`, fix };
 }
 
 function checkFonts() {
@@ -196,6 +400,7 @@ function checkFonts() {
   if (!existsSync(fontsDir)) {
     return {
       pass: false,
+      tier: 'core',
       label: 'fonts/ directory not found',
       fix: 'The fonts/ directory is required for PDF generation',
     };
@@ -205,6 +410,7 @@ function checkFonts() {
     if (files.length === 0) {
       return {
         pass: false,
+        tier: 'core',
         label: 'fonts/ directory is empty',
         fix: 'The fonts/ directory must contain font files for PDF generation',
       };
@@ -212,24 +418,26 @@ function checkFonts() {
   } catch {
     return {
       pass: false,
+      tier: 'core',
       label: 'fonts/ directory not readable',
       fix: 'Check permissions on the fonts/ directory',
     };
   }
-  return { pass: true, label: 'Fonts directory ready' };
+  return { pass: true, tier: 'core', label: 'Fonts directory ready' };
 }
 
 function checkAutoDir(name) {
   const dirPath = join(projectRoot, name);
   if (existsSync(dirPath)) {
-    return { pass: true, label: `${name}/ directory ready` };
+    return { pass: true, tier: 'core', label: `${name}/ directory ready` };
   }
   try {
     mkdirSync(dirPath, { recursive: true });
-    return { pass: true, label: `${name}/ directory ready (auto-created)` };
+    return { pass: true, tier: 'core', label: `${name}/ directory ready (auto-created)` };
   } catch {
     return {
       pass: false,
+      tier: 'core',
       label: `${name}/ directory could not be created`,
       fix: `Run: mkdir ${name}`,
     };
@@ -281,14 +489,15 @@ Paste job URLs below as \`- [ ] {url}\` then run \`/career-ops pipeline\`.
 function checkPipelineFile() {
   const filePath = join(projectRoot, 'data', 'pipeline.md');
   if (existsSync(filePath)) {
-    return { pass: true, label: 'data/pipeline.md ready' };
+    return { pass: true, tier: 'core', label: 'data/pipeline.md ready' };
   }
   try {
     writeFileSync(filePath, PIPELINE_SKELETON, 'utf-8');
-    return { pass: true, label: 'data/pipeline.md ready (auto-created)' };
+    return { pass: true, tier: 'core', label: 'data/pipeline.md ready (auto-created)' };
   } catch {
     return {
       pass: false,
+      tier: 'core',
       label: 'data/pipeline.md could not be created',
       fix: 'Run: mkdir -p data && touch data/pipeline.md',
     };
@@ -325,59 +534,83 @@ async function main() {
   console.log('\ncareer-ops doctor');
   console.log('================\n');
 
+  const chromium = await checkPlaywright();
+  const chromiumUsable = chromium.pass === true;
+
   const checks = [
     checkNodeVersion(),
     checkDependencies(),
-    await checkPlaywright(),
-    checkPlaywrightMcp(projectRoot),
-    checkScanExtractor(projectRoot),
-    ...USER_LAYER_PREREQS.map(checkPrereq),
     checkFonts(),
     checkAutoDir('data'),
     checkPipelineFile(),
     checkAutoDir('output'),
     checkAutoDir('reports'),
+    ...(SETUP_ONLY ? [] : USER_LAYER_PREREQS.map(checkPrereq)),
+    chromium,
+    await checkSqliteIndex(),
+    checkScanExtractor(projectRoot, chromiumUsable),
+    checkBrowserController(projectRoot),
+    checkDocx(projectRoot),
     checkPlugins(projectRoot),
   ];
 
   // Network-bound ATS slug probe — only under --strict.
-  if (STRICT) {
+  if (STRICT && !SETUP_ONLY) {
     checks.push(await checkPortalSlugs(projectRoot));
   }
 
-  let failures = 0;
+  let blocking = 0;
+  let advisory = 0;
   let warnings = 0;
 
-  for (const result of checks) {
+  const printCheck = (result) => {
     const fixes = Array.isArray(result.fix) ? result.fix : result.fix ? [result.fix] : [];
     if (result.warn) {
       warnings++;
       console.log(`${yellow('⚠')} ${result.label}`);
-      for (const hint of fixes) {
-        console.log(`  ${dim('→ ' + hint)}`);
-      }
     } else if (result.pass) {
       console.log(`${green('✓')} ${result.label}`);
+      return;
     } else {
-      failures++;
+      // Only the core tier can block. Everything else is a capability gap: the
+      // feature is unavailable, but career-ops is not broken.
+      if (result.tier === 'core') blocking++;
+      else advisory++;
       console.log(`${red('✗')} ${result.label}`);
-      for (const hint of fixes) {
-        console.log(`  ${dim('→ ' + hint)}`);
-      }
     }
-  }
+    for (const hint of fixes) console.log(`  ${dim('→ ' + hint)}`);
+  };
 
-  console.log('');
-  if (failures > 0) {
-    console.log(`Result: ${failures} issue${failures === 1 ? '' : 's'} found. Fix them and run \`npm run doctor\` again.`);
-    process.exit(1);
-  } else {
-    const warnNote = warnings > 0 ? ` (${warnings} warning${warnings === 1 ? '' : 's'} — see above)` : '';
-    console.log(`Result: All checks passed${warnNote}. You're ready to go! Run \`claude\` (or \`opencode\`) to start.`);
+  // Group by readiness tier so a user can see at a glance which capabilities
+  // they have, instead of one flat list where a missing pandoc looks as fatal as
+  // a missing node_modules.
+  for (const [tier, heading] of Object.entries(READINESS_TIERS)) {
+    const group = checks.filter((result) => (result.tier ?? 'core') === tier);
+    if (group.length === 0) continue;
+    console.log(dim(`${heading}`));
+    for (const result of group) printCheck(result);
     console.log('');
-    console.log('Join the community: https://discord.gg/8pRpHETxa4');
+  }
+  const untagged = checks.filter((result) => !Object.keys(READINESS_TIERS).includes(result.tier ?? 'core'));
+  for (const result of untagged) printCheck(result);
+
+  if (blocking > 0) {
+    console.log(`Result: ${blocking} blocking issue${blocking === 1 ? '' : 's'} in the core runtime. Fix them and run \`npm run doctor\` again.`);
+    process.exit(1);
+  }
+  if (advisory > 0 && !SETUP_ONLY) {
+    console.log(`Result: core runtime is fine, but ${advisory} item${advisory === 1 ? '' : 's'} above still need${advisory === 1 ? 's' : ''} attention before the matching feature works.`);
+    process.exit(1);
+  }
+  const warnNote = warnings > 0 ? ` (${warnings} optional capability warning${warnings === 1 ? '' : 's'} — see above)` : '';
+  if (SETUP_ONLY) {
+    console.log(`Result: core runtime is ready${warnNote}.`);
     process.exit(0);
   }
+  console.log(`Result: All checks passed${warnNote}. You're ready to go! Run \`claude\` (or \`opencode\`) to start.`);
+  console.log('');
+  console.log('Join the community: https://discord.gg/8pRpHETxa4');
+  process.exit(0);
 }
 
 // Single source of truth for the cold-start state: the same four user-layer
@@ -406,7 +639,12 @@ function onboardingState(root) {
   const missing = USER_LAYER_PREREQS
     .filter(({ path }) => !prereqPresent(root, path))
     .map(({ path }) => path);
-  const warnings = playwrightMcpConfigured(root) ? [] : [PLAYWRIGHT_MCP_WARNING];
+  const configReference = playwrightMcpConfigReferenced(root);
+  const warnings = [
+    configReference
+      ? `${LIVE_BROWSER_UNVERIFIED} (project MCP config reference found)`
+      : `${LIVE_BROWSER_UNVERIFIED} (no project MCP config reference found)`,
+  ];
   let plugins = [];
   try {
     const cfg = readPluginConfigSync(root);
@@ -418,12 +656,20 @@ function onboardingState(root) {
   return { onboardingNeeded: missing.length > 0, missing, warnings, autoCopied, plugins };
 }
 
-if (JSON_OUT) {
-  console.log(JSON.stringify(onboardingState(projectRoot)));
-  process.exit(0);
-} else {
-  main().catch((err) => {
-    console.error('doctor.mjs failed:', err.message);
-    process.exit(1);
-  });
+// Only run when invoked directly. `READINESS_TIERS` / `declaredNodeFloor` are
+// importable, and an import must never launch the checklist or call process.exit
+// inside the importing process.
+const isMain = process.argv[1]
+  && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+
+if (isMain) {
+  if (JSON_OUT) {
+    console.log(JSON.stringify(onboardingState(projectRoot)));
+    process.exit(0);
+  } else {
+    main().catch((err) => {
+      console.error('doctor.mjs failed:', err.message);
+      process.exit(1);
+    });
+  }
 }

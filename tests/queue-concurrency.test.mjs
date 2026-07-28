@@ -80,6 +80,10 @@ try {
   else process.env.CAREER_OPS_DATA_DIR = oldData;
   if (oldBackend == null) delete process.env.CAREER_OPS_QUEUE_BACKEND;
   else process.env.CAREER_OPS_QUEUE_BACKEND = oldBackend;
-  rmSync(dataDir, { recursive: true, force: true });
+  // Four workers just contended on lock files in this directory. On a loaded
+  // machine a lock can be released between rmSync's directory walk and its
+  // unlink, which surfaces as ENOTEMPTY even with force:true. Retry rather than
+  // failing the suite on a teardown race that proves nothing about the code.
+  rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 }
 

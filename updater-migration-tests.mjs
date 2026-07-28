@@ -7,7 +7,21 @@
  * newly introduced system paths without touching user data.
  */
 
-import { readFileSync } from 'fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import {
+  LEGACY_VOICE_DNA_MIGRATION_MARKER,
+  preserveLegacyVoiceDna,
+  voiceDnaOwnershipFromUpdaterSource,
+} from './update-system.mjs';
 
 let passed = 0;
 let failed = 0;
@@ -75,6 +89,7 @@ const requiredSystemPaths = [
   'generate-cover-markdown.mjs',
   'generate-cover-formats.mjs',
   'cover-format-policy.mjs',
+  'voice-dna.md',
   'CODE_OF_CONDUCT.md',
   'GOVERNANCE.md',
   'SECURITY.md',
@@ -168,6 +183,75 @@ const twoPassManifestChecks = [
 for (const check of twoPassManifestChecks) {
   if (check.pattern.test(source)) pass(check.name);
   else fail(check.name);
+}
+
+// voice-dna.md moved from the legacy user layer to the shared system layer.
+// Prove the transition preserves customized bytes before the normal checkout,
+// is one-time, and recognizes old/new updater manifests deterministically.
+const legacyUpdater = `
+const SYSTEM_PATHS = ['doctor.mjs'];
+const USER_PATHS = ['cv.md', 'voice-dna.md'];
+`;
+const sharedUpdater = `
+const SYSTEM_PATHS = ['doctor.mjs', 'voice-dna.md'];
+const USER_PATHS = ['cv.md'];
+`;
+if (
+  voiceDnaOwnershipFromUpdaterSource(legacyUpdater) === 'user'
+  && voiceDnaOwnershipFromUpdaterSource(sharedUpdater) === 'system'
+) {
+  pass('voice-dna ownership migration distinguishes legacy user and new system manifests');
+} else {
+  fail('voice-dna ownership migration could not distinguish old/new updater manifests');
+}
+
+const voiceTmp = mkdtempSync(join(tmpdir(), 'career-ops-voice-migration-'));
+try {
+  mkdirSync(join(voiceTmp, 'writing-samples'), { recursive: true });
+  const customVoice = '# My custom voice\nKeep this exact sentence.\n';
+  writeFileSync(join(voiceTmp, 'voice-dna.md'), customVoice, 'utf8');
+  const first = preserveLegacyVoiceDna(
+    voiceTmp,
+    '# New shared default\n',
+    { log: () => {} },
+  );
+  const backupPath = first.backup ? join(voiceTmp, ...first.backup.split('/')) : '';
+  if (
+    first.status === 'preserved'
+    && backupPath
+    && readFileSync(backupPath, 'utf8') === customVoice
+    && readFileSync(join(voiceTmp, 'voice-dna.md'), 'utf8') === customVoice
+    && existsSync(join(voiceTmp, ...LEGACY_VOICE_DNA_MIGRATION_MARKER.split('/')))
+  ) {
+    pass('legacy customized voice-dna bytes are backed up before the shared default checkout');
+  } else {
+    fail('legacy customized voice-dna was not preserved exactly');
+  }
+
+  writeFileSync(join(voiceTmp, 'voice-dna.md'), '# Later local edit\n', 'utf8');
+  const second = preserveLegacyVoiceDna(
+    voiceTmp,
+    '# Another shared default\n',
+    { log: () => {} },
+  );
+  if (
+    second.status === 'already-migrated'
+    && readFileSync(backupPath, 'utf8') === customVoice
+  ) {
+    pass('voice-dna ownership preservation is one-time and never overwrites its backup');
+  } else {
+    fail('voice-dna migration repeated or overwrote the original backup');
+  }
+} finally {
+  rmSync(voiceTmp, { recursive: true, force: true });
+}
+
+const migrationIdx = source.indexOf('preserveLegacyVoiceDna(ROOT, incomingVoiceDna)');
+const checkoutIdx = source.indexOf("git('checkout', 'FETCH_HEAD', '--', path)");
+if (migrationIdx > 0 && checkoutIdx > migrationIdx) {
+  pass('apply preserves legacy voice-dna before checking out system files');
+} else {
+  fail('apply does not preserve legacy voice-dna before the system checkout');
 }
 
 for (const userPath of ['cv.md', 'config/profile.yml', 'modes/_profile.md', 'portals.yml', 'data/', 'reports/']) {

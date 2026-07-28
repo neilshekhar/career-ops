@@ -76,12 +76,31 @@ async function loadSqlite() {
     const { DatabaseSync } = await import('node:sqlite');
     return DatabaseSync;
   } catch {
-    console.error('Error: node:sqlite is not available. tracker.mjs needs Node >= 22.5 (you are on ' + process.version + ').');
-    console.error('The markdown tracker keeps working without it — the index is optional.');
-    process.exit(1);
+    // The index is an OPTIMIZATION, not the product. `data/applications.md` is
+    // the source of truth, so a runtime without node:sqlite must degrade to
+    // reading the markdown, never terminate the command. Raising the engine
+    // floor to 22.5 just to keep the index would break installs on the LTS most
+    // of the npm audience runs — and low-friction install is the whole value.
+    return null;
   } finally {
     process.emitWarning = origEmit; // the warning fires at import time — safe to restore here
   }
+}
+
+/** One place to say why the index is unavailable, in the same words every time. */
+function indexUnavailableNote(action) {
+  return `node:sqlite is unavailable on ${process.version}, so ${action} `
+    + `reads ${MD_PATH} directly. The index is optional; nothing is lost.`;
+}
+
+/**
+ * Open the index, or return null when this runtime has no node:sqlite.
+ * Callers must handle null by falling back to the markdown.
+ */
+async function openIndexOrNull() {
+  const DatabaseSync = await loadSqlite();
+  if (!DatabaseSync) return null;
+  return openDb(DatabaseSync);
 }
 
 function openDb(DatabaseSync) {
@@ -346,8 +365,16 @@ async function sync(args) {
     process.exit(issues > 0 ? 1 : 0);
   }
 
-  const DatabaseSync = await loadSqlite();
-  const db = openDb(DatabaseSync);
+  const db = await openIndexOrNull();
+  if (!db) {
+    // Still do the useful half: parse and report corruption. Only the index
+    // write is skipped, and that is not an error condition.
+    const { apps, diag } = parseTracker(states);
+    console.error(`Parsed ${apps.length} applications from ${MD_PATH}; index not written.`);
+    console.error(indexUnavailableNote('sync'));
+    reportDiagnostics(diag);
+    return;
+  }
   const { apps, diag } = syncIndex(db, states);
   console.error(`Indexed ${apps.length} applications from ${MD_PATH} into ${DB_PATH}`);
   reportDiagnostics(diag);
@@ -380,10 +407,69 @@ function rowToMarkdown(r) {
   return `| ${r.id} | ${clean(r.date)} | ${clean(r.company)} | ${clean(r.role)} | ${clean(r.score)} | ${clean(r.status)} | ${clean(r.pdf)} | ${clean(r.report)} | ${clean(r.notes)} |`;
 }
 
+/**
+ * The same filters `query` applies in SQL, applied in JS over parsed markdown
+ * rows. Used when this runtime has no node:sqlite. Deliberately mirrors the SQL
+ * semantics: LIKE %x% is a case-insensitive substring, --since is inclusive.
+ */
+function filterAppsInMemory(apps, args, states) {
+  let rows = [...apps];
+  const status = flagValue(args, '--status');
+  if (status) {
+    const canonical = normalizeStatus(status, states);
+    if (!canonical) {
+      console.error(`Error: unknown status "${status}". Canonical: ${states.labels.join(', ')}`);
+      process.exit(1);
+    }
+    rows = rows.filter((row) => row.status === canonical);
+  }
+  const company = flagValue(args, '--company');
+  if (company) {
+    const needle = company.toLowerCase();
+    rows = rows.filter((row) => String(row.company).toLowerCase().includes(needle));
+  }
+  const role = flagValue(args, '--role');
+  if (role) {
+    const needle = role.toLowerCase();
+    rows = rows.filter((row) => String(row.role).toLowerCase().includes(needle));
+  }
+  const since = flagValue(args, '--since');
+  if (since) {
+    if (!DATE_RE.test(since)) { console.error('Error: --since must be YYYY-MM-DD'); process.exit(1); }
+    rows = rows.filter((row) => String(row.date) >= since);
+  }
+  const id = flagValue(args, '--id');
+  if (id) {
+    const wanted = parseInt(id, 10);
+    rows = rows.filter((row) => row.id === wanted);
+  }
+  rows.sort((left, right) => right.id - left.id);
+  const limit = parseInt(flagValue(args, '--limit') || '0', 10);
+  return limit > 0 ? rows.slice(0, limit) : rows;
+}
+
+function printQueryRows(rows, args) {
+  if (args.includes('--json')) {
+    console.log(JSON.stringify(rows, null, 2));
+    return;
+  }
+  console.log(HEADER);
+  console.log(SEPARATOR);
+  for (const r of rows) console.log(rowToMarkdown(r));
+  console.error(`\n${rows.length} row(s)`); // stderr so stdout stays pipeable
+}
+
 async function query(args) {
-  const DatabaseSync = await loadSqlite();
-  const db = openDb(DatabaseSync);
   const states = loadStates();
+  const db = await openIndexOrNull();
+  if (!db) {
+    console.error(indexUnavailableNote('query'));
+    const { apps } = parseTracker(states);
+    const projected = apps.map(({ id, date, company, role, score, status, pdf, report, notes }) =>
+      ({ id, date, company, role, score, status, pdf, report, notes }));
+    printQueryRows(filterAppsInMemory(projected, args, states), args);
+    return;
+  }
   ensureFresh(db, states);
 
   const where = [];
@@ -411,21 +497,27 @@ async function query(args) {
   const limit = parseInt(flagValue(args, '--limit') || '0', 10);
   if (limit > 0) { sql += ' LIMIT ?'; params.push(limit); }
 
-  const rows = db.prepare(sql).all(...params);
-  if (args.includes('--json')) {
-    console.log(JSON.stringify(rows, null, 2));
-  } else {
-    console.log(HEADER);
-    console.log(SEPARATOR);
-    for (const r of rows) console.log(rowToMarkdown(r));
-    console.error(`\n${rows.length} row(s)`); // stderr so stdout stays pipeable
-  }
+  printQueryRows(db.prepare(sql).all(...params), args);
 }
 
 async function history(args) {
-  const DatabaseSync = await loadSqlite();
-  const db = openDb(DatabaseSync);
-  ensureFresh(db, loadStates());
+  const states = loadStates();
+  const db = await openIndexOrNull();
+  if (!db) {
+    // Status *history* only exists in the index (status_events). The markdown
+    // holds the current state, so report that truthfully instead of pretending
+    // to have a timeline or failing outright.
+    console.error(indexUnavailableNote('history'));
+    const id = parseInt(flagValue(args, '--id') || '', 10);
+    if (!Number.isInteger(id)) { console.error('Error: history requires --id N'); process.exit(1); }
+    const app = parseTracker(states).apps.find((row) => row.id === id);
+    if (!app) { console.error(`Error: no application with id ${id}`); process.exit(1); }
+    console.log(`#${app.id} ${app.company} — ${app.role}`);
+    console.log(`  ${app.date}  ${app.status}   (current state only)`);
+    console.error('Status history needs the SQLite index; only the current status is in the markdown.');
+    return;
+  }
+  ensureFresh(db, states);
   const id = parseInt(flagValue(args, '--id') || '', 10);
   if (!Number.isInteger(id)) { console.error('Error: history requires --id N'); process.exit(1); }
   const app = db.prepare('SELECT * FROM applications WHERE id = ?').get(id);
@@ -443,10 +535,19 @@ async function history(args) {
 // applications.md unless explicitly asked to via --out.
 
 async function exportMd(args) {
-  const DatabaseSync = await loadSqlite();
-  const db = openDb(DatabaseSync);
-  ensureFresh(db, loadStates());
-  const rows = db.prepare('SELECT * FROM applications ORDER BY pos').all();
+  const states = loadStates();
+  const db = await openIndexOrNull();
+  // Export regenerates the canonical table from normalized rows. `parseTracker`
+  // produces exactly the same normalized shape the index stores, so the markdown
+  // fallback is a true equivalent, not a degraded one.
+  let rows;
+  if (!db) {
+    console.error(indexUnavailableNote('export'));
+    rows = parseTracker(states).apps;
+  } else {
+    ensureFresh(db, states);
+    rows = db.prepare('SELECT * FROM applications ORDER BY pos').all();
+  }
   const out = [
     '# Applications Tracker',
     '',
@@ -521,15 +622,20 @@ async function deleteApp(args) {
     writeFileAtomic(MD_PATH, newContent);
     // Rebuild the derived SQLite index while the tracker snapshot is still
     // protected by the shared writer lock.
+    let reindexed = false;
     try {
       const states = loadStates();
-      const DatabaseSync = await loadSqlite();
-      const db = openDb(DatabaseSync);
-      syncIndex(db, states);
+      const db = await openIndexOrNull();
+      if (db) {
+        syncIndex(db, states);
+        reindexed = true;
+      }
+      else console.error(`(row removed; ${indexUnavailableNote('the index resync')})`);
     } catch (e) {
       console.error(`(row removed; index resync skipped: ${e.message})`);
     }
-    console.error(`Removed application ${num} (${removedCount} row${removedCount > 1 ? 's' : ''}) from ${MD_PATH} and reindexed.`);
+    const indexResult = reindexed ? ' and reindexed' : '';
+    console.error(`Removed application ${num} (${removedCount} row${removedCount > 1 ? 's' : ''}) from ${MD_PATH}${indexResult}.`);
     if (report) console.error(`Note: report file may now be orphaned — ${report}`);
   } finally {
     lock?.release();

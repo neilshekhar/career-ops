@@ -5140,36 +5140,42 @@ if (!sqliteAvailable) {
   }
 }
 
-// ── 12b. PLAYWRIGHT MCP DETECTION WARNING (#522) ────────────────
+// ── 12b. PLAYWRIGHT MCP READINESS SIGNAL (#522) ────────────────
 
 console.log('\n12d. Playwright MCP detection warning');
 
 try {
   const doctorScript = readFile('doctor.mjs');
   if (
-    !/Claude Code config/i.test(doctorScript) &&
-    /project-level MCP config/i.test(doctorScript) &&
+    /explicitly NOT an MCP capability probe/.test(doctorScript) &&
     /\.mcp\.json/.test(doctorScript) &&
     /\.claude\/settings\.json/.test(doctorScript) &&
-    /\.claude\/settings\.local\.json/.test(doctorScript)
+    /\.claude\/settings\.local\.json/.test(doctorScript) &&
+    /\.cursor\/mcp\.json/.test(doctorScript)
   ) {
-    pass('doctor Playwright MCP guidance is agent-neutral and keeps conservative config detection');
+    pass('doctor Playwright MCP guidance is agent-neutral and labels config detection as non-capability evidence');
   } else {
-    fail('doctor Playwright MCP guidance is still Claude-specific or lost config detection');
+    fail('doctor Playwright MCP guidance lost its agent-neutral config-reference boundary');
   }
 
-  // No project MCP config → doctor surfaces a (non-fatal) warning instead of
-  // letting SPA job boards fail silently.
+  // No project MCP config → doctor surfaces a non-fatal, explicitly unverified
+  // capability warning instead of pretending the controller is absent.
   const noMcp = mkdtempSync(join(tmpdir(), 'co-nomcp-'));
   const a = JSON.parse(run(NODE, ['doctor.mjs', '--json', '--target', noMcp]) || '{}');
-  if (Array.isArray(a.warnings) && a.warnings.some((w) => /playwright mcp/i.test(w))) {
-    pass('No Playwright MCP config → warning surfaced');
+  if (
+    Array.isArray(a.warnings)
+    && a.warnings.some((w) =>
+      /capability not verified by doctor/i.test(w)
+      && /no project MCP config reference found/i.test(w))
+  ) {
+    pass('No Playwright MCP config → unverified capability warning surfaced');
   } else {
-    fail(`Expected a Playwright MCP warning, got: ${JSON.stringify(a.warnings)}`);
+    fail(`Expected an unverified browser-controller warning, got: ${JSON.stringify(a.warnings)}`);
   }
   rmSync(noMcp, { recursive: true, force: true });
 
-  // A project that registers a Playwright MCP server → no warning.
+  // A config reference is useful setup evidence, but not proof the server
+  // started or that tools are callable in the current agent session.
   const withMcp = mkdtempSync(join(tmpdir(), 'co-mcp-'));
   mkdirSync(join(withMcp, '.claude'), { recursive: true });
   writeFileSync(
@@ -5177,10 +5183,16 @@ try {
     JSON.stringify({ mcpServers: { playwright: { command: 'npx', args: ['@playwright/mcp', '--headless'] } } }),
   );
   const b = JSON.parse(run(NODE, ['doctor.mjs', '--json', '--target', withMcp]) || '{}');
-  if (Array.isArray(b.warnings) && !b.warnings.some((w) => /playwright mcp/i.test(w))) {
-    pass('Playwright MCP configured → no warning');
+  if (
+    Array.isArray(b.warnings)
+    && b.warnings.some((w) =>
+      /capability not verified by doctor/i.test(w)
+      && /project MCP config reference found/i.test(w)
+      && !/no project MCP config/i.test(w))
+  ) {
+    pass('Playwright MCP config reference is detected without overstating live capability');
   } else {
-    fail(`Did not expect a Playwright MCP warning, got: ${JSON.stringify(b.warnings)}`);
+    fail(`Expected a config-reference/unverified warning, got: ${JSON.stringify(b.warnings)}`);
   }
   rmSync(withMcp, { recursive: true, force: true });
 
@@ -5192,10 +5204,16 @@ try {
     JSON.stringify({ mcpServers: { browser: { command: 'npx', args: ['@playwright/mcp'] } } }),
   );
   const c = JSON.parse(run(NODE, ['doctor.mjs', '--json', '--target', withLocalMcp]) || '{}');
-  if (Array.isArray(c.warnings) && !c.warnings.some((w) => /playwright mcp/i.test(w))) {
-    pass('Playwright MCP configured via .claude/settings.local.json → no warning');
+  if (
+    Array.isArray(c.warnings)
+    && c.warnings.some((w) =>
+      /capability not verified by doctor/i.test(w)
+      && /project MCP config reference found/i.test(w)
+      && !/no project MCP config/i.test(w))
+  ) {
+    pass('Playwright MCP config reference via .claude/settings.local.json is detected honestly');
   } else {
-    fail(`Did not expect a Playwright MCP warning for settings.local.json, got: ${JSON.stringify(c.warnings)}`);
+    fail(`Expected an honest settings.local.json reference warning, got: ${JSON.stringify(c.warnings)}`);
   }
   rmSync(withLocalMcp, { recursive: true, force: true });
 } catch (e) {
