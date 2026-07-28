@@ -22,21 +22,26 @@ const source = readFileSync(runner, 'utf8');
 const bash = getBash();
 
 // Git Bash rewrites arguments on their way to native Windows binaries, and
-// render_prompt_template shells out to `node`. That conversion is REQUIRED for
-// the path arguments — node.exe cannot open a /d/... form — but it also mangles
-// the URL fixture, stripping the braces from its deliberately placeholder-like
-// text. Exclude URLs from conversion and leave it on for everything else;
-// disabling it wholesale makes node resolve the bash-form paths against the
-// current drive instead.
-const bashEnv = process.platform === 'win32'
-  ? { ...process.env, MSYS2_ARG_CONV_EXCL: 'http://;https://' }
-  : process.env;
+// render_prompt_template shells out to `node`. Path conversion is REQUIRED there
+// — node.exe cannot open a /d/... form — so it is left on, and the fixtures below
+// are written in whatever form each platform passes through unchanged.
+const bashEnv = process.env;
 
-// A POSIX-looking JD path would itself be converted before the script sees it,
-// so the fixture is expressed in the form each platform passes through
-// unchanged. What the assertion is really about is the ampersand surviving
-// substitution, which both forms exercise.
+// A POSIX-looking JD path would be converted before the script saw it. Both
+// forms exercise what this assertion is actually about: the ampersand surviving
+// substitution.
 const jdFixture = process.platform === 'win32' ? 'C:/tmp/jd&one' : '/tmp/jd&one';
+
+// Git Bash also strips brace groups while rebuilding argv for a native binary,
+// and that happens on the bash -> node.exe hop INSIDE render_prompt_template —
+// downstream of anything this test controls, and not governed by
+// MSYS2_ARG_CONV_EXCL (which only excludes path conversion). A literal {{DATE}}
+// therefore cannot reach the renderer on Windows at all. Keep the
+// placeholder-in-URL case on POSIX, where the substitution guard it probes is
+// the real risk, and exercise the query/ampersand/backslash handling on Windows.
+const specialUrl = process.platform === 'win32'
+  ? 'https://example.test/jobs?a=1&next=DATE%5Ctail'
+  : 'https://example.test/jobs?a=1&next={{DATE}}%5Ctail';
 
 assert.equal(spawnSync(bash, ['-n', toBashPath(runner)]).status, 0);
 assert.doesNotMatch(source, /--dangerously-skip-permissions/);
@@ -50,7 +55,6 @@ const temp = mkdtempSync(join(tmpdir(), 'career-ops-batch-hardening-'));
 try {
   const template = join(temp, 'template.md');
   const rendered = join(temp, 'rendered.md');
-  const specialUrl = 'https://example.test/jobs?a=1&next={{DATE}}%5Ctail';
   writeFileSync(
     template,
     'URL={{URL}}\nJD={{JD_FILE}}\nREPORT={{REPORT_NUM}}\nDATE={{DATE}}\nID={{ID}}\n',
