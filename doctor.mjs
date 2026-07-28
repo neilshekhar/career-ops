@@ -180,7 +180,39 @@ function checkDependencies() {
   };
 }
 
+/**
+ * Playwright's own engine floor, read from the installed package so this and the
+ * dependency can never disagree. Same idiom as declaredNodeFloor() above.
+ */
+export function playwrightNodeFloor(root) {
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, 'node_modules', 'playwright', 'package.json'), 'utf8'));
+    const match = String(pkg?.engines?.node || '').match(/(\d+)/);
+    return match ? Number(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function checkPlaywright() {
+  // Playwright >= 1.62 calls process.exit(1) at import time when Node is below its
+  // engine floor. process.exit cannot be caught, so a bare try/catch here would take
+  // the whole doctor run down instead of reporting a degraded tier — which is exactly
+  // what the Node 18 minimum-version CI leg exists to prevent. Check the floor first.
+  const floor = playwrightNodeFloor(projectRoot);
+  const major = parseInt(process.versions.node.split('.')[0], 10);
+  if (floor !== null && Number.isFinite(major) && major < floor) {
+    return {
+      warn: true,
+      tier: 'localBrowser',
+      label: `Local Chromium unavailable (Playwright needs Node >= ${floor}, found v${process.versions.node})`,
+      fix: [
+        `Install Node.js ${floor} or later from https://nodejs.org to enable Playwright.`,
+        'PDF rendering, CLI extraction, and non-ATS liveness fallback are unavailable until then.',
+      ],
+    };
+  }
+
   let chromium;
   try {
     ({ chromium } = await import('playwright'));

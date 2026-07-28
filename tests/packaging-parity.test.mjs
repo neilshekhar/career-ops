@@ -327,3 +327,46 @@ for (const key of ['visa_form_answer_fulltime', 'visa_form_answer_parttime']) {
   );
 }
 pass('work-rights answers are left for onboarding, never pre-filled with a generic value');
+
+// ---------------------------------------------------------------------------
+// Playwright's engine floor must degrade a tier, never kill the process.
+//
+// Playwright >= 1.62 hard-exits at import time when Node is below its own
+// engines.node floor. A hard exit inside a dependency cannot be caught, so
+// checkPlaywright()'s try/catch is not enough — doctor has to refuse the import
+// outright rather than attempt it. This is
+// what the Node 18 minimum-version CI leg exercises for real; here we simulate a
+// below-floor runtime by pointing --target at a root whose installed Playwright
+// claims an unreachable floor, so the check fires on any Node version.
+const floorTemp = mkdtempSync(join(tmpdir(), 'career-ops-pw-floor-'));
+try {
+  mkdirSync(join(floorTemp, 'node_modules', 'playwright'), { recursive: true });
+  writeFileSync(
+    join(floorTemp, 'node_modules', 'playwright', 'package.json'),
+    JSON.stringify({ name: 'playwright', version: '1.62.0', engines: { node: '>=999' } }),
+  );
+
+  // --json emits only the onboarding contract, so assert against the readiness
+  // report doctor prints by default — that is where the tier labels live.
+  const probe = spawnSync(process.execPath, [join(ROOT, 'doctor.mjs'), '--target', floorTemp], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+
+  // The run must survive: a hard exit from the dependency would truncate the
+  // report, which is precisely the CI failure this guard prevents.
+  assert.ok(probe.stdout.trim(), `doctor produced no output: ${probe.stderr}`);
+  assert.match(
+    probe.stdout,
+    /Local Chromium unavailable \(Playwright needs Node >= 999/,
+    'doctor must report the unmet Playwright engine floor as a degraded local-browser tier',
+  );
+  assert.doesNotMatch(
+    probe.stderr,
+    /Please update your version of Node\.js/,
+    'doctor must not reach Playwright\'s own import-time version bail-out',
+  );
+  pass('an unmet Playwright engine floor degrades the local-browser tier instead of killing doctor');
+} finally {
+  rmSync(floorTemp, { recursive: true, force: true });
+}
