@@ -177,6 +177,17 @@ try {
   assert.match(result.stderr, /does not have a PDF header/);
   pass('report, tracker, Machine Summary, PDF, and source HTML are verified before completion');
 
+  // Windows has no POSIX signal delivery: child.kill('SIGTERM') calls
+  // TerminateProcess, so the runner's trap never executes, exit.code is null
+  // rather than 143, and the trap-based temp-file cleanup this rung exists to
+  // verify cannot happen at all. That is a contract the platform cannot express,
+  // not a defect — skip the rung and say so.
+  signalRung: {
+  if (process.platform === 'win32') {
+    pass('TERM propagation skipped (Windows terminates the process instead of delivering a signal, so the runner trap cannot run)');
+    break signalRung;
+  }
+
   const interruptProject = join(temp, 'interrupt-project');
   const batchDir = join(interruptProject, 'batch');
   const fakeBin = join(interruptProject, 'bin');
@@ -238,6 +249,7 @@ try {
   }
   assert.deepEqual(readdirSync(tempDir), []);
   pass('TERM reaches managed workers and removes both temporary JD and prompt files');
+  }
 } finally {
   // The suite kills a bash process tree; on Windows the OS can still hold
   // handles under this directory for a moment afterwards, which surfaces as
