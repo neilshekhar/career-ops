@@ -120,7 +120,7 @@ export async function resolve(specifier, context, next) {
 
   const runTracker = (args) => spawnSync(
     process.execPath,
-    ['--import', `data:text/javascript,import{register}from"node:module";import{pathToFileURL}from"node:url";register(${JSON.stringify(hookPath)},pathToFileURL("./"));`,
+    ['--import', `data:text/javascript,import{register}from"node:module";import{pathToFileURL}from"node:url";register(pathToFileURL(${JSON.stringify(hookPath)}).href,pathToFileURL("./"));`,
       join(ROOT, 'tracker.mjs'), ...args],
     {
       cwd: ROOT,
@@ -186,7 +186,7 @@ export async function resolve(specifier, context, next) {
   // fallback and not just a working index.
   const probe = spawnSync(
     process.execPath,
-    ['--import', `data:text/javascript,import{register}from"node:module";import{pathToFileURL}from"node:url";register(${JSON.stringify(hookPath)},pathToFileURL("./"));`,
+    ['--import', `data:text/javascript,import{register}from"node:module";import{pathToFileURL}from"node:url";register(pathToFileURL(${JSON.stringify(hookPath)}).href,pathToFileURL("./"));`,
       '-e', "import('node:sqlite').then(()=>console.log('AVAILABLE'),()=>console.log('BLOCKED'))"],
     { cwd: ROOT, encoding: 'utf8' },
   );

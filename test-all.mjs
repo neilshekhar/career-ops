@@ -273,7 +273,16 @@ try {
     } else if (allowFail) {
       warn(`${name} exited with error (expected without user data)`);
     } else {
-      fail(`${name} crashed`);
+      // run() swallows the reason, so a bare "crashed" is undiagnosable — it cost
+      // three CI round-trips on the Windows matrix leg. Re-run once to capture
+      // the child's own output for the failure message.
+      const detail = spawnSync(NODE, [join(scriptTmp, scriptFile), ...args], {
+        cwd: scriptTmp,
+        encoding: 'utf-8',
+        timeout: 30000,
+      });
+      const tail = (text) => String(text || '').trim().split('\n').slice(-12).join('\n');
+      fail(`${name} crashed (exit ${detail.status})\n${tail(detail.stderr)}\n${tail(detail.stdout)}`);
     }
   }
 } finally {
