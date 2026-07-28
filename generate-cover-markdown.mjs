@@ -103,6 +103,17 @@ export function buildMarkdown(payload) {
   if (letter.closing) lines.push(clean(letter.closing), "");
   if (letter.language_closing) lines.push(`*${clean(letter.language_closing)}*`, "");
 
+  // Sign-off block. Same canonical payload fields the HTML/PDF and DOCX use, so
+  // all three formats stay content-consistent (the DOCX is rendered from this
+  // Markdown via pandoc). A hard line break keeps the name on its own line in
+  // both Markdown viewers and pandoc's DOCX output.
+  if (letter.signoff || letter.signature_name) {
+    const signoff = clean(letter.signoff);
+    const name = clean(letter.signature_name);
+    if (signoff && name) lines.push(`${signoff}  `, name, "");
+    else lines.push(signoff || name, "");
+  }
+
   const footnotes = letter.footnotes || [];
   if (footnotes.length) {
     lines.push("---", "");

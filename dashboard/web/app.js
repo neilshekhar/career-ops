@@ -473,6 +473,24 @@ function buildCard(role, stageKey, idx) {
     ? '<span class="badge badge-auto" title="One-shot: PREPARE chains straight into the fill (still never submits)">⚡ auto-fill</span>'
     : '';
 
+  // Durable One-shot chain state. The dashboard never launches a browser, so it
+  // cannot promise completion — it shows honestly that the work is recorded and
+  // resumable ("Queued for agent") versus actually moving.
+  const ONE_SHOT_BADGE = {
+    'prepare-requested': ['⚡ queued for agent', 'One-shot recorded. The active agent runs PREPARE, the asset gate, then the fill. No second click needed.'],
+    preparing:           ['⚡ preparing', 'Agent is generating this role’s tailored CV and cover.'],
+    'assets-verified':   ['⚡ assets verified', 'Machine asset gate passed. Ready to dispatch the live fill.'],
+    'fill-requested':    ['⚡ fill queued', 'Live application request created from your original One-shot Run. Nothing is submitted.'],
+    filling:             ['⚡ filling', 'Agent is filling the live form. It stops before any Submit control.'],
+    blocked:             ['⚡ blocked', 'One-shot chain is parked and needs attention.'],
+    retryable:           ['⚡ retry pending', 'One-shot chain hit a transient failure and can be resumed.'],
+    'candidate-action-required': ['⚡ needs you', 'One-shot chain is waiting on something only you can do.'],
+  };
+  const oneShotEntry = role.one_shot ? ONE_SHOT_BADGE[role.one_shot.state] : null;
+  const oneShotBadge = oneShotEntry
+    ? `<span class="badge badge-auto" title="${esc(oneShotEntry[1])}">${esc(oneShotEntry[0])}</span>`
+    : '';
+
   // Extra flags (first 2, excluding well-known ones)
   const HANDLED_FLAGS = new Set([
     'ambiguous-employment', 'large-co-visa-cap', 'pr-citizenship-required',
@@ -501,7 +519,7 @@ function buildCard(role, stageKey, idx) {
       <div class="card-company">${esc(role.company)}${role.location ? ' · ' + esc(role.location) : ''}</div>
       <div class="card-url"><a href="${esc(role.url)}" target="_blank" rel="noopener" class="card-url-link" title="${esc(role.url)}">${esc(truncateUrl(role.url))}</a></div>
       <div class="card-badges">
-        ${laneBadge}${typeBadge}${visaBadge}${eligBadge}${statusBadge}${loginBadge}${kscBadge}${coverBadge}${koBadge}${deepBadge}${autoBadge}${extraFlags}
+        ${laneBadge}${typeBadge}${visaBadge}${eligBadge}${statusBadge}${oneShotBadge}${loginBadge}${kscBadge}${coverBadge}${koBadge}${deepBadge}${autoBadge}${extraFlags}
       </div>
       ${provBadge ? `<div class="card-prov">${provBadge}</div>` : ''}
       ${role.requirements_snippet ? `<div class="card-snippet">${esc(role.requirements_snippet.slice(0, 120))}…</div>` : ''}
@@ -867,12 +885,17 @@ async function executeBulkPrepare(ids, confirmation) {
 
 async function startRun() {
   if (checkedIds.size === 0) { toast('No roles selected', 2000); return; }
-  if (checkedIds.size > 4) {
-    toast('Select at most 4 roles for one browser-controller run', 4000);
+  const ids = Array.from(checkedIds);
+  const selectedRoles = ids
+    .map((id) => allRoles.find((role) => role.id === id))
+    .filter(Boolean);
+  const allOneShot = settings.auto_fill_all === true
+    || selectedRoles.every((role) => (role.flags || []).includes('auto-fill'));
+  if (checkedIds.size > 4 && !allOneShot) {
+    toast('Select at most 4 roles, or enable One-shot on every selected role so they can drain in batches', 5000);
     return;
   }
 
-  const ids = Array.from(checkedIds);
   const names = ids
     .map((id) => allRoles.find((role) => role.id === id))
     .filter(Boolean)

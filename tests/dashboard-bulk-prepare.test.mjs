@@ -130,6 +130,54 @@ try {
   }
   pass('confirmed bulk Inbox selection moves every role to To Do without creating live application work');
   pass('bulk PREPARE is independent of the four-role browser-controller cap');
+
+  // The same >4 selection becomes valid only after the candidate enables
+  // One-shot for every role. Run records all seven durably; it does not create
+  // seven live browser requests.
+  persisted.settings.auto_fill_all = true;
+  writeFileSync(
+    join(dataDir, 'apply-queue.json'),
+    `${JSON.stringify(persisted, null, 2)}\n`,
+    'utf8',
+  );
+  const oneShotConfirmationResponse = await fetch(`${origin}/api/selection-confirmation`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      ids: roleIds,
+      action: 'run',
+      confirmation: 'I selected these roles for preparation or filling',
+    }),
+  });
+  assert.equal(oneShotConfirmationResponse.status, 200);
+  const oneShotConfirmation = await oneShotConfirmationResponse.json();
+  const oneShotRunResponse = await fetch(`${origin}/api/run`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      ids: roleIds,
+      selection_confirmation_nonce: oneShotConfirmation.selection_confirmation_nonce,
+      selection_intent_id: oneShotConfirmation.selection_intent_id,
+    }),
+  });
+  assert.equal(oneShotRunResponse.status, 200);
+  const oneShotRun = await oneShotRunResponse.json();
+  assert.equal(oneShotRun.oneShotRequested, roleIds.length);
+  assert.equal(oneShotRun.prepareQueued, roleIds.length);
+  assert.equal(oneShotRun.agentPath, 0);
+
+  const afterOneShotRun = JSON.parse(
+    readFileSync(join(dataDir, 'apply-queue.json'), 'utf8'),
+  );
+  assert.equal(
+    afterOneShotRun.roles.filter((role) => role.one_shot_request?.state === 'prepare-requested').length,
+    roleIds.length,
+  );
+  assert.equal(
+    afterOneShotRun.roles.filter((role) => role.application_request).length,
+    0,
+  );
+  pass('an actual seven-role One-shot Run records seven resumable chains for four-slot draining');
 } finally {
   child.kill('SIGTERM');
   await new Promise((resolve) => {

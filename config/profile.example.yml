@@ -74,7 +74,13 @@ location:
   visa_status: "No sponsorship needed"
   # For remote roles outside your country:
   # onsite_availability: "1 week/month in any city"
-  # Discrete answers for visa-status dropdowns on application forms:
+  # Discrete answers for visa-status dropdowns on application forms.
+  # LEAVE THESE COMMENTED until you are asked for them. They are factual personal
+  # answers about your work rights, not defaults — a guessed value would be
+  # submitted to a real employer as a statement of fact. The agent asks when you
+  # first target a role that needs them, and the live resolver validates the
+  # answer against the form's actual options. An unresolved work-rights field is
+  # marked review-required, never silently substituted.
   # visa_form_answer_fulltime: "..."
   # visa_form_answer_parttime: "..."
   sponsorship_answer: "No sponsorship required"
@@ -203,6 +209,59 @@ application_quality:
   # Optional batch-draft restriction. Omit to accept any explicit model ID;
   # batch provenance remains ineligible for release regardless of model.
   # allowed_batch_asset_models: ["your-exact-model-id"]
+
+  # ── Output shape ─────────────────────────────────────────────────────────
+  cv_max_pages: 2
+  cover_max_pages: 1
+  cover_body_words_min: 250
+  cover_body_words_max: 500
+  cover_allow_bullets: true
+  # Formats PREPARE must produce. Add "docx" only if pandoc is installed —
+  # `npm run doctor` fails loudly rather than letting PREPARE break later.
+  cover_required_formats: ["md", "pdf"]
+
+  # ── Vocabulary and punctuation ───────────────────────────────────────────
+  # Punctuation to reject in generated CV/cover text.
+  # Supported names: em-dash, en-dash, semicolon. Empty = allow everything.
+  banned_punctuation: []
+  # Deterministic banned-term enforcement, parsed from the machine-readable
+  # block in the shared voice-dna.md (zero model tokens). Fail closed by default:
+  # prompt-only rules previously allowed banned terms into released assets.
+  require_banned_term_check: true
+  # Narrow per-user overrides. Prefer these to editing the shared voice-dna.md:
+  # allow keeps a legitimate technical term, add extends the ban.
+  banned_terms_allow: []   # e.g. ["dynamic", "integrated"]
+  banned_terms_add: []     # e.g. ["spearheaded", "passionate"]
+
+  # ── Role tailoring ───────────────────────────────────────────────────────
+  # Identical normalized CV text across roles TRIGGERS a check; it never fails on
+  # its own. Similar roles may legitimately share a CV, but materially different
+  # roles without a pair-bound source-supported justification fail closed.
+  require_role_tailored_cv: true
+  # Thresholds for "materially similar requirements". Deterministic, no model.
+  tailoring_requirement_overlap_min: 0.6
+  tailoring_min_shared_requirements: 2
+  tailoring_justification_min_chars: 40
+  # Repeated opening/closing structure across your recent letters. Company and
+  # role names are normalized away before comparison.
+  require_cover_skeleton_variation: false
+
+# ── Cover letter shape (shared product default) ────────────────────────────────
+# Every letter gets a salutation and a sign-off. When no named hiring contact is
+# known the ladder falls back to the company's hiring team, then a generic
+# salutation — it never omits the greeting. Localized modes supply native
+# equivalents (German "Sehr geehrte Damen und Herren,", Japanese "ご担当者様", …).
+cover:
+  greeting_required: true
+  signoff_required: true
+  # named-person -> company-team -> generic. Drop a rung to skip it.
+  greeting_strategy: "named-person-company-team-generic"
+  # Locale for the greeting/sign-off ladders. Defaults to language.modes_dir
+  # when set, otherwise English.
+  # locale: "en"
+  # Extra salutations/sign-offs to accept beyond the shipped ladder.
+  # greeting_allow: []
+  # signoff_allow: []
 
 # ── Queue store backend (optional) ─────────────────────────────────────────────
 # Where the apply queue lives. Omit for the sensible default:

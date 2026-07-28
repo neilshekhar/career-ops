@@ -44,7 +44,16 @@ writeFileSync(join(temp, 'cv.md'), '# CV\nSQL analysis and stakeholder reporting
 writeFileSync(join(temp, 'article-digest.md'), '# Proof\nReliable reporting evidence.\n', 'utf8');
 writeFileSync(join(temp, 'modes', '_profile.md'), '# Profile\n', 'utf8');
 writeFileSync(join(temp, 'modes', '_custom.md'), '# Rules\n', 'utf8');
-writeFileSync(join(temp, 'voice-dna.md'), '# Voice\nClear and direct.\n', 'utf8');
+writeFileSync(join(temp, 'voice-dna.md'), [
+  '# Voice',
+  'Clear and direct.',
+  '<!-- career-ops:banned-terms:begin -->',
+  '```text',
+  'delve, synergy',
+  '```',
+  '<!-- career-ops:banned-terms:end -->',
+  '',
+].join('\n'), 'utf8');
 writeFileSync(join(temp, 'config', 'profile.yml'), [
   'candidate:',
   '  full_name: Test Candidate',
@@ -89,7 +98,13 @@ const coverPayload = join(temp, 'output', 'lean-cover.payload.json');
 const jdPath = join(temp, 'jds', 'lean-analyst.md');
 writePdfFixture(cvPath);
 writePdfFixture(coverPdf);
-writeFileSync(cvHtmlPath, '<html><body>SQL analysis and stakeholder reporting evidence.</body></html>', 'utf8');
+writeFileSync(
+  cvHtmlPath,
+  '<html><head><meta name="career-ops-template-id" content="cv-template">'
+    + '<meta name="career-ops-template-version" content="1"></head>'
+    + '<body>SQL analysis and stakeholder reporting evidence.</body></html>',
+  'utf8',
+);
 const jdText = (
   'Lean Co needs an analyst to deliver reliable SQL reporting, translate stakeholder '
   + 'requirements, validate data quality, document decisions, and communicate findings clearly. '

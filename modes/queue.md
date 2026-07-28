@@ -280,6 +280,9 @@ Before release, store this local-only review record on the role:
 {
   "application_quality_review": {
     "reviewed_at": "<ISO timestamp>",
+    "archetype": "<normalized target archetype>",
+    "seniority": "<normalized seniority>",
+    "domain": "<normalized role domain>",
     "top_requirements": [
       { "requirement": "<JD phrase>", "evidence": "<matching proof>", "source": "cv.md" },
       { "requirement": "<JD phrase>", "evidence": "<matching proof>", "source": "article-digest.md" },
@@ -301,6 +304,29 @@ files actually used for this role (for example a writing sample or the matching
 company-role prep file); the validator binds those exact files into generation
 provenance and rejects traversal, symlinks, README scaffolds, and retracted/red-flag
 notes. Writing samples remain style-only and never satisfy candidate fact tracing.
+
+When the visible CV text is intentionally reused for another materially different
+role, create the justification during this same PREPARE generation turn, before
+provenance is stamped:
+
+```json
+{
+  "cv_reuse_justification": {
+    "covers_role_ids": ["<this-role-id>", "<peer-role-id>"],
+    "rationale": "<why the same evidence is appropriate for both requirement sets>",
+    "shared_evidence": [
+      "<meaningful visible CV phrase covering this role>",
+      "<meaningful visible CV phrase covering the peer role>"
+    ]
+  }
+}
+```
+
+Every cited phrase must occur in the shared visible CV and collectively overlap the
+stored requirements for both roles. A generic rationale or evidence that supports only
+one role is invalid. Store the exact same pair-bound record on **both roles** before
+stamping either one. Each role's source snapshot and quality evidence then bind its own
+copy, so validation is symmetric and adding or changing either copy after stamping fails.
 
 ### Step 3 — Update the record
 
@@ -329,7 +355,8 @@ First write these fields in one lock-protected `mutateQueue()` transaction while
 `prepare-queued`:
 
 ```
-drafts, cv_pdf, cover_letter_paths, application_quality_review
+drafts, cv_pdf, cover_letter_paths, application_quality_review,
+cv_reuse_justification (only when applicable)
 ```
 
 Then stamp the release provenance after every asset and the quality manifest are
@@ -412,6 +439,58 @@ launches Playwright or `form-fill.mjs`; `form-fill.mjs` may emit an offline plan
 and cannot mutate the browser, queue, or status. Default lean-llm-v1 ends at
 `apply-page.mjs finish` → queue status **`prefilled`**. Receipt-v3
 (lookup → complete → finalize → `filled`) is historical / explicit opt-in only.
+
+#### The chain is executable, not a prompt (`one-shot-request.mjs`)
+
+When the candidate presses Run with One-shot on, the dashboard writes a durable
+**`one_shot_request`** on each selected role. That record carries their ORIGINAL
+`selection_intent_id` forward, so the whole chain is already authorized: **no
+second candidate click is needed, and you must never mint a fresh
+`candidate_selection_confirmation` after PREPARE** — that record is a candidate
+attestation, and forging one corrupts the provenance chain
+`credentials-store.mjs` and `application-receipt.mjs` verify.
+
+Drive it with the CLI. Every command is deterministic, zero-token, and touches no
+browser:
+
+```bash
+node one-shot-request.mjs next                 # the batch to work (bounded by free slots)
+node one-shot-request.mjs claim <role-id>      # prepare-requested -> preparing
+#   ... run the deep-eval (if flagged) and PREPARE for this role ...
+node one-shot-request.mjs deep-eval-complete <role-id> reports/<report>.md
+node one-shot-request.mjs verify <role-id>     # preparing -> assets-verified (runs the asset gate)
+node one-shot-request.mjs dispatch <role-id>   # assets-verified -> fill-requested (+ application_request)
+#   ... consume the application_request through modes/apply.md ...
+node one-shot-request.mjs filling <role-id>    # fill-requested -> filling
+#   ... apply-page.mjs finish closes the chain automatically ...
+```
+
+States: `prepare-requested` → `preparing` → `assets-verified` → `fill-requested`
+→ `filling` → `review-ready`. Parking states are `blocked`, `retryable`, and
+`candidate-action-required`; `park` remembers where it was and `resume` restores
+it exactly. A candidate stage/decision that revokes unfinished work moves it to
+terminal `cancelled` and cancels its bound live request.
+
+Hard properties you can rely on:
+
+- **`verify` runs `validateApplicationRole(..., requireAssets: true)`.** A failed
+  gate cannot reach `assets-verified`, so it structurally cannot reach a fill.
+  `dispatch` re-runs the gate under the queue lock, so an asset that changed in
+  between is still caught.
+- **The asset gate IS the approval.** Under One-shot, do not stop to ask the
+  candidate to eyeball the CV or cover. Review happens once, at the end, over all
+  open tabs.
+- **`dispatch` enforces the one-controller lease and the four-active-role cap**
+  through the shared core in `application-request.mjs`. Work more than four roles
+  as a loop of ≤4: `next` already returns only what fits, and lean `finish` frees
+  a slot.
+- **Resumable.** State lives in the queue store, so a killed session picks up
+  where it stopped. Run `node one-shot-request.mjs reconcile` at the start of a
+  session to re-derive states from durable role facts.
+- **Nothing submits.** No command here opens a browser or clicks anything.
+
+At the start of any session, drain the inbox: `node one-shot-request.mjs next`.
+A non-empty `pending` list is unfinished work the candidate already authorized.
 
 - **Structured ATS (Greenhouse / Lever / Ashby / …):** use deterministic profile,
   exact, and cached resolutions inside the live per-page resolver loop, then L3 and

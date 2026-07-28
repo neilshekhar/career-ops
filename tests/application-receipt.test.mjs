@@ -32,7 +32,16 @@ writeFileSync(join(temp, 'cv.md'), '# CV\nSQL analysis and stakeholder reporting
 writeFileSync(join(temp, 'article-digest.md'), '# Proof points\nReliable reporting evidence.\n', 'utf8');
 writeFileSync(join(temp, 'modes', '_profile.md'), '# Profile\n', 'utf8');
 writeFileSync(join(temp, 'modes', '_custom.md'), '# Application rules\n', 'utf8');
-writeFileSync(join(temp, 'voice-dna.md'), '# Voice\nClear and direct.\n', 'utf8');
+writeFileSync(join(temp, 'voice-dna.md'), [
+  '# Voice',
+  'Clear and direct.',
+  '<!-- career-ops:banned-terms:begin -->',
+  '```text',
+  'delve, synergy',
+  '```',
+  '<!-- career-ops:banned-terms:end -->',
+  '',
+].join('\n'), 'utf8');
 writeFileSync(join(temp, 'config', 'profile.yml'), [
   'candidate:',
   '  full_name: Test Candidate',
@@ -210,7 +219,13 @@ try {
     },
   };
   writePdfFixture(cvPath);
-  writeFileSync(cvHtmlPath, '<html><body>SQL analysis and stakeholder reporting evidence.</body></html>', 'utf8');
+  writeFileSync(
+    cvHtmlPath,
+    '<html><head><meta name="career-ops-template-id" content="cv-template">'
+      + '<meta name="career-ops-template-version" content="1"></head>'
+      + '<body>SQL analysis and stakeholder reporting evidence.</body></html>',
+    'utf8',
+  );
   writeFileSync(coverMdPath, buildMarkdown(coverPayload), 'utf8');
   writePdfFixture(coverPdfPath);
   writeFileSync(coverPayloadPath, JSON.stringify(coverPayload), 'utf8');
@@ -730,7 +745,13 @@ try {
   const failedCvPath = join(temp, 'output', 'failed-cv.pdf');
   const failedCvHtmlPath = join(temp, 'output', 'failed-cv.html');
   writePdfFixture(failedCvPath);
-  writeFileSync(failedCvHtmlPath, '<html><body>SQL analysis and stakeholder reporting evidence.</body></html>', 'utf8');
+  writeFileSync(
+    failedCvHtmlPath,
+    '<html><head><meta name="career-ops-template-id" content="cv-template">'
+      + '<meta name="career-ops-template-version" content="1"></head>'
+      + '<body>SQL analysis and stakeholder reporting evidence.</body></html>',
+    'utf8',
+  );
   const failedRole = {
     id: 'failed:role', company: 'Acme', title: 'Analyst', url: role.url,
     status: 'prepared', cv_pdf: failedCvPath, jd_text: role.jd_text,

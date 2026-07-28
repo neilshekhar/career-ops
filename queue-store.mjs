@@ -104,6 +104,8 @@ export const LOCAL_ONLY_ROLE_FIELDS = new Set([
   'generation_provenance',
   'application_progress',
   'application_request',
+  'one_shot_request',
+  'cv_reuse_justification',
   'application_finalization_transaction',
   'application_decision_transaction',
   'application_receipt_repairs',

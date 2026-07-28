@@ -28,6 +28,7 @@ import {
   resolveRoleJdInput,
 } from './application-source-contract.mjs';
 import { buildMarkdown } from './generate-cover-markdown.mjs';
+import { coverSkeletonFingerprints } from './cover-quality.mjs';
 import { loadQueue, mutateQueue } from './queue-store.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -320,6 +321,13 @@ export function buildGenerationProvenance({
   if (!coverMarkdownMatchesPayload(coverPayload, coverMarkdown)) {
     throw new Error('Cover Markdown diverges from the canonical cover payload; re-render all cover formats before stamping provenance.');
   }
+  const templates = detectAssetTemplates(root, role);
+  if (!isSupportedCvTemplateIdentity(templates.cv)) {
+    throw new Error(
+      `CV template identity is missing or unsupported: `
+      + `${templates.cv?.template_id || 'unrecorded'}@${templates.cv?.template_version || 'missing'}`,
+    );
+  }
 
   return {
     schema: PROVENANCE_SCHEMA,
@@ -332,8 +340,57 @@ export function buildGenerationProvenance({
       ...(String(effort || '').trim() ? { effort: String(effort).trim().toLowerCase() } : {}),
     },
     assets,
+    // Which supported renderer produced the CV. Recording the identity beats
+    // requiring one exact CSS shape: standard, conservative, and localized
+    // templates all stay valid, while a hand-built unrecorded template is
+    // detectable. Detected from the rendered HTML, not asserted by the caller.
+    templates,
+    // Normalized opening/closing structure, with company and role names
+    // replaced by placeholders BEFORE hashing. Two letters that differ only by
+    // the employer name collide, which is how repeated skeletons are caught.
+    cover_skeleton: coverSkeletonFingerprints(coverPayload, role),
     source_snapshot: buildApplicationSourceSnapshot(root, role),
   };
+}
+
+/**
+ * Supported CV template identities, newest first. Each entry names a marker that
+ * the rendered HTML carries when that template produced it.
+ */
+export const SUPPORTED_CV_TEMPLATES = Object.freeze([
+  { id: 'cv-template', version: 1, marker: /career-ops-template-id["']?\s*[:=]\s*["']?cv-template/i },
+  { id: 'cv-template-html', version: 1, marker: /<!--\s*career-ops:cv-template\s*-->/i },
+]);
+
+export function isSupportedCvTemplateIdentity(identity) {
+  if (!identity || typeof identity !== 'object') return false;
+  return SUPPORTED_CV_TEMPLATES.some((entry) =>
+    String(identity.template_id || '') === entry.id
+    && String(identity.template_version || '') === String(entry.version));
+}
+
+/**
+ * Detect which supported template rendered each asset.
+ *
+ * An explicit `<meta name="career-ops-template-id">` stamp wins. Otherwise the
+ * renderer is reported as `unrecorded`, which a profile may choose to reject.
+ */
+export function detectAssetTemplates(root, role) {
+  const out = {};
+  const htmlPath = resolveApplicationAsset(root, roleAssetPaths(role).cv_html, 'cv_html');
+  if (!htmlPath) return out;
+  const html = readFileSync(htmlPath.absolute, 'utf-8');
+  const stamped = html.match(/<meta\s+name=["']career-ops-template-id["']\s+content=["']([^"']+)["']/i);
+  const version = html.match(/<meta\s+name=["']career-ops-template-version["']\s+content=["']([^"']+)["']/i);
+  if (stamped) {
+    out.cv = { template_id: stamped[1], template_version: version ? version[1] : null, source: 'stamped' };
+    return out;
+  }
+  const matched = SUPPORTED_CV_TEMPLATES.find((entry) => entry.marker.test(html));
+  out.cv = matched
+    ? { template_id: matched.id, template_version: String(matched.version), source: 'detected' }
+    : { template_id: 'unrecorded', template_version: null, source: 'none' };
+  return out;
 }
 
 function loadProfile(root = ROOT) {

@@ -41,7 +41,16 @@ import {
   reviewReadinessErrors,
   submissionReadinessErrors,
 } from './application-receipt.mjs';
-import { APPLICATION_RECEIPT_REQUEST_CONTRACT } from './application-receipt-integrity.mjs';
+import {
+  MAX_ACTIVE_APPLICATION_REQUESTS,
+  createActiveAgentRequest,
+} from './application-request.mjs';
+import {
+  cancelOneShotRequestOnRole,
+  isOneShotRole,
+  recordOneShotRequest,
+  summarizeOneShotRequest,
+} from './one-shot-request.mjs';
 import {
   DASHBOARD_JSON_BODY_LIMIT,
   SelectionConfirmationStore,
@@ -486,116 +495,19 @@ function apiActivity(req, res) {
 
 // ── Canonical active-agent dispatch ──────────────────────────────────────────
 
-const ACTIVE_AGENT_APPLY_CONTRACT = APPLICATION_RECEIPT_REQUEST_CONTRACT;
-const MAX_ACTIVE_APPLICATION_REQUESTS = 4;
 const MAX_BULK_PREPARE_SELECTIONS = 500;
-const ACTIVE_APPLICATION_REQUEST_STATES = new Set(['queued', 'in-progress']);
-
-function applicationControllerLease(queue) {
-  queue.settings = queue.settings ?? {};
-  const current = queue.settings.application_controller;
-  const existingControllerIds = [...new Set((queue.roles ?? [])
-    .filter((item) => ACTIVE_APPLICATION_REQUEST_STATES.has(item?.application_request?.state))
-    .map((item) => item.application_request?.controller_id)
-    .filter(Boolean))];
-  if (existingControllerIds.length > 1) {
-    const err = new Error('multiple browser-controller IDs already exist; preserve tabs and resolve the conflict before queueing more work');
-    err.httpCode = 409;
-    throw err;
-  }
-  const now = new Date().toISOString();
-  const lease = current?.version === 1 && current.controller === 'active-agent' && current.controller_id
-    ? current
-    : {
-        version: 1,
-        controller: 'active-agent',
-        controller_id: existingControllerIds[0] ?? `browser-controller:${randomUUID()}`,
-        max_active_roles: MAX_ACTIVE_APPLICATION_REQUESTS,
-        created_at: now,
-        updated_at: now,
-      };
-  if (existingControllerIds.length === 1 && existingControllerIds[0] !== lease.controller_id) {
-    const err = new Error('active application requests do not match the persisted browser-controller lease');
-    err.httpCode = 409;
-    throw err;
-  }
-  for (const item of queue.roles ?? []) {
-    if (!ACTIVE_APPLICATION_REQUEST_STATES.has(item?.application_request?.state)) continue;
-    if (item.application_request.controller !== 'active-agent') {
-      const err = new Error('an active application request is owned by a non-canonical controller');
-      err.httpCode = 409;
-      throw err;
-    }
-    item.application_request.controller_id = item.application_request.controller_id ?? lease.controller_id;
-    if (item.application_request.controller_id !== lease.controller_id) {
-      const err = new Error('multiple browser-controller leases are active in the same queue');
-      err.httpCode = 409;
-      throw err;
-    }
-  }
-  lease.max_active_roles = MAX_ACTIVE_APPLICATION_REQUESTS;
-  lease.updated_at = now;
-  queue.settings.application_controller = lease;
-  return lease;
-}
-
-function activeApplicationRequests(queue) {
-  return (queue.roles ?? []).filter(
-    (item) => ACTIVE_APPLICATION_REQUEST_STATES.has(item?.application_request?.state),
-  );
-}
 
 /**
  * Persist a work request without touching a browser or changing application
  * status. The interactive agent consumes this record and owns the exact tab for
  * the whole extract/resolve/L3/teach/verify/receipt run.
+ *
+ * Delegates to the shared core in `application-request.mjs` so the dashboard and
+ * the one-shot drain enforce the very same browser-controller lease and
+ * four-active-role cap — one implementation, not two copies that must agree.
  */
 function enqueueActiveAgentRequest(queue, role, runId, source = 'dashboard') {
-  const lease = applicationControllerLease(queue);
-  const existing = role.application_request;
-  if (existing && ACTIVE_APPLICATION_REQUEST_STATES.has(existing.state)) {
-    if (existing.controller !== 'active-agent') {
-      const err = new Error('role already has an active request owned by a different controller');
-      err.httpCode = 409;
-      throw err;
-    }
-    // One migration path for requests written before controller IDs became
-    // executable. Preserve their run/tab instead of overwriting live work.
-    existing.controller_id = existing.controller_id ?? lease.controller_id;
-    if (existing.controller_id !== lease.controller_id) {
-      const err = new Error('role already belongs to another browser-controller lease');
-      err.httpCode = 409;
-      throw err;
-    }
-    existing.updated_at = new Date().toISOString();
-    return { request: structuredClone(existing), reused: true };
-  }
-  if (existing?.state === 'review-ready') {
-    const err = new Error('role already has a review-ready application request; validate or repair its receipt instead of overwriting it');
-    err.httpCode = 409;
-    throw err;
-  }
-  if (activeApplicationRequests(queue).length >= MAX_ACTIVE_APPLICATION_REQUESTS) {
-    const err = new Error(`browser-controller already has ${MAX_ACTIVE_APPLICATION_REQUESTS} active roles; finish or park one before queueing another`);
-    err.httpCode = 409;
-    throw err;
-  }
-  const requestedAt = new Date().toISOString();
-  role.application_request = {
-    version: 1,
-    request_id: `${runId}:${role.id}`,
-    run_id: runId,
-    role_id: role.id,
-    source,
-    state: 'queued',
-    controller: 'active-agent',
-    controller_id: lease.controller_id,
-    requested_at: requestedAt,
-    url: role.url,
-    contract: [...ACTIVE_AGENT_APPLY_CONTRACT],
-  };
-  lease.updated_at = requestedAt;
-  return { request: structuredClone(role.application_request), reused: false };
+  return createActiveAgentRequest(queue, role, runId, source);
 }
 
 const SELECTION_CONFIRMATION_PHRASE = 'I selected these roles for preparation or filling';
@@ -659,9 +571,11 @@ function apiSelectionConfirmation(req, res) {
     if (!SELECTION_ACTIONS.has(action)) {
       return respond(res, 400, { error: 'selection action must be run | fill | stage-prepare' });
     }
-    const selectionLimit = action === 'stage-prepare'
-      ? MAX_BULK_PREPARE_SELECTIONS
-      : MAX_ACTIVE_APPLICATION_REQUESTS;
+    // A One-shot Run may record a large durable PREPARE batch which the active
+    // controller later drains in groups of four. Ordinary live-fill runs remain
+    // capped at four. The role-aware cap is enforced below after loading the
+    // queue; this first bound only prevents oversized request bodies.
+    const selectionLimit = action === 'fill' ? 1 : MAX_BULK_PREPARE_SELECTIONS;
     if (ids.length === 0 || ids.length > selectionLimit) {
       return respond(res, 400, {
         error: `selection must contain 1–${selectionLimit} unique role IDs`,
@@ -679,6 +593,13 @@ function apiSelectionConfirmation(req, res) {
     }
     const roles = exactQueueRoles(queue, ids);
     if (!roles) return respond(res, 404, { error: 'one or more selected role IDs were not found' });
+    if (action === 'run'
+        && ids.length > MAX_ACTIVE_APPLICATION_REQUESTS
+        && !roles.every((role) => isOneShotRole(queue, role))) {
+      return respond(res, 400, {
+        error: `ordinary browser-controller runs are limited to ${MAX_ACTIVE_APPLICATION_REQUESTS} roles; larger selections require One-shot on every role`,
+      });
+    }
     if (action === 'stage-prepare' &&
         roles.some((role) => stageDragTarget(role, 'todo') !== 'prepare-queued')) {
       return respond(res, 409, {
@@ -806,12 +727,6 @@ function apiRun(req, res) {
       return respond(res, 400, { error: 'ids must be a non-empty array' });
     }
     const uniqueIds = [...new Set(ids.map(String))];
-    if (uniqueIds.length > MAX_ACTIVE_APPLICATION_REQUESTS) {
-      return respond(res, 400, {
-        error: `a browser-controller run is limited to ${MAX_ACTIVE_APPLICATION_REQUESTS} roles`,
-      });
-    }
-
     let queue;
     try {
       queue = loadQueue();
@@ -822,6 +737,12 @@ function apiRun(req, res) {
 
     if (!roles) {
       return respond(res, 404, { error: 'one or more requested role IDs were not found' });
+    }
+    if (uniqueIds.length > MAX_ACTIVE_APPLICATION_REQUESTS
+        && !roles.every((role) => isOneShotRole(queue, role))) {
+      return respond(res, 400, {
+        error: `ordinary browser-controller runs are limited to ${MAX_ACTIVE_APPLICATION_REQUESTS} roles; larger selections require One-shot on every role`,
+      });
     }
 
     let selectionConfirmation;
@@ -853,6 +774,7 @@ function apiRun(req, res) {
         const notPrepared = [];
         const qualityBlocked = [];
         let selectionOverridesRecorded = 0;
+        let oneShotRequested = 0;
         for (const role of freshQueue.roles) {
           if (!selectedIds.has(role.id)) continue;
           assertSelectionRoleState(role, selectionConfirmation);
@@ -874,9 +796,32 @@ function apiRun(req, res) {
             reviewReady.push(structuredClone(role));
             continue;
           }
+          // A One-shot selection always enters the durable PREPARE chain, even
+          // when an older asset set exists. This makes >4-role batching real:
+          // the Run click records every selected role and `next` releases at
+          // most four through the browser-controller gate.
+          if (isOneShotRole(freshQueue, role)
+              && (role.status === 'scored'
+                || role.status === 'prepare-queued'
+                || FILLABLE_STATUSES.has(role.status))) {
+            if (role.status === 'scored') setStatus(freshQueue, role.id, 'prepare-queued');
+            const oneShot = recordOneShotRequest(role, selectionConfirmation.intentId, {
+              source: 'dashboard-run',
+            });
+            if (!oneShot.reused) oneShotRequested++;
+            selectedForPrepare.push(structuredClone(role));
+            continue;
+          }
           // Dashboard checkbox selection is the durable PREPARE selection.
           // It never creates a consumable live-application request until fresh
           // role-specific assets and provenance have passed PREPARE.
+          //
+          // Under One-shot the candidate authorized the WHOLE chain with this
+          // one click, so the intent is carried forward in a durable
+          // `one_shot_request` the active agent drains (prepare → gate → fill →
+          // prefilled). Without it the selection stays durable but the execution
+          // does not, which is exactly how a selected To Do role used to stall
+          // short of In Review. The record never launches anything here.
           if (role.status === 'scored') {
             setStatus(freshQueue, role.id, 'prepare-queued');
             selectedForPrepare.push(structuredClone(role));
@@ -895,6 +840,9 @@ function apiRun(req, res) {
             profile,
             quality,
             requireAssets: true,
+            // Sibling roles with real assets, so an untailored CV or a recycled
+            // cover body is caught before a live fill request is created.
+            peers: freshQueue.roles,
           }).filter((item) => item.level === 'error');
           if (qualityIssues.length) {
             qualityBlocked.push({ role: structuredClone(role), qualityIssues });
@@ -915,6 +863,7 @@ function apiRun(req, res) {
           notPrepared,
           qualityBlocked,
           selectionOverridesRecorded,
+          oneShotRequested,
         };
       });
     } catch (err) {
@@ -934,8 +883,12 @@ function apiRun(req, res) {
       });
     }
     for (const role of dispatch.selectedForPrepare) {
+      const oneShot = summarizeOneShotRequest(role);
       emitActivity(runId, role.id, 'agent-path', role, {
-        message: `Selected for PREPARE — generate and verify the current role's tailored CV and cover before any live form request.`,
+        message: oneShot
+          ? `⚡ One-shot queued for agent — durable request ${oneShot.request_id}. The active agent runs PREPARE, the asset gate, then the live fill through to prefilled. No second click is needed; nothing is submitted.`
+          : `Selected for PREPARE — generate and verify the current role's tailored CV and cover before any live form request.`,
+        ...(oneShot ? { oneShot } : {}),
       });
     }
     for (const role of dispatch.reviewReady) {
@@ -975,6 +928,7 @@ function apiRun(req, res) {
       notPrepared: dispatch.notPrepared.length,
       qualityBlocked: dispatch.qualityBlocked.length,
       selectionOverridesRecorded: dispatch.selectionOverridesRecorded,
+      oneShotRequested: dispatch.oneShotRequested,
       requestIds: dispatch.requested.map((item) => item.request.request_id),
     });
   });
@@ -1068,6 +1022,10 @@ function apiGetQueue(res) {
         manual_submission_allowed:
           ACTIVE_STATUSES.has(r.status) && !(r.status === 'filled' && receiptErrors.length === 0),
         receipt_errors:     receiptErrors,
+        // Durable One-shot chain state. `queued_for_agent` is the honest UI
+        // signal when no agent session is running: the work is recorded and
+        // resumable, not silently dropped.
+        one_shot:           summarizeOneShotRequest(r),
       };
     });
 
@@ -1205,6 +1163,24 @@ function apiRoleFill(req, res, id) {
 
       if (freshRole.status === 'scored') {
         setStatus(freshQueue, freshRole.id, 'prepare-queued');
+        // Same One-shot carry-forward as apiRun: one candidate click authorizes
+        // the whole chain, so the intent becomes a durable agent-drained record
+        // instead of a role that quietly parks at To Do.
+        if (isOneShotRole(freshQueue, freshRole)) {
+          recordOneShotRequest(freshRole, selectionConfirmation.intentId, {
+            source: 'dashboard-fill',
+          });
+        }
+        return {
+          preparationQueued: true,
+          role: structuredClone(freshRole),
+          overrideRecorded,
+        };
+      }
+      if (freshRole.status === 'prepare-queued' && isOneShotRole(freshQueue, freshRole)) {
+        recordOneShotRequest(freshRole, selectionConfirmation.intentId, {
+          source: 'dashboard-fill',
+        });
         return {
           preparationQueued: true,
           role: structuredClone(freshRole),
@@ -1238,6 +1214,7 @@ function apiRoleFill(req, res, id) {
         profile,
         quality,
         requireAssets: true,
+        peers: freshQueue.roles,
       }).filter((item) => item.level === 'error');
       if (qualityIssues.length > 0) {
         return {
@@ -1279,14 +1256,21 @@ function apiRoleFill(req, res, id) {
   }
 
   if (dispatch.preparationQueued) {
+    const oneShot = summarizeOneShotRequest(dispatch.role);
     emitActivity(runId, id, 'agent-path', dispatch.role, {
-      message: `Selected for PREPARE — generate and verify the current role's tailored CV and cover before live filling.`,
+      message: oneShot
+        ? `⚡ One-shot queued for agent — durable request ${oneShot.request_id}. PREPARE, the asset gate, and the live fill run without another click; nothing is submitted.`
+        : `Selected for PREPARE — generate and verify the current role's tailored CV and cover before live filling.`,
+      ...(oneShot ? { oneShot } : {}),
     });
     return respond(res, 202, {
       method: 'prepare-queued',
       status: dispatch.role.status,
-      message: `${dispatch.role.company} – ${dispatch.role.title} is selected for PREPARE. No live form request was created.`,
+      message: oneShot
+        ? `${dispatch.role.company} – ${dispatch.role.title} is queued for the agent under One-shot. No live form request was created yet.`
+        : `${dispatch.role.company} – ${dispatch.role.title} is selected for PREPARE. No live form request was created.`,
       selection_override_recorded: dispatch.overrideRecorded,
+      ...(oneShot ? { one_shot: oneShot } : {}),
     });
   }
 
@@ -1452,6 +1436,11 @@ function apiRoleDecision(req, res, id) {
         transaction.state = 'tracker-written';
         transaction.tracker = tracker;
         transaction.updated_at = new Date().toISOString();
+        cancelOneShotRequestOnRole(
+          role,
+          `candidate recorded the role as ${decision}`,
+          transaction.updated_at,
+        );
         setStatus(queue, id, decision);
         transaction.state = 'committed';
         transaction.completed_at = new Date().toISOString();
@@ -1562,6 +1551,9 @@ function apiRoleStage(req, res, id) {
           recordCandidateSelectionConfirmation(role, selectionConfirmation, 'dashboard-drag');
           const quality = applicationQualityConfig(loadProfile());
           recordCandidateSelectionOverride(role, quality.minimumApplyScore, 'dashboard-drag');
+        }
+        if (target === 'scored') {
+          cancelOneShotRequestOnRole(role, 'candidate moved the role back to Inbox');
         }
         setStatus(queue, id, target);
         return target;

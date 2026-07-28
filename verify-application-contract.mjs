@@ -400,6 +400,112 @@ export function checkOfflineOpenRouterApply(file, source) {
   return errors;
 }
 
+/**
+ * The shared active-agent request core. One module owns the browser-controller
+ * lease and the four-active-role cap; both dispatchers (dashboard Fill/Run and
+ * the One-shot drain) go through it, so the invariant is structural rather than
+ * two copies that must be kept in agreement.
+ */
+export function checkApplicationRequestCore(file, source) {
+  const errors = requirePatterns(file, source, [
+    ['four-role concurrency cap', /export const MAX_ACTIVE_APPLICATION_REQUESTS\s*=\s*4\s*;/],
+    ['active request state set', /export const ACTIVE_APPLICATION_REQUEST_STATES\s*=\s*new Set\(\['queued', 'in-progress'\]\)/],
+    ['single browser-controller lease', /export function applicationControllerLease\s*\(/],
+    ['durable request creator', /export function createActiveAgentRequest\s*\(/],
+    ['active-agent controller marker', /controller:\s*['"]active-agent['"]/],
+  ]);
+  // The core records work. It must never drive a browser or move a role's
+  // lifecycle status — those belong to the agent and the receipt/lean writers.
+  if (/from ['"]playwright['"]|launchPersistentContext|browser_click/.test(source)) {
+    errors.push(issue(file, 'the shared request core must never touch a browser'));
+  }
+  if (/\bsetStatus\s*\(/.test(source)) {
+    errors.push(issue(file, 'the shared request core must never change application status'));
+  }
+  if (!/if \(activeApplicationRequests\(queue\)\.length >= MAX_ACTIVE_APPLICATION_REQUESTS\)/.test(source)) {
+    errors.push(issue(file, 'the shared request core does not enforce the active-request cap before creating a request'));
+  }
+  return errors;
+}
+
+/**
+ * The durable One-shot chain. It carries the candidate's ORIGINAL Run intent
+ * forward so no second click is needed, and it must never manufacture a fresh
+ * candidate attestation, open a browser, or reach a fill without the executable
+ * asset gate passing first.
+ */
+export function checkOneShotRuntime(file, source) {
+  const errors = requirePatterns(file, source, [
+    ['durable request recorder', /export function recordOneShotRequest\s*\(/],
+    ['asset-gate transition', /export function verifyOneShotAssets\s*\(/],
+    ['fill dispatch', /export function dispatchOneShotFill\s*\(/],
+    ['crash-resume reconciliation', /export function reconciledOneShotState\s*\(/],
+    ['shared request core', /from ['"]\.\/application-request\.mjs['"]/],
+    ['executable asset gate', /validateApplicationRole\([\s\S]{0,200}requireAssets:\s*true/],
+  ]);
+  if (/from ['"]playwright['"]|launchPersistentContext|browser_click|page\.goto/.test(source)) {
+    errors.push(issue(file, 'the One-shot drain must never touch a browser'));
+  }
+  // Minting a candidate_selection_confirmation after PREPARE would launder an
+  // agent decision into the candidate attestation chain.
+  if (/candidate_selection_confirmation\s*=/.test(source) ||
+      /I selected these roles for preparation or filling/.test(source)) {
+    errors.push(issue(file, 'the One-shot drain must never mint a candidate selection confirmation'));
+  }
+  const dispatch = functionBody(source, 'dispatchOneShotFill');
+  if (!dispatch) {
+    errors.push(issue(file, 'dispatchOneShotFill function is missing'));
+  } else {
+    const gate = dispatch.indexOf('requireAssets: true');
+    const create = dispatch.indexOf('createActiveAgentRequest(');
+    if (gate < 0 || create < 0 || gate > create) {
+      errors.push(issue(file, 'One-shot dispatch does not re-run the asset gate before creating an application request'));
+    }
+    if (!/request\.state !== 'assets-verified'/.test(dispatch)) {
+      errors.push(issue(file, 'One-shot dispatch does not require a proven assets-verified state'));
+    }
+  }
+  return errors;
+}
+
+/**
+ * Lean finish must prove what it uploaded.
+ *
+ * The reported npm failure was a candidate uploading their OWN local CV because
+ * career-ops generated nothing role-specific. The structural defence is that a
+ * finished run binds each observed upload control to a generated `output/` asset
+ * by content hash — and that the binding runs BEFORE anything is written or the
+ * queue is promoted, so a rejected finish leaves no half-finished state.
+ */
+export function checkLeanAttachmentGate(file, source) {
+  const errors = requirePatterns(file, source, [
+    ['attachment gate', /function assertLeanAttachments\s*\(/],
+    ['content-hash verification', /function verifyLeanAttachment\s*\(/],
+    ['observed upload controls', /export function observedUploadControls\s*\(/],
+    ['generated-asset resolver', /resolveApplicationAsset\(/],
+    ['role asset binding', /is not one of this role's generated cv_pdf\/cover_letter_paths assets/],
+    ['content hash mismatch', /content hash does not match the role asset on disk/],
+    ['required-control coverage', /has no verified attachment evidence/],
+  ]);
+  const finish = functionBody(source, 'finishLean');
+  if (!finish) {
+    errors.push(issue(file, 'finishLean function is missing'));
+    return errors;
+  }
+  const gate = finish.indexOf('assertLeanAttachments(');
+  const report = finish.indexOf('upsertReportSection(');
+  const promote = finish.indexOf("setStatus(queue, roleId, 'prefilled')");
+  if (gate < 0 || report < 0 || promote < 0 || gate > report || report > promote) {
+    errors.push(issue(file, 'lean finish must run the attachment gate before writing the report or promoting to prefilled'));
+  }
+  // Page observations must carry the machine-extracted controls forward, or a
+  // required upload on page 1 could not be proven at finish on page 4.
+  if (!/entry\.upload_controls = observedControls/.test(source)) {
+    errors.push(issue(file, 'lean page-done does not persist the observed upload controls into the durable ledger'));
+  }
+  return errors;
+}
+
 export function checkDashboardRuntime(file, source) {
   const errors = requirePatterns(file, source, [
     ['receipt-gate import', /import\s*\{[^}]*reviewReadinessErrors[^}]*\}\s*from\s*['"]\.\/application-receipt\.mjs['"]/s],
@@ -442,7 +548,13 @@ export function checkDashboardRuntime(file, source) {
   if (/rollbackApplicationReportSubmission\s*\(/.test(decision)) {
     errors.push(issue(file, 'candidate-confirmed submission must not roll the truthful report state back on an infrastructure failure'));
   }
-  if (!/MAX_ACTIVE_APPLICATION_REQUESTS\s*=\s*4/.test(source) ||
+  // The four-role cap now lives in exactly one module (application-request.mjs)
+  // so the dashboard and the One-shot drain cannot diverge. Accept either the
+  // legacy local literal or the shared import, but never neither.
+  const declaresCapLocally = /MAX_ACTIVE_APPLICATION_REQUESTS\s*=\s*4/.test(source);
+  const importsSharedCap = /import\s*\{[^}]*MAX_ACTIVE_APPLICATION_REQUESTS[^}]*\}\s*from\s*['"]\.\/application-request\.mjs['"]/s.test(source);
+  if ((!declaresCapLocally && !importsSharedCap) ||
+      !/MAX_ACTIVE_APPLICATION_REQUESTS/.test(source) ||
       !/controller_id/.test(source) || !/reviewReady/.test(source) || !/repairRequired/.test(source)) {
     errors.push(issue(file, 'dashboard does not enforce the four-role controller lease and separate filled-receipt lane'));
   }
@@ -1423,6 +1535,21 @@ export function auditApplicationContract(root = ROOT) {
     const file = 'prepare-application.mjs';
     const source = readRequired(root, file, errors);
     if (source) errors.push(...checkRetiredPrepareApplication(file, source));
+  }
+  {
+    const file = 'application-request.mjs';
+    const source = readRequired(root, file, errors);
+    if (source) errors.push(...checkApplicationRequestCore(file, source));
+  }
+  {
+    const file = 'lean-application.mjs';
+    const source = readRequired(root, file, errors);
+    if (source) errors.push(...checkLeanAttachmentGate(file, source));
+  }
+  {
+    const file = 'one-shot-request.mjs';
+    const source = readRequired(root, file, errors);
+    if (source) errors.push(...checkOneShotRuntime(file, source));
   }
   {
     const file = 'dashboard-server.mjs';

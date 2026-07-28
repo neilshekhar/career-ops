@@ -51,7 +51,35 @@ If even ONE of these appears, the output fails.
 
 These words are statistically overrepresented in LLM output. They are the fingerprint of AI text. Never use them.
 
-delve, realm, harness, unlock, tapestry, paradigm, cutting-edge, revolutionize, landscape (abstract), intricate/intricacies, showcasing, crucial, pivotal, surpass, meticulously, vibrant, unparalleled, underscore (verb), leverage, synergy, innovative, game-changer, testament, commendable, meticulous, highlight (verb), emphasize, boast, groundbreaking, align, foster, showcase, enhance, holistic, garner, accentuate, pioneering, trailblazing, unleash, versatile, transformative, redefine, seamless, optimize, scalable, robust, breakthrough, empower, streamline, frictionless, elevate, adaptive, effortless, data-driven, insightful, proactive, mission-critical, visionary, disruptive, reimagine, unprecedented, intuitive, leading-edge, synergize, democratize, accelerate, state-of-the-art, dynamic, immersive, predictive, transparent, proprietary, integrated, plug-and-play, turnkey, future-proof, paradigm-shifting, supercharge, enduring, interplay, valuable, captivate
+The block below is the **machine-readable canonical list**. Deterministic validators
+parse exactly this fenced block (zero model tokens) — never the surrounding prose. Keep
+one comma-separated list inside it. A parenthetical like `landscape (abstract)` scopes the
+rule for a human reader; the validator matches the bare word before the parenthesis, and a
+slashed pair like `intricate/intricacies` registers both forms.
+
+Two deliberate limits, so nobody is surprised by them:
+
+- **Parenthetical scoping is advisory, not enforced.** `landscape (abstract)` flags a
+  literal "landscape architect" too. If a concrete sense is genuinely part of your
+  vocabulary, add that word to `application_quality.banned_terms_allow` rather than
+  editing this shared list.
+- **Matching is exact-word, not stemmed.** `delve` does not catch "delved", and `boast`
+  does not catch "boasting" — which is why `showcase` and `showcasing` are both listed.
+  Add the inflections you care about via `banned_terms_add`.
+
+<!-- career-ops:banned-terms:begin -->
+```text
+delve, realm, harness, unlock, tapestry, paradigm, cutting-edge, revolutionize, landscape (abstract), intricate/intricacies, showcasing, crucial, pivotal, surpass, meticulously, vibrant, unparalleled, underscore (verb), leverage, synergy, innovative, game-changer, testament, commendable, meticulous, highlight (verb), emphasize, boast, groundbreaking, align, foster, showcase, enhance, holistic, garner, accentuate, pioneering, trailblazing, unleash, versatile, transformative, redefine, seamless, optimize, scalable, robust, breakthrough, empower, streamline, frictionless, elevate, adaptive, effortless, data-driven, insightful, proactive, mission-critical, visionary, disruptive, reimagine, unprecedented, intuitive, leading-edge, synergize, democratize, accelerate, state-of-the-art, dynamic, immersive, transparent, proprietary, integrated, plug-and-play, turnkey, future-proof, paradigm-shifting, supercharge, enduring, interplay, valuable, captivate, spearheaded, championed, orchestrated, passionate, excited, stakeholder alignment, actionable insights, move the needle, north star, unique opportunity, perfect fit, strong track record
+```
+<!-- career-ops:banned-terms:end -->
+
+**`predictive` is deliberately NOT on this list.** It is the only entry that was also the
+precise name of a technical method ("predictive modeling", "predictive maintenance") and a
+live ATS keyword, so banning the word removed a valid, non-substitutable term from CVs and
+cover letters. Empty buzzword usage of it is caught by the normal quality review instead of
+an exact-word ban. Add narrow per-user exceptions through
+`application_quality.banned_terms_allow` / `banned_terms_add` rather than editing this
+shared list.
 
 Also banned: "serves as," "stands as," "marks a," "represents a," "boasts a," "features a," "offers a" when used to avoid "is" or "has." Just say "is."
 
@@ -220,4 +248,3 @@ This document captures taste. It is a guide. Apply it with judgment.
 > "Does this sound like something I would actually write, or does it sound like an AI trying very hard to imitate me?"
 
 If it feels forced, pull back. Inhabit the voice.
-

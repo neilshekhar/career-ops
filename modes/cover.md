@@ -242,8 +242,15 @@ Cover Letter: [Role Title]
 
 ────────────────────────────────────────────────
 
-[Salutation — optional]
-Address the named hiring manager if known, e.g. "Dear Jane Smith,". Omit if no name.
+[Salutation — REQUIRED]
+Every letter opens with a salutation. Walk the fallback ladder; never omit it:
+  1. A named hiring contact you actually know    → "Dear Jane Smith,"
+  2. Otherwise, the company's hiring team        → "Dear {Company} Hiring Team,"
+  3. Otherwise, a generic salutation             → "Dear Hiring Manager,"
+Never invent a name to reach rung 1. `cover-quality.mjs` → `resolveGreeting()`
+returns the exact string for the configured locale, and localized modes supply
+native equivalents (German "Sehr geehrte Damen und Herren,", Japanese "ご担当者様",
+and so on). Configure with `cover.greeting_required` / `cover.greeting_strategy`.
 
 [Opening — 2 sentences]
 Why applying + functional summary. Derived from Angle A. Uses JD mirror vocabulary.
@@ -267,6 +274,14 @@ Availability + any gap acknowledgments the user chose to include (Step 5).
 
 [Language closing — if applicable]
 Only if user confirmed inclusion in Step 5. Written in that language. Italic in PDF.
+
+[Sign-off — REQUIRED]
+A sign-off line then the candidate's name, e.g.
+  Kind regards,
+  Neil Shekhar
+Locale-aware: `cover-quality.mjs` → `resolveSignoff()` supplies the right form
+("Mit freundlichen Grüßen,", "Cordialement,", "敬具", …). Rendered from the same
+`signoff` / `signature_name` payload fields in Markdown, HTML/PDF, and DOCX.
 ```
 
 End the draft with: "How does this read? Once you approve I'll generate the PDF."
@@ -280,10 +295,20 @@ End the draft with: "How does this read? Once you approve I'll generate the PDF.
 1. **Active voice only** — never "was delivered", "has been built", "were led"
 2. **No abbreviations unless JD used them first** — write the full term on first use with abbreviation in brackets. After that, abbreviation is fine.
 3. **No em dashes** — replace with a comma, full stop, or rewrite the sentence
-4. **No buzzwords** — hard ban: leverage, synergy, seamless, holistic, robust, cutting-edge, spearheaded, championed, orchestrated, passionate, excited, stakeholder alignment, data-driven (say what the data drove instead), actionable insights, move the needle, north star, unique opportunity, perfect fit, strong track record
+4. **No buzzwords** — the canonical list is the machine-readable block in
+   `voice-dna.md` (between `career-ops:banned-terms:begin/end`), enforced
+   deterministically by `cover-quality.mjs`. It includes the cover-specific bans
+   spearheaded, championed, orchestrated, passionate, excited, stakeholder
+   alignment, actionable insights, move the needle, north star, unique
+   opportunity, perfect fit, and strong track record. Per-user exceptions go in
+   `application_quality.banned_terms_allow` / `banned_terms_add`, never by
+   editing the shared list.
 5. **No filler openers** — never "I am pleased to", "I am writing to express", "I am excited to"
 6. **Concrete over abstract** — every claim needs a number, system name, or specific outcome. "Improved performance" is banned. "Cut latency from 2s to 380ms" is fine.
-7. **350-420 words** total body (header + credentials not counted)
+7. **Target 350-420 words** for the body (header + credentials not counted).
+   The shared release guard accepts 250-500 by default so localized or unusually
+   technical letters are not rejected mechanically; `application_quality`
+   controls that hard range.
 8. **Bullet format** — `**Bold lead phrase,** impact sentence with metric.` No em dash between lead and sentence.
 9. **Self-check** — before finalising, re-read each sentence: could it appear in any cover letter for any company? If yes, rewrite it.
 10. **Tone consistency** — apply the chosen tone (Step 6D) uniformly. Don't shift register mid-letter.
@@ -327,7 +352,9 @@ Assemble the JSON payload:
     "company": "{company name}",
     "city": "{JD city}",
     "date": "{YYYY-MM-DD}",
-    "greeting": "{optional salutation, e.g. 'Dear Jane Smith,'; omit the key to skip the salutation}",
+    "locale": "{BCP-47/ISO language code for this letter, e.g. en, de, ja}",
+    "greeting": "{REQUIRED salutation from the fallback ladder, e.g. 'Dear Jane Smith,' or 'Dear Acme Hiring Team,' or 'Dear Hiring Manager,'}",
+    "hiring_contact_name": "{named contact if genuinely known, else omit — never invented}",
     "opening": "{approved opening paragraph}",
     "profile_intro": "{approved profile intro}",
     "achievements": [
@@ -335,7 +362,9 @@ Assemble the JSON payload:
     ],
     "problems_section": "{approved problems paragraph}",
     "closing": "{approved closing}",
-    "language_closing": "{approved language sentence or null}"
+    "language_closing": "{approved language sentence or null}",
+    "signoff": "{REQUIRED sign-off for the locale, e.g. 'Kind regards,'}",
+    "signature_name": "{candidate name from profile.yml}"
   },
   "output_path": "output/{company-slug}-{role-slug}-cover.pdf"
 }
@@ -385,7 +414,8 @@ After the PDF is confirmed, add a brief note:
 
 - Any JD keywords from Step 4 that could not be incorporated naturally (flag for manual review)
 - Which gap acknowledgments were included and which were omitted, and why
-- Whether the word count hit the 350-420 target (if short or long, note it)
+- Whether the word count hit the 350-420 authoring target (and whether it remains
+  inside the configured hard release range)
 
 ---
 

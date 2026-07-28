@@ -117,10 +117,21 @@ export function buildHtml(payload) {
   const templatePath = resolve(scriptDir, "templates", "cover-letter-template.html");
   let html = readFileSync(templatePath, "utf-8");
 
-  // Optional salutation (e.g. "Dear Jane Smith,"). Omitted -> no salutation,
-  // preserving the original behavior for payloads that don't set it.
+  // Salutation. A letter SHOULD always carry one — `cover-quality.mjs` supplies a
+  // locale-aware fallback ladder (named person -> company team -> generic) so
+  // "no name known" no longer means "no greeting". An empty value still renders
+  // nothing, which keeps historical payloads re-renderable byte-for-byte.
   const greetingBlock = letter.greeting ? `<p class="greeting">${escapeHtml(letter.greeting)}</p>` : "";
   const closingBlock = letter.closing ? `<p>${escapeHtml(letter.closing)}</p>` : "";
+  // Sign-off block: "Kind regards," + the candidate's name. Rendered from the
+  // same canonical payload fields as the Markdown and DOCX outputs.
+  const signoffLines = [
+    letter.signoff ? `    <p>${escapeHtml(letter.signoff)}</p>` : "",
+    letter.signature_name ? `    <p class="signature-name">${escapeHtml(letter.signature_name)}</p>` : "",
+  ].filter(Boolean);
+  const signoffBlock = signoffLines.length
+    ? `<div class="signoff">\n${signoffLines.join("\n")}\n  </div>`
+    : "";
   const languageClosingBlock = letter.language_closing
     ? `<p class="language-closing">${escapeHtml(letter.language_closing)}</p>`
     : "";
@@ -139,6 +150,7 @@ export function buildHtml(payload) {
     "{{PROBLEMS_BLOCK}}": problemsBlock,
     "{{CLOSING_BLOCK}}": closingBlock,
     "{{LANGUAGE_CLOSING_BLOCK}}": languageClosingBlock,
+    "{{SIGNOFF_BLOCK}}": signoffBlock,
     "{{FOOTNOTES_BLOCK}}": buildFootnotesBlock(letter.footnotes),
   };
 

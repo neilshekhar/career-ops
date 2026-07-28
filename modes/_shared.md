@@ -223,7 +223,11 @@ A mode may tell you to run work in a background subagent (e.g. `scan`, or parall
 
 ## Voice DNA (writing guardrail)
 
-If `voice-dna.md` exists in the project root, it is a writing guardrail for generated prose. It is user-layer and optional — never assume it exists, and skip this block silently if it doesn't. It layers **under** the user's personal style: it catches AI-slop and fills gaps, but it always defers to the user's own voice rules in `_profile.md` (see Precedence below).
+`voice-dna.md` in the project root is the **shared writing default** — an opinionated, tracked system file that ships with every install. It is a guardrail for generated prose only: it governs *how* text reads and never introduces a factual claim about the candidate. It layers **under** the user's personal style: it catches AI-slop and fills gaps, but it always defers to the user's own voice rules in `_profile.md` (see Precedence below).
+
+Its `career-ops:banned-terms` fenced block is the machine-readable canonical vocabulary list. `cover-quality.mjs` parses exactly that block deterministically (zero model tokens) — never interpret the document with a model, and never grep the surrounding prose. Personal exceptions go in `application_quality.banned_terms_allow` / `banned_terms_add`, **not** by editing the shared list.
+
+It is a system file, so treat it as present. If a user asks to change their voice rules, write to `modes/_custom.md`, `_profile.md`, or `writing-samples/` — an edit to `voice-dna.md` is overwritten on the next `update-system.mjs apply`.
 
 **Two-tier scope (this is what keeps CVs accurate):**
 
@@ -232,7 +236,7 @@ If `voice-dna.md` exists in the project root, it is a writing guardrail for gene
 
 **Accuracy always wins over style.** Facts from `cv.md` and `article-digest.md` are never overridden by voice-dna. Never drop, soften, or hedge a real metric to improve rhythm. Never invent detail to sound more human. Voice-dna shapes wording; it never changes content.
 
-**Precedence with personal style (`_profile.md` always wins):** The user's `## Writing Style` in `_profile.md` is the authority on voice and tone. Where `voice-dna.md` and `_profile.md` conflict, `_profile.md` wins — voice-dna never overrides a rule the user set for themselves. Example: if the user's `_profile.md` style uses em-dashes, keep them, even though voice-dna discourages them. voice-dna's anti-AI-slop rules apply only where `_profile.md` is silent. (`voice-dna.md` is itself a user file, so a user who wants the strict guardrail to win can simply leave that preference out of `_profile.md`.)
+**Precedence with personal style (`_profile.md` always wins):** The user's `## Writing Style` in `_profile.md` is the authority on voice and tone. Where `voice-dna.md` and `_profile.md` conflict, `_profile.md` wins — voice-dna never overrides a rule the user set for themselves. Example: if the user's `_profile.md` style uses em-dashes, keep them, even though voice-dna discourages them. voice-dna's anti-AI-slop rules apply only where `_profile.md` is silent. (`voice-dna.md` is the *shared* baseline, so a user who wants the strict guardrail to win simply leaves that preference out of `_profile.md`.)
 
 ---
 

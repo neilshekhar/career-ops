@@ -95,7 +95,15 @@ try {
   ].join('\n'));
   writeFileSync(join(root, 'modes', '_profile.md'), '# Profile\n');
   writeFileSync(join(root, 'modes', '_custom.md'), '# Rules\n');
-  writeFileSync(join(root, 'voice-dna.md'), '# Voice\n');
+  writeFileSync(join(root, 'voice-dna.md'), [
+    '# Voice',
+    '<!-- career-ops:banned-terms:begin -->',
+    '```text',
+    'forbidden-placeholder',
+    '```',
+    '<!-- career-ops:banned-terms:end -->',
+    '',
+  ].join('\n'));
   writeFileSync(join(root, 'interview-prep', 'story-bank.md'), '# Stories\nStakeholder evidence from a verified story\n');
   writeFileSync(join(root, 'interview-prep', 'retracted-claims.md'), '# Retracted\nNever use Kubernetes evidence\n');
   writeFileSync(join(root, 'writing-samples', 'sample.md'), '# Style only\nKubernetes appears only as prose style.\n');
@@ -195,7 +203,11 @@ try {
     },
   };
 
-  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>SQL evidence. B.Tech with Node.js, U.S. clients, C++, C#, CI/CD, .NET, and GPT-4.</p></body></html>');
+  const cvHtmlFixture = '<html><head><meta name="career-ops-template-id" content="cv-template">'
+    + '<meta name="career-ops-template-version" content="1"></head>'
+    + '<body><h1>Test Candidate</h1><p>SQL evidence. B.Tech with Node.js, U.S. clients, '
+    + 'C++, C#, CI/CD, .NET, and GPT-4.</p></body></html>';
+  writeFileSync(join(root, 'output', 'acme-cv.html'), cvHtmlFixture);
   writePdfFixture(join(root, 'output', 'acme-cv.pdf'));
   writeFileSync(join(root, 'output', 'acme-cover.md'), buildMarkdown(payload));
   writePdfFixture(join(root, 'output', 'acme-cover.pdf'));
@@ -413,6 +425,38 @@ try {
     .map((item) => item.code);
   assert(changedReviewCodes.includes('generation-provenance-quality-review'));
 
+  const lateReuseJustification = structuredClone(role);
+  lateReuseJustification.cv_reuse_justification = {
+    covers_role_ids: ['role-1', 'role-2'],
+    rationale: 'A justification added after provenance must never become release-eligible without a new stamp.',
+    shared_evidence: ['SQL evidence'],
+  };
+  const lateReuseCodes = validateApplicationRole(lateReuseJustification, {
+    root, profile, quality, now: new Date('2026-07-13T00:00:00Z'),
+  }).map((item) => item.code);
+  assert(lateReuseCodes.includes('generation-provenance-cv-reuse-justification'));
+  assert.throws(() => validateApplicationQualityEvidence(lateReuseJustification, qualityEvidence, {
+    root, profile, maxAgeMs: Number.POSITIVE_INFINITY,
+  }), /no longer matches/);
+
+  const unsupportedTemplate = cvHtmlFixture.replace(
+    'content="cv-template"',
+    'content="hand-built-template"',
+  );
+  writeFileSync(join(root, 'output', 'acme-cv.html'), unsupportedTemplate);
+  const unsupportedTemplateCodes = validateApplicationRole(role, {
+    root, profile, quality, now: new Date('2026-07-13T00:00:00Z'),
+  }).map((item) => item.code);
+  assert(unsupportedTemplateCodes.includes('cv-template-unsupported'));
+  assert(unsupportedTemplateCodes.includes('generation-provenance-template-unsupported'));
+  assert.throws(
+    () => buildGenerationProvenance({
+      role, cli: 'codex', model: 'gpt-5.6-sol', effort: 'medium', root,
+    }),
+    /template identity is missing or unsupported/,
+  );
+  writeFileSync(join(root, 'output', 'acme-cv.html'), cvHtmlFixture);
+
   const invalidUsedSource = structuredClone(role);
   invalidUsedSource.application_quality_review.sources_used = ['writing-samples/../cv.md'];
   const invalidUsedSourceCodes = validateApplicationRole(invalidUsedSource, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') })
@@ -589,7 +633,7 @@ try {
   assert(unsupportedSymbolIssues.some((item) => item.message.includes('".net"')));
 
   writeFileSync(join(root, 'cv.md'), '# CV\nSQL evidence\nReporting evidence\nPython delivery improved reporting by 40%.\nB.Tech with Node.js, U.S. clients, C++, C#, CI/CD, .NET, and GPT-4.\n');
-  writeFileSync(join(root, 'output', 'acme-cv.html'), '<html><body><h1>Test Candidate</h1><p>SQL evidence. B.Tech with Node.js, U.S. clients, C++, C#, CI/CD, .NET, and GPT-4.</p></body></html>');
+  writeFileSync(join(root, 'output', 'acme-cv.html'), cvHtmlFixture);
 
   writeFileSync(join(root, 'output', 'acme-cover.payload.json'), JSON.stringify(payload));
   writeFileSync(join(root, 'output', 'acme-cover.md'), buildMarkdown(payload));

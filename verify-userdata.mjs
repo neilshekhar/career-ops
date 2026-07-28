@@ -13,6 +13,7 @@ import { existsSync, readFileSync, statSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
+import { DEFAULT_GREETING_STRATEGY } from './cover-quality.mjs';
 
 import {
   applicationFreshnessSourcePaths,
@@ -28,11 +29,28 @@ import {
 } from './application-source-contract.mjs';
 import { ACTIVE_STATUSES, loadQueue } from './queue-store.mjs';
 import {
+  DEFAULT_TAILORING,
+  TAILORING_COMPARABLE_STATUSES,
+  validateRoleTailoring,
+  visibleHtmlText,
+} from './cv-tailoring.mjs';
+import {
+  bannedTermHits,
+  coverSkeletonFingerprints,
+  greetingAcceptable,
+  resolveBannedTerms,
+  resolveGreeting,
+  resolveSignoff,
+  signoffAcceptable,
+} from './cover-quality.mjs';
+import {
   allowedReleaseEfforts,
   allowedReleaseModelEfforts,
   coverMarkdownMatchesPayload,
+  detectAssetTemplates,
   describeReleaseEffortPolicy,
   describeReleaseModelPolicy,
+  isSupportedCvTemplateIdentity,
   isAllowedReleaseModelEffort,
   isAllowedReleaseGenerator,
   MIN_ONE_PAGE_UTILIZATION,
@@ -73,6 +91,22 @@ const DEFAULT_QUALITY = Object.freeze({
   coverAllowBullets: true,
   coverRequiredFormats: ['md', 'pdf'],
   bannedPunctuation: [],
+  bannedTermsAllow: [],
+  bannedTermsAdd: [],
+  requireBannedTermCheck: true,
+  requireGreeting: false,
+  requireSignoff: false,
+  requireCoverSkeletonVariation: false,
+  coverLocale: 'en',
+  greetingStrategy: DEFAULT_GREETING_STRATEGY,
+  greetingAllow: [],
+  signoffAllow: [],
+  // Contextual role-tailoring policy (see cv-tailoring.mjs). Identical CV text
+  // triggers a check, not an automatic rejection.
+  requireRoleTailoredCv: true,
+  tailoringRequirementOverlapMin: DEFAULT_TAILORING.requirementOverlapMin,
+  tailoringMinSharedRequirements: DEFAULT_TAILORING.minSharedRequirements,
+  tailoringJustificationMinChars: DEFAULT_TAILORING.justificationMinChars,
 });
 
 function numberOr(value, fallback) {
@@ -90,6 +124,12 @@ function canonicalJson(value) {
 
 export function applicationQualityConfig(profile = {}) {
   const raw = profile.application_quality || {};
+  // `cover:` holds the shared-default greeting/sign-off policy. It sits beside
+  // application_quality rather than inside it because it governs authoring, not
+  // just validation, and the generators read the same block.
+  const cover = profile.cover && typeof profile.cover === 'object' && !Array.isArray(profile.cover)
+    ? profile.cover
+    : {};
   const allowedReleaseModels = raw.allowed_release_models && typeof raw.allowed_release_models === 'object' && !Array.isArray(raw.allowed_release_models)
     ? Object.fromEntries(Object.entries(raw.allowed_release_models).map(([cli, models]) => [
       String(cli).trim().toLowerCase(),
@@ -125,6 +165,41 @@ export function applicationQualityConfig(profile = {}) {
     bannedPunctuation: Array.isArray(raw.banned_punctuation)
       ? raw.banned_punctuation.map(String)
       : DEFAULT_QUALITY.bannedPunctuation,
+    bannedTermsAllow: Array.isArray(raw.banned_terms_allow)
+      ? raw.banned_terms_allow.map(String)
+      : DEFAULT_QUALITY.bannedTermsAllow,
+    bannedTermsAdd: Array.isArray(raw.banned_terms_add)
+      ? raw.banned_terms_add.map(String)
+      : DEFAULT_QUALITY.bannedTermsAdd,
+    requireBannedTermCheck: raw.require_banned_term_check ?? DEFAULT_QUALITY.requireBannedTermCheck,
+    requireGreeting: raw.require_greeting ?? cover.greeting_required ?? DEFAULT_QUALITY.requireGreeting,
+    requireSignoff: raw.require_signoff ?? cover.signoff_required ?? DEFAULT_QUALITY.requireSignoff,
+    requireCoverSkeletonVariation:
+      raw.require_cover_skeleton_variation ?? DEFAULT_QUALITY.requireCoverSkeletonVariation,
+    // Locale for the greeting/sign-off ladders. Falls back to the project's
+    // configured mode language so a DACH user gets German salutations by default.
+    // Any empty result lands on the DEFAULT_QUALITY locale via `||`.
+    coverLocale: String(
+      raw.cover_locale
+      ?? cover.locale
+      ?? String(profile.language?.modes_dir || '').replace(/^modes\/?/, ''),
+    ).trim() || DEFAULT_QUALITY.coverLocale,
+    greetingStrategy: String(cover.greeting_strategy || DEFAULT_QUALITY.greetingStrategy),
+    greetingAllow: Array.isArray(cover.greeting_allow) ? cover.greeting_allow.map(String) : DEFAULT_QUALITY.greetingAllow,
+    signoffAllow: Array.isArray(cover.signoff_allow) ? cover.signoff_allow.map(String) : DEFAULT_QUALITY.signoffAllow,
+    requireRoleTailoredCv: raw.require_role_tailored_cv ?? DEFAULT_QUALITY.requireRoleTailoredCv,
+    tailoringRequirementOverlapMin: numberOr(
+      raw.tailoring_requirement_overlap_min,
+      DEFAULT_QUALITY.tailoringRequirementOverlapMin,
+    ),
+    tailoringMinSharedRequirements: numberOr(
+      raw.tailoring_min_shared_requirements,
+      DEFAULT_QUALITY.tailoringMinSharedRequirements,
+    ),
+    tailoringJustificationMinChars: numberOr(
+      raw.tailoring_justification_min_chars,
+      DEFAULT_QUALITY.tailoringJustificationMinChars,
+    ),
   };
 }
 
@@ -142,22 +217,6 @@ function coverPaths(role) {
   const paths = { ...(role.cover_letter_paths || {}) };
   if (role.cover_letter_path && !paths.pdf) paths.pdf = role.cover_letter_path;
   return paths;
-}
-
-function visibleHtmlText(html) {
-  const body = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)?.[1] || html;
-  return body
-    .replace(/<(style|script)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(Number(code)))
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 export function wordCount(text) {
@@ -322,9 +381,16 @@ function punctuationHits(text, configured) {
   return hits;
 }
 
-export function validateCoverPayload(payload, quality = DEFAULT_QUALITY) {
+export function validateCoverPayload(payload, quality = DEFAULT_QUALITY, options = {}) {
   const errors = [];
+  const letter = payload?.letter || {};
   const body = payloadBody(payload);
+  // Canonical payload locale wins so a one-off localized application remains
+  // valid even when the user's global profile stays in another language.
+  const locale = String(letter.locale ?? payload?.locale ?? '').trim()
+    || options.locale
+    || quality.coverLocale
+    || 'en';
   const words = wordCount(body);
   if (words < quality.coverBodyWordsMin || words > quality.coverBodyWordsMax) {
     errors.push(`cover body has ${words} words; required range is ${quality.coverBodyWordsMin}-${quality.coverBodyWordsMax}`);
@@ -334,6 +400,38 @@ export function validateCoverPayload(payload, quality = DEFAULT_QUALITY) {
   }
   const hits = punctuationHits(body, quality.bannedPunctuation);
   if (hits.length) errors.push(`cover body contains banned punctuation: ${hits.join(', ')}`);
+
+  // Greeting: locale-aware ladder, never a global /^Dear\b.*,$/ check.
+  if (quality.requireGreeting) {
+    const greetingOptions = {
+      locale,
+      company: letter.company,
+      name: letter.hiring_contact_name,
+      extraAllowed: quality.greetingAllow,
+    };
+    if (!String(letter.greeting || '').trim()) {
+      const suggested = resolveGreeting({
+        ...greetingOptions,
+        strategy: quality.greetingStrategy,
+      }).greeting;
+      errors.push(`cover letter has no greeting; the configured fallback for this locale is ${JSON.stringify(suggested)}`);
+    } else if (!greetingAcceptable(letter.greeting, greetingOptions)) {
+      errors.push(`cover greeting ${JSON.stringify(letter.greeting)} is not a valid salutation for locale ${greetingOptions.locale}`);
+    }
+  }
+
+  // Sign-off: explicit payload fields, rendered identically in every format.
+  if (quality.requireSignoff) {
+    if (!String(letter.signoff || '').trim()) {
+      errors.push(`cover letter has no sign-off; the configured sign-off for this locale is ${JSON.stringify(resolveSignoff({ locale }).signoff)}`);
+    } else if (!signoffAcceptable(letter.signoff, { locale, extraAllowed: quality.signoffAllow })) {
+      errors.push(`cover sign-off ${JSON.stringify(letter.signoff)} is not a valid sign-off for locale ${locale}`);
+    }
+    if (!String(letter.signature_name || '').trim()) {
+      errors.push('cover letter sign-off has no signature_name');
+    }
+  }
+
   return errors;
 }
 
@@ -648,6 +746,26 @@ function validateGenerationProvenance(role, issues, { root, quality, source }) {
     }
   }
 
+  const currentTemplates = detectAssetTemplates(root, role);
+  if (!isSupportedCvTemplateIdentity(currentTemplates.cv)) {
+    issues.push(issue(
+      'error',
+      'generation-provenance-template-unsupported',
+      'Generation provenance cannot bind an unrecorded or unsupported CV template.',
+      role,
+      roleAssetPaths(role).cv_html,
+    ));
+  }
+  if (JSON.stringify(provenance.templates ?? null) !== JSON.stringify(currentTemplates)) {
+    issues.push(issue(
+      'error',
+      'generation-provenance-template',
+      'Recorded CV template identity does not match the current rendered HTML.',
+      role,
+      roleAssetPaths(role).cv_html,
+    ));
+  }
+
   const recordedSource = provenance.source_snapshot;
   const currentSource = buildApplicationSourceSnapshot(root, role);
   if (!recordedSource || typeof recordedSource !== 'object') {
@@ -680,6 +798,17 @@ function validateGenerationProvenance(role, issues, { root, quality, source }) {
     }
     if (recordedSource.quality_review_sha256 !== currentSource.quality_review_sha256) {
       issues.push(issue('error', 'generation-provenance-quality-review', 'The application quality review changed after provenance was recorded.', role));
+    }
+    if (
+      recordedSource.cv_reuse_justification_sha256
+      !== currentSource.cv_reuse_justification_sha256
+    ) {
+      issues.push(issue(
+        'error',
+        'generation-provenance-cv-reuse-justification',
+        'The CV reuse justification changed after provenance was recorded.',
+        role,
+      ));
     }
     if (JSON.stringify(recordedSource.role_context || {}) !== JSON.stringify(currentSource.role_context)) {
       issues.push(issue('error', 'generation-provenance-role-context', 'Role context changed after provenance was recorded.', role));
@@ -807,6 +936,18 @@ export function validateApplicationRole(role, options = {}) {
 
   if (!cvHtml) {
     issues.push(issue('error', 'cv-source-html-missing', 'The tailored CV source HTML must be retained beside the PDF for content QC and regeneration.', role, cvHtml?.relative || null));
+  } else {
+    const currentTemplates = detectAssetTemplates(root, role);
+    if (!isSupportedCvTemplateIdentity(currentTemplates.cv)) {
+      issues.push(issue(
+        'error',
+        'cv-template-unsupported',
+        `CV template identity is missing or unsupported: `
+          + `${currentTemplates.cv?.template_id || 'unrecorded'}@${currentTemplates.cv?.template_version || 'missing'}.`,
+        role,
+        cvHtml.relative,
+      ));
+    }
   }
 
   let payload = null;
@@ -830,12 +971,16 @@ export function validateApplicationRole(role, options = {}) {
     }
 
     coverBody = payloadBody(payload);
-    for (const payloadError of validateCoverPayload(payload, quality)) {
+    for (const payloadError of validateCoverPayload(payload, quality, { locale: quality.coverLocale })) {
       const code = payloadError.startsWith('cover body has')
         ? 'cover-word-count'
         : payloadError.startsWith('cover payload')
           ? 'cover-bullets'
-          : 'cover-punctuation';
+          : /greeting/.test(payloadError)
+            ? 'cover-greeting'
+            : /sign-off|signature_name/.test(payloadError)
+              ? 'cover-signoff'
+              : 'cover-punctuation';
       issues.push(issue('error', code, `${payloadError[0].toUpperCase()}${payloadError.slice(1)}.`, role, coverPayload.relative));
     }
   }
@@ -854,11 +999,62 @@ export function validateApplicationRole(role, options = {}) {
     }
   }
 
+  let cvVisibleText = '';
   if (cvHtml && existsSync(cvHtml.absolute)) {
-    const text = visibleHtmlText(readFileSync(cvHtml.absolute, 'utf-8'));
-    const hits = punctuationHits(text, quality.bannedPunctuation);
+    cvVisibleText = visibleHtmlText(readFileSync(cvHtml.absolute, 'utf-8'));
+    const hits = punctuationHits(cvVisibleText, quality.bannedPunctuation);
     if (hits.length) {
       issues.push(issue('error', 'cv-punctuation', `CV body contains banned punctuation: ${hits.join(', ')}.`, role, cvHtml.relative));
+    }
+  }
+
+  // Banned vocabulary, parsed deterministically from the shared voice policy's
+  // machine-readable block. The previous audit missed real hits because it
+  // scanned a hand-typed subset instead of the canonical list.
+  if (quality.requireBannedTermCheck) {
+    const banned = resolveBannedTerms(root, quality);
+    if (!banned.parsed) {
+      issues.push(issue('error', 'banned-terms-unparseable', 'The shared voice policy has no machine-readable banned-term block; deterministic enforcement cannot run.', role, 'voice-dna.md'));
+    } else {
+      for (const [label, text, path] of [
+        ['CV', cvVisibleText, cvHtml?.relative ?? null],
+        ['cover body', coverBody, coverPayload?.relative ?? null],
+      ]) {
+        if (!text) continue;
+        const hits = bannedTermHits(text, banned.terms);
+        if (hits.length) {
+          issues.push(issue(
+            'error',
+            label === 'CV' ? 'cv-banned-terms' : 'cover-banned-terms',
+            `${label} contains banned term(s): ${hits.map((hit) => `${hit.term}×${hit.count}`).join(', ')}.`,
+            role,
+            path,
+          ));
+        }
+      }
+    }
+  }
+
+  // Repeated opening/closing skeletons across recent letters. Company and role
+  // names are normalized away BEFORE fingerprinting, so two letters that differ
+  // only by the employer name collide — which is the repetition worth catching.
+  if (quality.requireCoverSkeletonVariation && payload && Array.isArray(options.peers)) {
+    const own = coverSkeletonFingerprints(payload, role);
+    for (const peer of options.peers) {
+      if (!peer || peer.id === role.id) continue;
+      const peerPrints = peer.generation_provenance?.cover_skeleton;
+      if (!peerPrints) continue;
+      for (const part of ['opening', 'closing']) {
+        if (own[part] && peerPrints[part] && own[part] === peerPrints[part]) {
+          issues.push(issue(
+            'error',
+            'cover-skeleton-repeated',
+            `Cover ${part} reuses the same structure as ${peer.company ?? peer.id} once company and role names are normalized away; rewrite it for this role.`,
+            role,
+            coverPayload?.relative ?? null,
+          ));
+        }
+      }
     }
   }
 
@@ -908,6 +1104,19 @@ export function validateApplicationRole(role, options = {}) {
   if (quality.requireQualityManifest) validateQualityManifest(role, issues, { root, source, coverBody, quality });
   if (quality.requireCandidateClaimTrace) validateCandidateClaims(role, issues, { root, cvText: cvHtml && existsSync(cvHtml.absolute) ? visibleHtmlText(readFileSync(cvHtml.absolute, 'utf-8')) : '', coverBody });
   if (quality.requireGenerationProvenance) validateGenerationProvenance(role, issues, { root, quality, source });
+
+  // Contextual role tailoring. Only runs when the caller supplied the sibling
+  // roles to compare against — a single-role validation has nothing to compare,
+  // and that is not a failure.
+  if (Array.isArray(options.peers) && options.peers.length) {
+    for (const finding of validateRoleTailoring(role, options.peers, { root, quality })) {
+      if (finding.level === 'info') continue; // allowed reuse: recorded, not reported
+      issues.push({
+        ...issue(finding.level, finding.code, finding.message, role, finding.path ?? null),
+        peer_role_id: finding.peer_role_id,
+      });
+    }
+  }
   return issues;
 }
 
@@ -949,6 +1158,7 @@ function applicationQualityEvidenceCore(role, { root = ROOT, profile = null } = 
     assets,
     generation_provenance: role.generation_provenance ?? null,
     application_quality_review: role.application_quality_review ?? null,
+    cv_reuse_justification: role.cv_reuse_justification ?? null,
   };
 }
 
@@ -1038,9 +1248,15 @@ export function verifyUserData(options = {}) {
     issues.push(issue('error', 'role-not-found', `Queue role not found: ${roleId}`));
   }
 
+  // Cross-role tailoring needs the sibling roles that actually carry assets.
+  // Built once here rather than per role so the comparison cost stays linear.
+  const peers = queue.roles.filter((role) => TAILORING_COMPARABLE_STATUSES.has(role.status));
+
   for (const role of roles) {
     const requireAssets = roleId ? true : ASSET_STATUSES.has(role.status);
-    issues.push(...validateApplicationRole(role, { root, profile, quality, now, requireAssets }));
+    issues.push(...validateApplicationRole(role, {
+      root, profile, quality, now, requireAssets, peers,
+    }));
   }
 
   const errors = issues.filter((item) => item.level === 'error');

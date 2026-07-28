@@ -375,8 +375,13 @@ export function buildApplicationSourceSnapshot(root, role = {}) {
   const qualityReview = role.application_quality_review && typeof role.application_quality_review === 'object'
     ? role.application_quality_review
     : null;
+  const cvReuseJustification = role.cv_reuse_justification
+    && typeof role.cv_reuse_justification === 'object'
+    && !Array.isArray(role.cv_reuse_justification)
+    ? role.cv_reuse_justification
+    : null;
   return {
-    schema: 1,
+    schema: 2,
     files,
     jd_source: jdInput?.kind === 'file'
       ? { kind: 'file', path: jdInput.path.relative }
@@ -387,6 +392,9 @@ export function buildApplicationSourceSnapshot(root, role = {}) {
       ? { sha256: sha256(Buffer.from(jdInput.text, 'utf-8')), bytes: Buffer.byteLength(jdInput.text, 'utf-8') }
       : null,
     quality_review_sha256: qualityReview ? sha256(canonicalJson(qualityReview)) : null,
+    cv_reuse_justification_sha256: cvReuseJustification
+      ? sha256(canonicalJson(cvReuseJustification))
+      : null,
     role_context: {
       company: String(role.company || ''),
       title: String(role.title || ''),

@@ -33,6 +33,7 @@ import {
   validateApplicationReceiptIntegrity,
 } from './application-receipt-integrity.mjs';
 import { applicationActionDecision, isFinalApplicationActionLabel } from './application-safety.mjs';
+import { closeOneShotRequestOnRole } from './one-shot-request.mjs';
 import { isLeanCompleteRole } from './run-partition.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -1667,6 +1668,9 @@ export function finalizeApplicationProgress(role, payload) {
     request.completed_at = progress.finalized_at;
     request.updated_at = progress.finalized_at;
     request.receipt_id = progress.receipt_id;
+    // Close any durable One-shot chain in the same mutation that frees the
+    // controller slot, exactly as lean finish does.
+    closeOneShotRequestOnRole(role, progress.finalized_at);
 
     const errors = reviewReadinessErrors(role, {
       requirePersistedHandover: false,
