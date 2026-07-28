@@ -273,17 +273,22 @@ These come up in nearly every pull — resolve them the same way each time:
    `CONTRIBUTORS.md`, `.all-contributorsrc`, and `.github/PULL_REQUEST_TEMPLATE/sign-manifesto.md` —
    inert documents whose deletion buys nothing and guarantees conflict churn on every future merge.
 
-10. **The fork's CI matrix is `[ubuntu-latest, macos-latest]` — never Windows.** Upstream added a
-    three-OS matrix (#1762) because it ships to Windows users. This fork does not: the engine runs
-    on the maintainer's macOS machine, and ubuntu covers container/Actions parity. When an upstream
-    pull re-adds `windows-latest` to `.github/workflows/test.yml`, remove it again. Rationale
-    (2026-07-28): the leg produced five Windows-only failures in a single catch-up — a hardcoded
-    `/bin/bash`, an `icacls` ACL precondition, a loader hook registered as a raw path, and two
-    path-containment guards — none of which affect any platform this fork runs on. **Do not confuse
-    the leg with the defects it exposed:** the cross-drive containment holes were real and are fixed
-    (`isAbsolute` rung in `set-status.mjs`, `application-receipt.mjs` ×2,
-    `application-receipt-integrity.mjs`, `dashboard-server.mjs`), guarded by a platform-independent
-    test in `tests/queue-receipt-guard.test.mjs`. Keep those fixes; drop the leg.
+10. **Keep `windows-latest` in the CI matrix — this fork is distributed, not private.**
+    The release publishes `@neilshekhar/career-ops` to npm and the README quick start tells people
+    to clone this repo, so Windows users run this code even though it is developed on macOS. The leg
+    pays for itself: the 2026-07-28 catch-up surfaced five Windows-only defects, one of them
+    security-relevant — `path.relative()` between two drives returns the ABSOLUTE target rather than
+    a `..` walk, so a containment guard built only from "falsy / starts with `..` / round-trips
+    through `resolve()`" accepted a caller-authored artifact on another drive as being inside
+    `reports/`. Every containment guard in this repo therefore carries an `isAbsolute(rel)` rung
+    (`set-status.mjs`, `application-receipt.mjs` ×2, `application-receipt-integrity.mjs`,
+    `dashboard-server.mjs`, and the pre-existing ones in `application-source-contract.mjs`,
+    `queue-sweep.mjs`, `generate-pdf.mjs`, `reconcile-pipeline.mjs`).
+    `tests/queue-receipt-guard.test.mjs` asserts that invariant under `win32` semantics, so it holds
+    on any platform. When adapting a test for Windows, resolve interpreters through
+    `getBash()`/`toBashPath()` in `tests/helpers.mjs` (identity operations off Windows) and use
+    `path.delimiter` for PATH — skip a rung only when the platform genuinely cannot express its
+    precondition, and say so in the skip message. Do not drop the leg to make a red build green.
 
 ## Procedure
 

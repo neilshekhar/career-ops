@@ -16,7 +16,7 @@
 import http from 'http';
 import { randomUUID } from 'crypto';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
-import { join, dirname, extname, isAbsolute, relative, resolve } from 'path';
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 import yaml from 'js-yaml';
@@ -371,7 +371,9 @@ function extractUrlFromLinkedReport(target) {
   // returns backslashes — the guard then rejected every legitimate report.
   // relative() + isAbsolute keeps the traversal protection on every platform.
   const rel = relative(ROOT, reportPath);
-  if (reportPath !== ROOT && (rel.startsWith('..') || isAbsolute(rel))) return null;
+  // `..` as a segment, not a prefix — a file named "..x.md" is inside ROOT.
+  const escapes = rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+  if (reportPath !== ROOT && escapes) return null;
   if (!existsSync(reportPath)) return null;
 
   try {

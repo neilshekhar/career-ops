@@ -1254,8 +1254,12 @@ export function reviewReadinessErrors(role, {
 export function validateApplicationAnswersReport(pathValue, progress = null, expectedState = 'filled') {
   const absolute = resolve(ROOT, requiredText(pathValue, 'application_answers_report'));
   const withinReports = relative(REPORTS_DIR, absolute);
-  // isAbsolute: on Windows, relative() across drives returns the absolute target,
-  // passing every other rung. See application-receipt-integrity.mjs.
+  // isAbsolute is the ONLY rung added here: on Windows, relative() between two
+  // drives returns the absolute target, which is neither falsy nor '..'-prefixed
+  // and round-trips through resolve(), so every other rung passes and a file on
+  // another drive reads as contained. The strict startsWith('..') rejection is
+  // deliberately left as-is — it is this guard's long-standing behaviour, and
+  // loosening it would be a change no report filename needs.
   if (!withinReports || withinReports.startsWith('..') || isAbsolute(withinReports) ||
       resolve(REPORTS_DIR, withinReports) !== absolute) {
     throw new Error('application_answers_report must be a file inside reports/');
@@ -1388,8 +1392,12 @@ function replaceApplicationAnswersState(pathValue, fromState, toState) {
 function applicationAnswersState(pathValue) {
   const absolute = resolve(ROOT, requiredText(pathValue, 'application_answers_report'));
   const withinReports = relative(REPORTS_DIR, absolute);
-  // isAbsolute: on Windows, relative() across drives returns the absolute target,
-  // passing every other rung. See application-receipt-integrity.mjs.
+  // isAbsolute is the ONLY rung added here: on Windows, relative() between two
+  // drives returns the absolute target, which is neither falsy nor '..'-prefixed
+  // and round-trips through resolve(), so every other rung passes and a file on
+  // another drive reads as contained. The strict startsWith('..') rejection is
+  // deliberately left as-is — it is this guard's long-standing behaviour, and
+  // loosening it would be a change no report filename needs.
   if (!withinReports || withinReports.startsWith('..') || isAbsolute(withinReports) ||
       resolve(REPORTS_DIR, withinReports) !== absolute) {
     throw new Error('application_answers_report must be a file inside reports/');

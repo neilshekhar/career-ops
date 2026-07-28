@@ -39,7 +39,7 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import { join, dirname, isAbsolute, relative as relativePath, resolve as resolvePath } from 'path';
+import { dirname, isAbsolute, join, relative as relativePath, resolve as resolvePath, sep } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
 import { roleFuzzyMatch } from './role-matcher.mjs';
@@ -266,7 +266,10 @@ function extractUrlFromLinkedReport(target, { fromTracker = false } = {}) {
   // or stays absolute) on every platform.
   const within = (root) => {
     const rel = relativePath(root, reportPath);
-    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+    // `..` as a path SEGMENT, not a string prefix: a report legitimately named
+    // "..notes.md" lives inside root and must stay allowed, exactly as the old
+    // `startsWith(`${root}/`)` check allowed it.
+    return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
   };
   if (!allowedRoots.some(within)) {
     return null;

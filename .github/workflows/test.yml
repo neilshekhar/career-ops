@@ -17,19 +17,22 @@ jobs:
       # a platform-specific failure is exactly what this matrix exists to isolate.
       fail-fast: false
       matrix:
-        # windows-latest is deliberately NOT in this matrix on the fork.
-        # Upstream ships to Windows users and carries the leg for them; this fork
-        # is a personal macOS tool whose engine only ever runs on macOS, with
-        # ubuntu covering container/Actions parity. Keeping the leg meant every
-        # upstream pull could surface an unbounded tail of Windows-only test
-        # failures — five in the 2026-07-28 catch-up alone — on a platform no
-        # user of this repo runs. The genuine defects that leg exposed (the
-        # cross-drive containment holes) were fixed and are guarded by a
-        # platform-independent test, so dropping the leg loses no real coverage.
-        # Re-add it here if this fork ever needs to support Windows.
-        os: [ubuntu-latest, macos-latest]
+        # This fork is developed on macOS but DISTRIBUTED: the release publishes
+        # @neilshekhar/career-ops to npm and the README quick start clones this
+        # repo, so Windows users run this code. The leg stays for them. It earns
+        # its keep — the 2026-07-28 catch-up alone surfaced five Windows-only
+        # defects here, including a cross-drive path-containment hole that let a
+        # caller-authored artifact pass as being inside reports/ (see Recurring
+        # Conflict Resolution #10 in UPSTREAM_MERGE_CHECKLIST.md).
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      # The repo is committed with LF; Windows runners default to autocrlf,
+      # which would rewrite every text file on checkout and make regexes that
+      # rely on `.` (no \r) fail in ways the other platforms never see.
+      - name: Force LF checkout on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
