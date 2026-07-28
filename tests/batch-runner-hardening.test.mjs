@@ -228,6 +228,14 @@ try {
     });
   });
   assert.equal(exit.code, 143);
+  // Creation is polled above; removal was asserted instantly, which is a race —
+  // the parent can exit while the worker's trap is still unlinking, and a loaded
+  // runner loses it (seen on ubuntu, passing on macOS in the same run). Poll for
+  // the drain on the same deadline. A cleanup that never happens still fails.
+  const drainDeadline = Date.now() + 5000;
+  while (Date.now() < drainDeadline && readdirSync(tempDir).length > 0) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
   assert.deepEqual(readdirSync(tempDir), []);
   pass('TERM reaches managed workers and removes both temporary JD and prompt files');
 } finally {
