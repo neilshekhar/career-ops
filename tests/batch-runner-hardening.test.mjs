@@ -231,5 +231,9 @@ try {
   assert.deepEqual(readdirSync(tempDir), []);
   pass('TERM reaches managed workers and removes both temporary JD and prompt files');
 } finally {
-  rmSync(temp, { recursive: true, force: true });
+  // The suite kills a bash process tree; on Windows the OS can still hold
+  // handles under this directory for a moment afterwards, which surfaces as
+  // EPERM. maxRetries/retryDelay is what those options exist for — without them
+  // a passing test still fails the job during cleanup.
+  rmSync(temp, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
