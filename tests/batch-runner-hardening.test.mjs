@@ -21,6 +21,19 @@ const source = readFileSync(runner, 'utf8');
 // form that interpreter can open. Both are identity operations off Windows.
 const bash = getBash();
 
+// Git Bash hands arguments to native Windows binaries through MSYS conversion:
+// a POSIX-looking path is rewritten under a drive letter, and brace groups
+// get mangled (a doubled-brace placeholder loses its braces).
+// render_prompt_template shells out
+// to `node`, so that rewriting happens BEFORE the script's own substitution
+// logic — the assertions below would be testing MSYS, not batch-runner.sh.
+// Turn conversion off so the unit under test is the script. (Real Windows users
+// running the runner under Git Bash still get the conversion, which is what they
+// want for paths: node.exe needs Windows paths.)
+const bashEnv = process.platform === 'win32'
+  ? { ...process.env, MSYS_NO_PATHCONV: '1', MSYS2_ARG_CONV_EXCL: '*' }
+  : process.env;
+
 assert.equal(spawnSync(bash, ['-n', toBashPath(runner)]).status, 0);
 assert.doesNotMatch(source, /--dangerously-skip-permissions/);
 assert.match(source, /--permission-mode dontAsk/);
@@ -47,7 +60,7 @@ try {
     bash,
     ['-c', renderScript, 'batch-test', toBashPath(runner), toBashPath(template),
       toBashPath(rendered), specialUrl],
-    { cwd: ROOT, encoding: 'utf8' },
+    { cwd: ROOT, encoding: 'utf8', env: bashEnv },
   );
   assert.equal(renderResult.status, 0, renderResult.stderr);
   assert.equal(
@@ -126,7 +139,7 @@ try {
   const verify = (skipPdf) => spawnSync(
     bash,
     ['-c', verifyScript, 'batch-test', toBashPath(runner), toBashPath(project), String(skipPdf)],
-    { cwd: ROOT, encoding: 'utf8' },
+    { cwd: ROOT, encoding: 'utf8', env: bashEnv },
   );
 
   writeFileSync(reportPath, report('not generated — run /career-ops pdf acme to create on demand'));
@@ -186,7 +199,7 @@ try {
   const child = spawn(bash, [toBashPath(join(batchDir, 'batch-runner.sh'))], {
     cwd: interruptProject,
     // delimiter, not ':' — Windows separates PATH entries with ';'.
-    env: { ...process.env, PATH: `${fakeBin}${delimiter}${process.env.PATH}`, TMPDIR: tempDir },
+    env: { ...bashEnv, PATH: `${fakeBin}${delimiter}${process.env.PATH}`, TMPDIR: tempDir },
     stdio: 'ignore',
   });
   const workerTempFiles = () => readdirSync(tempDir, { withFileTypes: true }).flatMap((entry) => {
