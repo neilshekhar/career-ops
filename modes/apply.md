@@ -341,22 +341,26 @@ role and that there is no cross-channel duplicate:
 1. Verify liveness with `node check-liveness.mjs <url>` for a supported ATS; use the live
    Playwright page/snapshot for non-ATS or inconclusive results. Never infer liveness from
    a search snippet or generic careers redirect.
-2. Compare visible company, title, requisition, and URL with the queue record/report. A
+2. **Blacklist check:** if `data/blacklist.md` exists, compare the company
+   case- and punctuation-insensitively before any form filling. On a match, quote the
+   candidate's recorded reason and require an explicit override for this exact role.
+   Never silently proceed, silently refuse, or change the role's score.
+3. Compare visible company, title, requisition, and URL with the queue record/report. A
    material mismatch is an authorization/scope issue before fill starts: preserve the tab
    and resolve/re-evaluate the correct role rather than drafting against the wrong job.
-3. Check `data/applications.md` for the same employer+role/requisition through another
+4. Check `data/applications.md` for the same employer+role/requisition through another
    channel. Apply the standing `_custom.md` duplicate rule in every authorized run without
    interrupting the batch: prefer the employer-hosted/direct route over a board mirror,
    then an already-started preserved route over opening another. Keep the duplicate
    unfilled and explain the decision in the final review; never create two applications
    for one role.
-4. If an agency hides the end employer, use any sourced client clue and run a degraded
+5. If an agency hides the end employer, use any sourced client clue and run a degraded
    check against unknown-company rows from the same agency and similar roles. If no
    positive duplicate can be established, continue the selected route and add a
    `review_required` duplicate-risk note. Preserve a strong probable match unfilled as an
    operational blocker and continue the remaining roles; do not stop the batch to ask for
    the client name or another authorization.
-5. A definitively closed role is closed/skipped through the queue workflow. An
+6. A definitively closed role is closed/skipped through the queue workflow. An
    access/login failure is not evidence of expiry.
 
 After liveness and destination match are verified and the role has its own preserved tab,
@@ -689,6 +693,12 @@ If the candidate confirms that they submitted the application:
 2. Seed the follow-up schedule: run `node followup-seed.mjs {num} --json` (where `{num}` is the tracker row number). If the candidate applied on a different day than today, pass `--date YYYY-MM-DD` with the actual submission date. It's idempotent, so re-running is safe.
 3. Suggest next step: run the `contacto` mode (`/career-ops contacto` where available) for LinkedIn outreach.
 
+**Confirmed resume-verification failure at this vendor? Check the rest of the pipeline (#1870).** If the candidate confirms the ATS silently dropped or altered resume content that they had submitted (see the SuccessFactors-family quirk below), don't treat it as a one-off. Tracker rows in `data/applications.md` don't carry a canonical ATS-vendor field, so don't grep the tracker text for a vendor name — it will miss rows silently. Instead, resolve the vendor per row from its linked report's `**URL:**` field:
+- For clean-fingerprint vendors (Greenhouse, Lever, Ashby, Workday), match the URL's hostname the same way `detectVendor()` in `analyze-patterns.mjs` does — reuse that function/pattern rather than re-deriving it, so the two stay in sync.
+- White-labeled ATS (SuccessFactors, iCIMS, UKG, Dayforce, and similar) are **not** detectable from the URL alone — the very vendor family this quirk was confirmed on falls in this bucket. For those, don't guess from the domain: ask the candidate directly which other in-flight rows (`Applied`, `Responded`, `Interview`) went through the same portal, since neither the tracker nor the URL structurally exposes it.
+
+Once the same-vendor rows are identified (by URL match or candidate confirmation), surface that list and prompt the candidate to spot-check each one via that portal's preview/profile step if one exists. One confirmed silent-truncation case at a vendor raises the prior that it happened elsewhere in-flight through the same vendor too.
+
 ## Scroll handling
 
 If the form has more questions than the visible ones:
@@ -802,3 +812,9 @@ Field-tested across ~12 Playwright-driven applications (Ashby, Greenhouse, Lever
 - **Agent:** Verifies the filled step, including work-authorization/sponsorship dropdowns
   and EEO/legal attestations, before Save/Next. The candidate reviews them at the final
   combined boundary and alone performs final submission.
+
+### SuccessFactors-family — uploaded resume can silently diverge from the stored profile (#1870)
+
+- **Symptom:** Some ATS portals (SuccessFactors-family confirmed; likely others) parse and store an uploaded resume once and don't reliably re-parse it on a later re-upload or profile edit. The portal's internal record can silently drift from the file the candidate believes they submitted — especially for work-history entries added *after* the initial profile was created. There is no error, no warning, and no diff shown to the candidate; the loss surfaces only if someone downstream (a recruiter reading the stored profile back on a call, for example) notices the gap. This is distinct from #1560 (career-ops reading a careers board) and #1741 (recovering a stuck pipeline) — this is the employer's own system corrupting what was submitted.
+- **Agent:** After a submission through one of these portals, if the portal exposes any "preview my profile," "view submitted resume," or "review application" step, surface it to the candidate as a **required check** before closing out the apply flow — don't stop at confirming the upload succeeded. If the candidate later confirms a truncation or mismatch at a given vendor, flag it in the report and prompt them to spot-check other still-active applications through that same vendor (see the apply-mode checklist below) — one confirmed case raises the prior for the rest of that vendor's in-flight applications.
+- **Candidate:** If a profile/resume preview step exists, use it and compare against your actual work history before considering the application done. If no preview step exists, there is currently no way to verify what the portal actually stored — treat this as a known blind spot rather than assuming silence means success.

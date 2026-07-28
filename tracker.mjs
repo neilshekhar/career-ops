@@ -34,7 +34,7 @@
  * so the index can never serve stale reads.
  */
 
-import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync, statSync } from 'fs';
+import { readFileSync, copyFileSync, existsSync, mkdirSync, statSync } from 'fs';
 import { createHash } from 'crypto';
 import { dirname, resolve, join } from 'path';
 import { pathToFileURL } from 'url';
@@ -43,6 +43,7 @@ import { resolveColumns } from './tracker-parse.mjs';
 import {
   acquireTrackerLock,
   canonicalizeTrackerPath,
+  openTrackerTransaction,
   trackerLockDirFor,
   writeFileAtomic,
 } from './tracker-utils.mjs';
@@ -103,9 +104,14 @@ async function openIndexOrNull() {
   return openDb(DatabaseSync);
 }
 
-function openDb(DatabaseSync) {
+export function openDb(DatabaseSync) {
   mkdirSync(dirname(DB_PATH) || '.', { recursive: true });
   const db = new DatabaseSync(DB_PATH);
+  // Wait up to 5s for a lock instead of throwing SQLITE_BUSY on the first
+  // contention. The index is read by concurrent callers — a CLI query, a
+  // `set-status` write and the Go TUI dashboard can all hit the same db at
+  // once — and the default busy_timeout of 0 makes any overlap fail instantly.
+  db.exec('PRAGMA busy_timeout = 5000');
   db.exec('PRAGMA foreign_keys = ON'); // SQLite ignores REFERENCES without this
   db.exec(`
     CREATE TABLE IF NOT EXISTS applications (
@@ -242,9 +248,9 @@ export function removeRowByNum(content, num) {
 // never modified — normalization lives only in the derived index, and the
 // diagnostics tell the user what to fix at the source (normalize-statuses.mjs,
 // dedup-tracker.mjs).
-function parseTracker(states) {
+function parseTracker(states, markdown = readFileSync(MD_PATH, 'utf-8')) {
   const diag = { mojibake: 0, scoreInStatus: 0, unknownStatus: 0, badId: 0, badDate: 0, strayPipes: 0 };
-  const rows = parseMarkdownRows(readFileSync(MD_PATH, 'utf-8'), diag);
+  const rows = parseMarkdownRows(markdown, diag);
 
   const usedIds = new Set();
   let maxId = 0;
@@ -536,44 +542,61 @@ async function history(args) {
 
 async function exportMd(args) {
   const states = loadStates();
-  const db = await openIndexOrNull();
-  // Export regenerates the canonical table from normalized rows. `parseTracker`
-  // produces exactly the same normalized shape the index stores, so the markdown
-  // fallback is a true equivalent, not a degraded one.
-  let rows;
-  if (!db) {
-    console.error(indexUnavailableNote('export'));
-    rows = parseTracker(states).apps;
-  } else {
-    ensureFresh(db, states);
-    rows = db.prepare('SELECT * FROM applications ORDER BY pos').all();
-  }
-  const out = [
-    '# Applications Tracker',
-    '',
-    HEADER,
-    SEPARATOR,
-    ...rows.map(rowToMarkdown),
-    '',
-  ].join('\n');
-
   const outPath = flagValue(args, '--out');
-  if (!outPath) {
-    process.stdout.write(out);
-    return;
-  }
-  if (existsSync(outPath) && statSync(outPath).isDirectory()) {
+  if (outPath && existsSync(outPath) && statSync(outPath).isDirectory()) {
     console.error(`Error: --out ${outPath} is a directory — pass a file path.`);
     process.exit(1);
   }
-  mkdirSync(dirname(outPath) || '.', { recursive: true });
-  // Never silently clobber — whatever was there is backed up first.
-  if (existsSync(outPath)) {
-    copyFileSync(outPath, outPath + '.bak');
-    console.error(`Existing ${outPath} backed up to ${outPath}.bak`);
+
+  const trackerPath = canonicalizeTrackerPath(MD_PATH);
+  const writesTracker = outPath
+    ? canonicalizeTrackerPath(outPath) === trackerPath
+    : false;
+  const trackerTransaction = writesTracker
+    ? await openTrackerTransaction(trackerPath)
+    : null;
+
+  try {
+    const db = await openIndexOrNull();
+    // A write back to applications.md must derive its output from a snapshot
+    // read after acquiring the shared transaction lock. Otherwise a concurrent
+    // canonical writer can be erased between the initial read and replacement.
+    let rows;
+    if (trackerTransaction) {
+      rows = parseTracker(states, trackerTransaction.read()).apps;
+    } else if (!db) {
+      console.error(indexUnavailableNote('export'));
+      rows = parseTracker(states).apps;
+    } else {
+      ensureFresh(db, states);
+      rows = db.prepare('SELECT * FROM applications ORDER BY pos').all();
+    }
+    const out = [
+      '# Applications Tracker',
+      '',
+      HEADER,
+      SEPARATOR,
+      ...rows.map(rowToMarkdown),
+      '',
+    ].join('\n');
+    if (!outPath) {
+      process.stdout.write(out);
+      return;
+    }
+
+    mkdirSync(dirname(outPath) || '.', { recursive: true });
+    // Never silently clobber — whatever was there is backed up first.
+    const writeTarget = writesTracker ? trackerPath : outPath;
+    if (existsSync(writeTarget)) {
+      copyFileSync(writeTarget, writeTarget + '.bak');
+      console.error(`Existing ${outPath} backed up to ${outPath}.bak`);
+    }
+    if (trackerTransaction) trackerTransaction.replace(out);
+    else writeFileAtomic(outPath, out);
+    console.error(`Exported ${rows.length} applications to ${outPath}`);
+  } finally {
+    trackerTransaction?.close();
   }
-  writeFileSync(outPath, out, 'utf-8');
-  console.error(`Exported ${rows.length} applications to ${outPath}`);
 }
 
 // ── Main ────────────────────────────────────────────────────────────
@@ -629,8 +652,9 @@ async function deleteApp(args) {
       if (db) {
         syncIndex(db, states);
         reindexed = true;
+      } else {
+        console.error(`(row removed; ${indexUnavailableNote('the index resync')})`);
       }
-      else console.error(`(row removed; ${indexUnavailableNote('the index resync')})`);
     } catch (e) {
       console.error(`(row removed; index resync skipped: ${e.message})`);
     }

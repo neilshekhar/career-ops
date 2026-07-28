@@ -14,10 +14,14 @@ If the input is a **URL** (not pasted JD text), follow this strategy to extract 
 1. **Public ATS API or deterministic source first:** Reuse substantive JD text already
    captured by the scanner/queue, or use the supported ATS provider's public posting
    JSON/API. Accept it only when the company, role, requisition, and source URL match.
-2. **Playwright:** For unsupported ATSes, SPAs, custom portals, or incomplete API results,
+2. **Optional compact CLI extractor:** When `scan.extractor: cli` is set in
+   `config/profile.yml`, run `node browser-extract.mjs <url>` and accept its compact
+   `{ "url", "title", "text" }` only when it matches the intended role. Fall back
+   silently if it errors or is missing.
+3. **Playwright:** For unsupported ATSes, SPAs, custom portals, or incomplete API results,
    use `browser_navigate` + `browser_snapshot` to render and read the JD.
-3. **WebFetch:** For static pages when no supported deterministic source is available.
-4. **WebSearch (last resort):** Search for the role title + company in secondary portals
+4. **WebFetch:** For static pages when no supported deterministic source is available.
+5. **WebSearch (last resort):** Search for the role title + company in secondary portals
    that index the JD in static HTML. Treat it as extraction help, never liveness evidence.
 
 **If no method works:** Ask the candidate to paste the JD manually or share a screenshot.
@@ -43,6 +47,12 @@ API-first ladder, before spending tokens on A-G, a report, or a PDF:
 
 Do not continue to Step 1 until this gate is resolved.
 
+## Step 0.6 — Blacklist gate (#1742)
+
+If `data/blacklist.md` exists, check the posting's company against it before running any evaluation — the file is the candidate's own do-not-apply list (user layer, opt-in; absent file = skip this gate). Match case- and punctuation-insensitively.
+
+On a hit, **stop before Step 1** and surface the candidate's own recorded decision: tell them which entry matched and quote their recorded reason ("{Company} is on your blacklist (since {Since}): *{Reason}*. Do you still want me to evaluate it?"). Wait for an explicit answer — never silently refuse, never silently proceed. The candidate's call always wins (same HITL spirit as the score < 4.0 rule): an explicit yes continues to Step 1 as normal; anything else stops the pipeline here, and if the entry came from `data/pipeline.md`, mark it `- [x] ~~Company | Role~~ — blacklisted`. A blacklist entry never changes any score.
+
 ## Step 1 — Execute the canonical A-G evaluation
 
 Read and execute `modes/oferta.md` once, in full. It owns the bounded research, A-G
@@ -59,6 +69,8 @@ Show the score, recommendation, legitimacy result, report path, and dashboard li
 Do not generate a tailored CV, cover letter, form-answer draft, queue PREPARE asset,
 or live browser form from score alone. A score threshold is a recommendation/filter,
 never candidate selection.
+
+The evaluation inherits `oferta`'s bounded research budget. Company, compensation, and hiring-signal lookup must not invoke `deep-research`, must not spawn subagents, and must stop at the shared query cap instead of escalating into open-ended research.
 
 ## Step 3 — Continue only after explicit authorization
 

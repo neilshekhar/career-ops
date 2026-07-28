@@ -1,7 +1,7 @@
 {
   "name": "career-ops",
   "version": "1.21.1",
-  "description": "AI-powered job search pipeline — works with any AI coding CLI (Claude Code, OpenCode, Gemini, Codex, Qwen)",
+  "description": "AI-powered job search pipeline — works with any AI coding CLI (Claude Code, Codex, OpenCode, Antigravity, Gemini, Grok, Qwen, Kimi, Copilot)",
   "private": true,
   "engines": {
     "node": ">=18"
@@ -21,7 +21,9 @@
     "dedup": "node dedup-tracker.mjs",
     "merge": "node merge-tracker.mjs",
     "pdf": "node generate-pdf.mjs",
+    "img-to-pdf": "node img-to-pdf.mjs",
     "cover-letter": "node generate-cover-letter.mjs --payload",
+    "cv:verify-facts": "node verify-cv-facts.mjs",
     "sync-check": "node cv-sync-check.mjs",
     "update:check": "node update-system.mjs check",
     "update": "node update-system.mjs apply",
@@ -36,10 +38,16 @@
     "tracker": "node tracker.mjs",
     "find": "node find.mjs",
     "patterns": "node analyze-patterns.mjs",
+    "upskill": "node upskill.mjs",
+    "add": "node add-entry.mjs",
     "reposts": "node detect-reposts.mjs",
+    "invite-match": "node invite-match.mjs",
+    "paste-reply": "node paste-reply.mjs",
     "gemini:eval": "node gemini-eval.mjs",
     "ollama:eval": "node ollama-eval.mjs",
     "openai:eval": "node openai-eval.mjs",
+    "openai:tailor": "node openai-tailor.mjs",
+    "eval:golden": "node eval-golden.mjs",
     "star": "node match-star.mjs",
     "archive": "node archive-posting.mjs",
     "build:dashboard": "node build-dashboard.mjs",
@@ -49,7 +57,8 @@
     "launch": "node dashboard-launch.mjs",
     "apply:plan": "node form-fill.mjs",
     "docx": "node generate-docx.mjs",
-    "postinstall": "node install-browser.mjs"
+    "postinstall": "node install-browser.mjs",
+    "manifesto": "node manifesto.mjs"
   },
   "keywords": [
     "ai",
@@ -58,7 +67,14 @@
     "career",
     "career-ops",
     "careerops",
-    "automation"
+    "automation",
+    "codex",
+    "antigravity",
+    "qwen",
+    "kimi",
+    "copilot",
+    "grok",
+    "ai-agent-skill"
   ],
   "author": "Santiago Fernández de Valderrama <hi@santifer.io> (https://santifer.io)",
   "homepage": "https://santifer.io",
@@ -72,6 +88,6 @@
     "dotenv": "^17.0.0",
     "jose": "^6.2.3",
     "js-yaml": "^4.1.1",
-    "playwright": "^1.58.1"
+    "playwright": "1.62.0"
   }
 }

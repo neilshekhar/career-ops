@@ -1,6 +1,6 @@
 # Running Career-Ops on a Budget
 
-Token usage costs and rate limits are the most common bottlenecks when setting up a high-volume job search pipeline. Since Career-Ops processes full job descriptions, evaluates them against your CV across 10 dimensions, and tailors resumes/cover letters, the context size can grow quickly.
+Token usage costs and rate limits are the most common bottlenecks when setting up a high-volume job search pipeline. Since Career-Ops processes full job descriptions, evaluates them against your CV across five weighted dimensions, and tailors resumes/cover letters, the context size can grow quickly.
 
 Fortunately, **Career-Ops is completely AI-agnostic.** The pipeline relies on the AI coding CLI (or standalone scripts) to process prompt files under `modes/`. This means you can point your CLI to cheaper API providers or local models with **zero code changes** in Career-Ops.
 
@@ -14,7 +14,30 @@ By choosing a CLI that supports custom model configurations and routing it to a 
 
 ---
 
-## 2. Configuring Alternative CLI Setups
+## 2. Pick Your Spend Tier
+
+Before diving into CLI configuration, know that career-ops has a built-in knob for controlling evaluation cost: the `spend_tier` setting in [`config/profile.yml`](../config/profile.example.yml). It controls which model tier your CLI uses to evaluate offers — no provider setup required.
+
+| Tier | Behaviour |
+|------|-----------|
+| **economy** | Cheapest/fastest model, no extended thinking. Best for high-volume scanning. |
+| **standard** | Balanced model, no extended thinking. Default if the key is absent. |
+| **premium** | Most capable model, adaptive extended thinking. Best for high-stakes offers. |
+
+The **economy** tier is the high-volume scanning choice — it processes the most offers per dollar. On **standard** and **premium**, a pre-screen gate automatically trims batch spend by skipping obvious mismatches before the full evaluation runs.
+
+Set it once in your profile:
+
+```yaml
+# config/profile.yml
+spend_tier: standard
+```
+
+The actual model behind each tier depends on your CLI. See the mapping table in [`modes/_shared.md`](../modes/_shared.md) for the full breakdown.
+
+---
+
+## 3. Configuring Alternative CLI Setups
 
 Different CLIs offer different levels of flexibility for model routing. The two most common options for budget setups are **OpenCode** and **Qwen CLI**.
 
@@ -61,7 +84,7 @@ $env:QWEN_API_KEY="your_deepseek_api_key_here"
 
 ---
 
-## 3. Recommended Cost-Efficient Models
+## 4. Recommended Cost-Efficient Models
 
 Model catalogues and prices change too quickly for a hardcoded list to remain a safe
 quality recommendation. Career-ops therefore supports arbitrary model IDs and uses a
@@ -88,9 +111,9 @@ gate.
 > ```
 > Run `node openai-eval.mjs --help` for per-provider examples. For 100% local/private use, point `--url` at a local server (LM Studio / llama.cpp / vLLM) or use `node ollama-eval.mjs`.
 
----
+> NVIDIA NIM also works (hosted `https://integrate.api.nvidia.com/v1` or a self-hosted container's `/v1`), e.g. `--model meta/llama-3.3-70b-instruct`. The hosted free tier can queue for minutes, so raise `OPENAI_TIMEOUT_MS` above the 300s default.
 
-## 4. Local LLM Tradeoffs (Ollama / Llama.cpp)
+## 5. Local LLM Tradeoffs (Ollama / Llama.cpp)
 
 Running a model 100% locally via Ollama is completely free, but it comes with significant tradeoffs:
 
@@ -115,7 +138,7 @@ Running 32B or 70B models locally requires substantial system resources:
 
 ---
 
-## 5. Token-Saving Best Practices
+## 6. Token-Saving Best Practices
 
 To prevent unnecessary API costs or hitting rate limits, implement the following practices:
 
@@ -142,7 +165,7 @@ To prevent unnecessary API costs or hitting rate limits, implement the following
 
 ---
 
-## 6. Worked Example: Running the Pipeline Cheaply
+## 7. Worked Example: Running the Pipeline Cheaply
 
 Here is a concrete walkthrough of scanning for jobs and evaluating a single posting
 using **DeepSeek V3 via OpenRouter** and the standalone `openai-eval.mjs` evaluator.
@@ -178,11 +201,10 @@ node openai-eval.mjs \
 - **Output:** ~1,000 tokens (The A-G evaluation report)
 - **Cost:** ~4,500 tokens total. At DeepSeek V3 prices (~$0.14/1M input, ~$0.28/1M output), this costs **less than $0.001** per evaluation.
 
-### Step 4: Optional PDF after explicit selection
+### Step 4: Optional tailoring after explicit selection
 
-If the candidate explicitly selects this role or requests its PDF, run the full
-career-ops `pdf` mode. Tailoring the CV is semantic work and uses the configured model;
-only the final HTML-to-PDF render is local and zero-token.
+Only continue after the candidate explicitly selects the role or requests tailored
+assets. The normal path is the full career-ops `pdf` mode:
 
 ```bash
 # In a slash-command CLI
@@ -192,6 +214,31 @@ only the final HTML-to-PDF render is local and zero-token.
 codex exec "Run career-ops pdf mode for the evaluated role."
 ```
 
+For a draft-only, OpenAI-compatible endpoint path, the headless tailor can create
+customized HTML:
+
+```bash
+OPENAI_API_KEY="sk-or-your_openrouter_key" \
+node openai-tailor.mjs \
+  --url https://openrouter.ai/api/v1 \
+  --model deepseek/deepseek-chat \
+  --jd ./jds/my-target-role.txt \
+  --report reports/001-companyname-2026-07-07.md
+```
+
+**Cost:** roughly 3,000 tokens. This outputs draft HTML in `output/`; it does
+not by itself make the role release-eligible for a live application.
+
+### Step 5: Render an already-tailored PDF (0 Tokens)
+
+Once you have tailored HTML, the PDF generator uses Playwright to render it:
+
+```bash
+node generate-pdf.mjs output/cv-candidate-companyname.html output/cv-candidate-companyname-2026-07-07.pdf --format=letter --report=001
+```
+
+**Cost:** 0 tokens, $0.00.
+
 `generate-pdf.mjs` is only the renderer and requires an already-tailored input HTML plus
 an output path. Do not call it without arguments or treat rendering as CV tailoring.
 For a live application, Queue PREPARE must still regenerate release-eligible CV and cover
@@ -199,7 +246,7 @@ assets, pass provenance/quality checks, and hand off to the receipt-gated apply 
 
 ---
 
-## 7. Zero-Cost Paths (No Claude / Paid CLI Required)
+## 8. Zero-Cost Paths (No Claude / Paid CLI Required)
 
 Career-ops ships evaluation and drafting helpers that can run **entirely on free
 models** — no Claude Code, no Anthropic API key, no paid CLI subscription. Live
@@ -218,7 +265,7 @@ npm run or:eval        # Evaluate a single offer (paste URL or text)
 npm run or:apply       # Generate report-only draft answers; never fills a live form
 ```
 
-**Usage** 
+**Usage**
 
 ```bash
 node openrouter-runner.mjs scan              # Scan Greenhouse API companies for new listings
@@ -246,7 +293,7 @@ If you want **zero network calls** and complete privacy, run evaluations against
 npm run ollama:eval
 ```
 
-This calls `ollama-eval.mjs` which hits your local Ollama server. No API key, no internet, no cost. See [Section 4](#4-local-llm-tradeoffs-ollama--llamacpp) for model size recommendations (32B+ minimum for reliable scoring).
+This calls `ollama-eval.mjs` which hits your local Ollama server. No API key, no internet, no cost. See [Section 5](#5-local-llm-tradeoffs-ollama--llamacpp) for model size recommendations (32B+ minimum for reliable scoring).
 
 ### Path C: Any OpenAI-Compatible Endpoint (`openai:eval`)
 

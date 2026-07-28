@@ -1,6 +1,10 @@
-# Career-Ops
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/wordmark-dark.svg"><img src="docs/wordmark-light.svg" alt="career-ops" width="250" height="56"></picture></p>
 
-[English](README.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md) | [हिन्दी](README.hi.md)
+<div align="center">
+
+[English](README.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md) | [हिन्दी](README.hi.md)
+
+</div>
 
 <p align="center">
   <a href="https://github.com/neilshekhar/career-ops"><img src="docs/hero-banner.jpg" alt="Système de recherche d'emploi multi-agent Career-Ops" width="800"></a>
@@ -23,7 +27,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.producthunt.com/products/santifer-io?utm_source=badge-featured&utm_medium=badge" target="_blank"><img src="docs/press/producthunt.svg" alt="Career-Ops sur Claude | Product Hunt" style="width: 206px; height: 54px; vertical-align: middle;" width="206" height="54"/></a>
+  <a href="https://www.producthunt.com/products/santifer-io?utm_source=badge-featured&utm_medium=badge" target="_blank"><img src="docs/press/producthunt.svg" alt="career-ops sur Claude | Product Hunt" style="width: 206px; height: 54px; vertical-align: middle;" width="206" height="54"/></a>
 </p>
 
 <p align="center"><sub>PRÉSENTÉ DANS</sub></p>
@@ -37,7 +41,7 @@
 ---
 
 <p align="center">
-  <img src="docs/demo.gif" alt="Démo de Career-Ops" width="800">
+  <img src="docs/demo.gif" alt="Démo de career-ops" width="800">
 </p>
 
 <p align="center"><strong>Plus de 740 offres d'emploi évaluées · Plus de 100 CV personnalisés · 1 poste de rêve décroché</strong></p>
@@ -69,7 +73,7 @@
 
 ## Qu'est-ce que c'est
 
-Career-Ops ([career-ops.org](https://career-ops.org), également connu sous le nom de **careerops**) transforme n'importe quelle interface de ligne de commande (CLI) de codage IA en un véritable centre de commandement pour votre recherche d'emploi. Au lieu de suivre manuellement vos candidatures dans un tableau de bord, vous disposez d'un pipeline alimenté par l'IA qui :
+career-ops ([career-ops.org](https://career-ops.org), également connu sous le nom de **careerops**) transforme n'importe quelle interface de ligne de commande (CLI) de codage IA en un véritable centre de commandement pour votre recherche d'emploi. Au lieu de suivre manuellement vos candidatures dans un tableau de bord, vous disposez d'un pipeline alimenté par l'IA qui :
 
 - **Évalue les offres** avec un système structuré A-G (10 dimensions pondérées et analyse de légitimité)
 - **Génère des PDF sur mesure** — des CV optimisés pour les systèmes ATS, personnalisés pour chaque description de poste
@@ -77,9 +81,9 @@ Career-Ops ([career-ops.org](https://career-ops.org), également connu sous le n
 - **Traite en lot** — évalue plus de 10 offres en parallèle avec des sous-agents
 - **Suit tout** dans une source unique de vérité avec des vérifications d'intégrité
 
-> **Important : Il ne s'agit PAS d'un outil pour postuler en masse de manière abusive (spray-and-pray).** Career-ops est un filtre — il vous aide à identifier les rares offres qui méritent votre temps parmi des centaines d'autres. Le système recommande fortement de ne pas postuler aux offres ayant un score inférieur à 4,0/5. Votre temps est précieux, tout comme celui des recruteurs. Relisez toujours avant d'envoyer.
+> **Important : Il ne s'agit PAS d'un outil pour postuler en masse de manière abusive (spray-and-pray).** career-ops est un filtre — il vous aide à identifier les rares offres qui méritent votre temps parmi des centaines d'autres. Le système recommande fortement de ne pas postuler aux offres ayant un score inférieur à 4,0/5. Votre temps est précieux, tout comme celui des recruteurs. Relisez toujours avant d'envoyer.
 
-Career-ops est agentic : Claude Code navigue sur les pages carrières avec Playwright, évalue l'adéquation en analysant votre CV par rapport à la description du poste (et non par simple correspondance de mots-clés), et adapte votre CV pour chaque offre.
+career-ops est agentic : Claude Code navigue sur les pages carrières avec Playwright, évalue l'adéquation en analysant votre CV par rapport à la description du poste (et non par simple correspondance de mots-clés), et adapte votre CV pour chaque offre.
 
 > **Attention : les premières évaluations ne seront pas parfaites.** Le système ne vous connaît pas encore. Fournissez-lui du contexte — votre CV, votre parcours professionnel, vos réalisations marquantes, vos préférences, vos points forts et ce que vous souhaitez éviter. Plus vous l'alimentez, plus il devient performant. Voyez cela comme l'intégration d'un nouveau recruteur : la première semaine, il doit apprendre à vous connaître, puis il devient indispensable.
 
@@ -137,7 +141,7 @@ Voir [docs/SETUP.md](docs/SETUP.md) (en anglais) pour le guide de configuration 
 
 ## Intégration de l'interface en ligne de commande Gemini
 
-Career-ops prend en charge [Gemini CLI](https://github.com/google-gemini/gemini-cli) nativement, de la même manière qu'il supporte Claude Code et OpenCode. Les 15 commandes slash sont disponibles, utilisant la même logique d'évaluation `modes/*.md`.
+career-ops prend en charge [Gemini CLI](https://github.com/google-gemini/gemini-cli) nativement, de la même manière qu'il supporte Claude Code et OpenCode. Les 15 commandes slash sont disponibles, utilisant la même logique d'évaluation `modes/*.md`.
 
 ### Option A : Gemini CLI Natif (Recommandé)
 
@@ -179,11 +183,11 @@ node gemini-eval.mjs --file ./jds/my-job.txt
 npm run gemini:eval -- "Texte de la description de poste ici"
 ```
 
-> **Offre gratuite :** Les deux options fonctionnent sans facturation. Le CLI natif utilise l'authentification OAuth Google ; le script d'API utilise `gemini-2.5-flash` (15 requêtes/min, 1M de jetons/jour gratuits).
+> **Offre gratuite :** Les deux options fonctionnent sans facturation. Le CLI natif utilise l'authentification OAuth Google ; le script d'API utilise `gemini-3.6-flash` (les limites de requêtes dépendent du modèle et du niveau d'accès ; voir la documentation Google AI pour les quotas actuels).
 
 ## Utilisation
 
-Career-ops est accessible via une commande slash unique avec plusieurs modes :
+career-ops est accessible via une commande slash unique avec plusieurs modes :
 
 ```
 /career-ops                → Afficher toutes les commandes disponibles
@@ -320,6 +324,18 @@ career-ops/
 career-ops a été **créé à l'origine par [Santiago Fernández de Valderrama (santifer)](https://santifer.io)** — Head of Applied AI et ancien fondateur (il a créé et vendu une entreprise qui fonctionne toujours sous son nom). Il a conçu career-ops pour gérer sa propre recherche d'emploi, et l'a utilisé pour décrocher son poste actuel. Son portfolio et ses autres projets open source → [santifer.io](https://santifer.io).
 
 **Ce dépôt, [neilshekhar/career-ops](https://github.com/neilshekhar/career-ops), est un fork maintenu et enrichi par [Neil Shekhar](https://github.com/neilshekhar)** — avec des corrections et fonctionnalités supplémentaires ajoutées au travail original de santifer, et périodiquement synchronisé avec le dépôt d'origine.
+
+Wikidata: [Santiago Fernández de Valderrama Aparicio](https://www.wikidata.org/wiki/Q138710224) · [career-ops](https://www.wikidata.org/wiki/Q139007988).
+
+## Historique des étoiles
+
+<a href="https://www.star-history.com/?repos=neilshekhar%2Fcareer-ops&type=timeline&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=neilshekhar/career-ops&type=timeline&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=neilshekhar/career-ops&type=timeline&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=neilshekhar/career-ops&type=timeline&legend=top-left" />
+ </picture>
+</a>
 
 ## Clause de non-responsabilité
 

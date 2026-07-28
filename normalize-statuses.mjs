@@ -19,9 +19,7 @@ import { resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
 import {
   rebuildRow,
   resolveTrackerPath,
-  trackerLockDirFor,
-  acquireTrackerLock,
-  writeFileAtomic,
+  openTrackerTransaction,
   cell,
 } from './tracker-utils.mjs';
 
@@ -125,18 +123,12 @@ async function main() {
     return;
   }
 
-  let lock = null;
+  let trackerTransaction = null;
   try {
-    if (!DRY_RUN) {
-      lock = await acquireTrackerLock(trackerLockDirFor(APPS_FILE), {
-        timeoutMs: Number(process.env.CAREER_OPS_TRACKER_LOCK_TIMEOUT_MS) || 60_000,
-        retryMs: Number(process.env.CAREER_OPS_TRACKER_LOCK_RETRY_MS) || 75,
-        staleMs: Number(process.env.CAREER_OPS_TRACKER_LOCK_STALE_MS) || 10 * 60_000,
-        tracker: APPS_FILE,
-      });
-    }
-
-    const content = readFileSync(APPS_FILE, 'utf-8');
+    if (!DRY_RUN) trackerTransaction = await openTrackerTransaction(APPS_FILE);
+    const content = trackerTransaction
+      ? trackerTransaction.read()
+      : readFileSync(APPS_FILE, 'utf-8');
     const lines = content.split('\n');
     const colmap = resolveColumns(lines);
     let changes = 0;
@@ -190,7 +182,7 @@ async function main() {
 
     if (!DRY_RUN && changes > 0) {
       copyFileSync(APPS_FILE, `${APPS_FILE}.bak`);
-      writeFileAtomic(APPS_FILE, lines.join('\n'));
+      trackerTransaction.replace(lines.join('\n'));
       console.log('✅ Written atomically under the tracker lock (backup: applications.md.bak)');
     } else if (DRY_RUN) {
       console.log('(dry-run — no changes written)');
@@ -198,7 +190,7 @@ async function main() {
       console.log('✅ No changes needed');
     }
   } finally {
-    lock?.release();
+    trackerTransaction?.close();
   }
 }
 

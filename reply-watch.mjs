@@ -149,6 +149,33 @@ function safeEvidence(value, fallback = 'none') {
   return cleaned || fallback;
 }
 
+// Collapse duplicate recommendations and refuse contradictory replies for the
+// same application. Confirmed writes still go through set-status.mjs so reply
+// ingestion cannot bypass lifecycle provenance or the canonical tracker lock.
+function groupStatusRecommendations(recommendations) {
+  const byApplication = new Map();
+  for (const recommendation of recommendations) {
+    if (!byApplication.has(recommendation.num)) byApplication.set(recommendation.num, new Map());
+    const transitions = byApplication.get(recommendation.num);
+    const key = `${recommendation.oldStatus}\0${recommendation.newStatus}`;
+    const existing = transitions.get(key);
+    if (existing) {
+      existing.count++;
+    } else {
+      transitions.set(key, { ...recommendation, count: 1 });
+    }
+  }
+
+  const updates = [];
+  const conflicts = [];
+  for (const [num, transitions] of byApplication) {
+    const choices = [...transitions.values()];
+    if (choices.length === 1) updates.push(choices[0]);
+    else conflicts.push({ num, choices });
+  }
+  return { updates, conflicts };
+}
+
 /**
  * Build a concise, idempotent audit note for a confirmed external reply.
  * set-status.mjs adds the separate [external-status] provenance marker.
@@ -281,10 +308,24 @@ export async function main(argv = process.argv.slice(2)) {
     }
   });
 
-  if (recommendations.length > 0) {
+  const groupedRecommendations = groupStatusRecommendations(recommendations);
+  if (groupedRecommendations.conflicts.length > 0) {
+    console.warn('Conflicting status recommendations require manual review:');
+    for (const conflict of groupedRecommendations.conflicts) {
+      const summary = conflict.choices
+        .map(choice => `${choice.newStatus} (${choice.count} ${choice.count === 1 ? 'reply' : 'replies'})`)
+        .join(' vs ');
+      console.warn(`  #${conflict.num}: ${summary} — no automatic update`);
+    }
+    console.log('');
+  }
+
+  if (groupedRecommendations.updates.length > 0) {
+    const updates = groupedRecommendations.updates;
     console.log('Suggested status updates to apply:');
-    recommendations.forEach(r => {
-      console.log(`  #${r.num} ${r.company} (${r.role}): ${r.oldStatus} → ${r.newStatus}`);
+    updates.forEach(r => {
+      const count = r.count > 1 ? ` (${r.count} replies)` : '';
+      console.log(`  #${r.num} ${r.company} (${r.role}): ${r.oldStatus} → ${r.newStatus}${count}`);
     });
     console.log('');
 
@@ -295,7 +336,7 @@ export async function main(argv = process.argv.slice(2)) {
 
     const answer = await askQuestion('Apply recommended status updates through set-status.mjs? (y/N): ');
     if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
-      for (const r of recommendations) {
+      for (const r of updates) {
         const result = applyConfirmedTrackerStatus({
           appNum: r.num,
           newStatus: r.newStatus,

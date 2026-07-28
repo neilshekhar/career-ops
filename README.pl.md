@@ -1,6 +1,10 @@
-# Career-Ops
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/wordmark-dark.svg"><img src="docs/wordmark-light.svg" alt="career-ops" width="250" height="56"></picture></p>
 
-[English](README.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md) | [हिन्दी](README.hi.md)
+<div align="center">
+
+[English](README.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [Français](README.fr.md) | [Português (Brasil)](README.pt-BR.md) | [한국어](README.ko-KR.md) | [日本語](README.ja.md) | [简体中文](README.cn.md) | [繁體中文](README.zh-TW.md) | [Українська](README.ua.md) | [Русский](README.ru.md) | [Polski](README.pl.md) | [Dansk](README.da.md) | [العربية](README.ar.md) | [हिन्दी](README.hi.md)
+
+</div>
 
 <p align="center">
   <a href="https://github.com/neilshekhar/career-ops"><img src="docs/hero-banner.jpg" alt="Career-Ops — Wieloagentowy system poszukiwania pracy" width="800"></a>
@@ -33,7 +37,7 @@
 ---
 
 <p align="center">
-  <img src="docs/demo.gif" alt="Career-Ops Demo" width="800">
+  <img src="docs/demo.gif" alt="career-ops Demo" width="800">
 </p>
 
 <p align="center"><strong>740+ ocenionych ofert · 100+ spersonalizowanych CV · 1 wymarzona rola zdobyta</strong></p>
@@ -61,7 +65,7 @@
 
 ## Co to jest
 
-Career-Ops ([career-ops.org](https://career-ops.org), znany też jako **careerops**) zamienia dowolne AI CLI w pełne centrum dowodzenia poszukiwaniem pracy. Zamiast ręcznego śledzenia aplikacji w arkuszu kalkulacyjnym, dostajesz pipeline zasilany AI, który:
+career-ops ([career-ops.org](https://career-ops.org), znany też jako **careerops**) zamienia dowolne AI CLI w pełne centrum dowodzenia poszukiwaniem pracy. Zamiast ręcznego śledzenia aplikacji w arkuszu kalkulacyjnym, dostajesz pipeline zasilany AI, który:
 
 - **Ocenia oferty** przy pomocy strukturyzowanego systemu A–G (10 ważonych wymiarów punktacji i analiza wiarygodności)
 - **Generuje spersonalizowane PDF** — CV zoptymalizowane pod ATS, dostosowane do każdej oferty
@@ -69,9 +73,9 @@ Career-Ops ([career-ops.org](https://career-ops.org), znany też jako **careerop
 - **Przetwarza wsadowo** — ocena 10+ ofert równolegle przez sub-agentów
 - **Śledzi wszystko** w jednym źródle prawdy z weryfikacją spójności danych
 
-> **Ważne: to NIE jest narzędzie do masowego wysyłania aplikacji.** Career-ops to filtr — pomaga znaleźć te kilka ofert wartych twojego czasu spośród setek. System stanowczo odradza aplikowanie na oferty z oceną poniżej 4.0/5. Twój czas jest cenny, podobnie jak czas rekrutera. Zawsze sprawdzaj przed wysłaniem.
+> **Ważne: to NIE jest narzędzie do masowego wysyłania aplikacji.** career-ops to filtr — pomaga znaleźć te kilka ofert wartych twojego czasu spośród setek. System stanowczo odradza aplikowanie na oferty z oceną poniżej 4.0/5. Twój czas jest cenny, podobnie jak czas rekrutera. Zawsze sprawdzaj przed wysłaniem.
 
-Career-ops działa agentowo: Claude Code nawiguje po stronach kariery z Playwright, ocenia dopasowanie rozumując nad twoim CV kontra opis stanowiska (nie przez dopasowanie słów kluczowych) i dostosowuje CV do każdego ogłoszenia.
+career-ops działa agentowo: Claude Code nawiguje po stronach kariery z Playwright, ocenia dopasowanie rozumując nad twoim CV kontra opis stanowiska (nie przez dopasowanie słów kluczowych) i dostosowuje CV do każdego ogłoszenia.
 
 > **Uwaga: pierwsze oceny nie będą idealne.** System jeszcze cię nie zna. Dostarcz mu kontekstu — swoje CV, historię kariery, przykłady osiągnięć, preferencje, mocne strony, czego chcesz unikać. Im więcej mu dasz, tym lepiej działa. Traktuj to jak wdrożenie nowego rekrutera: w pierwszym tygodniu musi się nauczyć, kim jesteś — potem staje się nieoceniony.
 
@@ -130,7 +134,7 @@ Pełny przewodnik po konfiguracji: [docs/SETUP.md](docs/SETUP.md).
 
 ## Użycie
 
-Career-ops to jedna komenda slash z wieloma trybami:
+career-ops to jedna komenda slash z wieloma trybami:
 
 ```text
 /career-ops                    → Pokaż wszystkie dostępne komendy
@@ -177,7 +181,7 @@ Materiały dopasowane → przeglądarka/wypełnianie → przegląd i wysłanie p
 
 ## 🇵🇱 Polskie portale z ofertami pracy
 
-Career-ops obsługuje główne polskie portale IT. Dwa z nich — JustJoin.it i NoFluffJobs — mają publiczne API i mogą być zintegrowane jako źródła Level 0 (zero tokenów, brak WebSearch, świeże dane w czasie skanowania). Pozostałe portale wymagają weryfikacji ręcznej lub przez Playwright.
+career-ops obsługuje główne polskie portale IT. Dwa z nich — JustJoin.it i NoFluffJobs — mają publiczne API i mogą być zintegrowane jako źródła Level 0 (zero tokenów, brak WebSearch, świeże dane w czasie skanowania). Pozostałe portale wymagają weryfikacji ręcznej lub przez Playwright.
 
 | Portal              | URL                                          | API        | Uwagi                                                                 |
 | ------------------- | -------------------------------------------- | ---------- | --------------------------------------------------------------------- |
@@ -191,7 +195,7 @@ Career-ops obsługuje główne polskie portale IT. Dwa z nich — JustJoin.it i 
 
 ### Polskie realia rynku pracy w ocenach
 
-Career-ops uwzględnia specyfikę polskiego rynku pracy przy ocenianiu ofert:
+career-ops uwzględnia specyfikę polskiego rynku pracy przy ocenianiu ofert:
 
 - **Forma zatrudnienia**: UoP (Umowa o pracę) vs B2B (Faktura VAT) vs UZ (Umowa zlecenie) — różnice w kwocie netto, bezpieczeństwie, urlopie i ZUS mają wpływ na ocenę stabilności
 - **Wynagrodzenie**: brutto (przed podatkiem i ZUS) kontra netto (na rękę). Różnica bywa znaczna — system uwzględnia ją przy porównywaniu ofert

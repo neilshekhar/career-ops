@@ -17,7 +17,7 @@
  *   0 — success (including no-op re-runs)
  *   1 — usage error or non-canonical state
  *   2 — row not found (bad number, unknown company)
- *   3 — ambiguous company match (candidates listed on stderr / in JSON)
+ *   3 — ambiguous company match
  */
 
 import { execFileSync } from 'child_process';
@@ -112,7 +112,7 @@ const TRACKER_REVEAL = `# Applications Tracker
 | 7 | 2026-06-07 | ? | Hays | Solutions Analyst | 4.3/5 | Applied | ❌ | [7](../reports/007-confidential-2026-06-07.md) | fintech; [application-receipt:receipt-7] |
 `;
 
-// ── 1. Update by report number ──────────────────────────────────
+// ── 1. Update by tracker number ─────────────────────────────────
 {
   const sb = makeSandbox(TRACKER_9);
   const r = runSetStatus(['2', 'Applied', '--external'], sb);

@@ -535,8 +535,11 @@ if (IS_CHILD) {
     encoding: 'utf8',
   });
   if (child.status !== 0) {
-    process.stderr.write(child.stderr || child.stdout || 'lean child failed\n');
-    process.exit(child.status || 1);
+    assert.equal(
+      child.status,
+      0,
+      child.stderr || child.stdout || child.error?.message || 'lean child failed',
+    );
   }
   process.stdout.write(child.stdout);
   pass('lean-llm-v1 begin/page-done/finish → prefilled; receipt-v3 opt-in; complete/finalize rejected');

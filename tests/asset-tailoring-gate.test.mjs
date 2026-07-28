@@ -659,8 +659,11 @@ if (IS_CHILD) {
     encoding: 'utf8',
   });
   if (child.status !== 0) {
-    process.stderr.write(child.stderr || child.stdout || 'tailoring child failed\n');
-    process.exit(child.status || 1);
+    assert.equal(
+      child.status,
+      0,
+      child.stderr || child.stdout || child.error?.message || 'tailoring child failed',
+    );
   }
   process.stdout.write(child.stdout);
   pass('fail-closed upload evidence + contextual CV/cover tailoring gates hold');

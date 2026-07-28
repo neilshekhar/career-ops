@@ -563,8 +563,11 @@ if (IS_CHILD) {
     encoding: 'utf8',
   });
   if (child.status !== 0) {
-    process.stderr.write(child.stderr || child.stdout || 'one-shot child failed\n');
-    process.exit(child.status || 1);
+    assert.equal(
+      child.status,
+      0,
+      child.stderr || child.stdout || child.error?.message || 'one-shot child failed',
+    );
   }
   process.stdout.write(child.stdout);
   pass('One-shot durable chain: record → claim → gate → dispatch → filling → review-ready');

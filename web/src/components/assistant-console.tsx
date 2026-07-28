@@ -11,6 +11,7 @@ import { useJobs } from "@/components/jobs/job-store";
 import { usePipeline } from "@/components/pipeline/pipeline-provider";
 import { useExplore } from "@/components/explore/explore-provider";
 import { WorkerCard } from "@/components/jobs/worker-card";
+import { Button } from "@/components/ui/button";
 import { dispatch, type ActionCtx, type DoneInfo } from "@/app/actions/registry";
 import { scoreNum } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -470,12 +471,12 @@ export function AssistantConsole() {
               <div className="text-sm font-semibold tracking-tight">Assistant</div>
               <div className="text-xs text-faint">{cliId ? `via ${cliId}` : "no CLI configured"}</div>
             </div>
-            <button onClick={resetChat} className="rounded-md p-1.5 text-muted transition-colors hover:bg-surface-hover hover:text-foreground" aria-label="New chat" title="New chat">
+            <Button variant="ghost" size="icon" onClick={resetChat} className="text-muted" aria-label="New chat" title="New chat">
               <RotateCcw className="size-4" />
-            </button>
-            <button onClick={() => setOpen(false)} className="rounded-md p-1.5 text-muted transition-colors hover:bg-surface-hover hover:text-foreground" aria-label="Close assistant">
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => setOpen(false)} className="text-muted" aria-label="Close assistant">
               <X className="size-4" />
-            </button>
+            </Button>
           </header>
 
           <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">

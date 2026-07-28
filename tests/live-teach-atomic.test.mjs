@@ -165,11 +165,11 @@ try {
     },
   });
   process.stderr.write('stale teach unexpectedly succeeded\\n');
-  process.exit(2);
+  process.exitCode = 2;
 } catch (error) {
   if (!/evidence_id does not match/.test(error.message)) {
     process.stderr.write(error.stack + '\\n');
-    process.exit(3);
+    process.exitCode = 3;
   }
   process.stderr.write(error.message + '\\n');
 }

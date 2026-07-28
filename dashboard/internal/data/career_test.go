@@ -1,6 +1,7 @@
 package data
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -251,8 +252,9 @@ func TestResolveTrackerColumnsDuplicateHeaderLastWins(t *testing.T) {
 |---|-------|---------|------|-------|--------|-----|--------|-------|
 | 1 | stray | Acme | Engineer | 4.0/5 | Applied | ✅ | — | real note |`, "\n")
 	cols := resolveTrackerColumns(dup)
+	// Verify that the last "Notes" column wins
 	if cols["notes"] != 8 {
-		t.Errorf("notes index = %d, want 8 (last occurrence wins, like tracker-parse.mjs)", cols["notes"])
+		t.Fatalf("notes index = %d, expected 8 (tracker-parse.mjs parity)", cols["notes"])
 	}
 }
 
@@ -271,5 +273,185 @@ func TestResolveTrackerColumnsVia(t *testing.T) {
 	}
 	if cols["status"] != 6 {
 		t.Errorf("status index = %d, want 6", cols["status"])
+	}
+}
+
+// TestNormalizeStatus verifies that localized string variants map to the canonical English form.
+func TestNormalizeStatus(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		// Turkish status strings
+		{"değerlendirildi", "evaluated"},
+		{"Değerlendirildi", "evaluated"},
+		{"DEĞERLENDİRİLDİ", "evaluated"},
+		{"başvuruldu", "applied"},
+		{"Başvuruldu", "applied"},
+		{"BAŞVURULDU", "applied"},
+		{"yanıt verildi", "responded"},
+		{"yanıt_verildi", "responded"},
+		{"YANIT VERİLDİ", "responded"},
+		{"mülakat", "interview"},
+		{"Mülakat", "interview"},
+		{"MÜLAKAT", "interview"},
+		{"teklif", "offer"},
+		{"Teklif", "offer"},
+		{"TEKLİF", "offer"},
+		{"reddedildi", "rejected"},
+		{"Reddedildi", "rejected"},
+		{"REDDEDİLDİ", "rejected"},
+		{"iptal edildi", "discarded"},
+		{"iptal_edildi", "discarded"},
+		{"İPTAL EDİLDİ", "discarded"},
+		{"uygun değil", "skip"},
+		{"uygun_değil", "skip"},
+		{"UYGUN DEĞİL", "skip"},
+
+		// No-diacritic variants
+		{"degerlendirildi", "evaluated"},
+		{"DEGERLENDIRILDI", "evaluated"},
+		{"basvuruldu", "applied"},
+		{"BASVURULDU", "applied"},
+		{"yanit verildi", "responded"},
+		{"mulakat", "interview"},
+		{"uygun degil", "skip"},
+
+		// English status strings
+		{"Evaluated", "evaluated"},
+		{"Applied", "applied"},
+		{"Responded", "responded"},
+		{"Interview", "interview"},
+		{"Offer", "offer"},
+		{"Rejected", "rejected"},
+		{"Discarded", "discarded"},
+		{"SKIP", "skip"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+			if got := NormalizeStatus(tt.input); got != tt.want {
+				t.Errorf("NormalizeStatus(%q) = %q; want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// Regression: when an external writer (set-status.mjs, merge-tracker.mjs,
+// another session) changes a row's status while the dashboard is open, the
+// in-memory "old" status no longer matches the file. The update must still
+// land in the Status column — identified via the header — rather than
+// silently no-opping.
+func TestUpdateApplicationStatusWithStaleInMemoryStatus(t *testing.T) {
+	tempDir := t.TempDir()
+	dataDir := filepath.Join(tempDir, "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	applications := `# Applications Tracker
+
+| # | Date | Company | Via | Role | Score | Status | PDF | Report | Notes |
+|---|------|---------|-----|------|-------|--------|-----|--------|-------|
+| 28 | 2026-07-10 | ? | DaCodes | Backend Engineer | 3.1/5 | Applied | ✅ | [28](../reports/028-dacodes.md) | note |
+`
+	path := filepath.Join(dataDir, "applications.md")
+	if err := os.WriteFile(path, []byte(applications), 0o644); err != nil {
+		t.Fatalf("write tracker: %v", err)
+	}
+
+	apps := ParseApplications(tempDir)
+	if len(apps) != 1 {
+		t.Fatalf("expected 1 app, got %d", len(apps))
+	}
+
+	// Simulate an external writer changing the status on disk after parse.
+	stale := strings.Replace(applications, "| Applied |", "| Responded |", 1)
+	if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
+		t.Fatalf("rewrite tracker: %v", err)
+	}
+
+	// apps[0].Status is still "Applied" (stale). The dashboard must delegate
+	// by stable tracker number; the canonical writer owns the fresh disk read.
+	originalWriter := canonicalStatusWriter
+	defer func() { canonicalStatusWriter = originalWriter }()
+	canonicalStatusWriter = func(root string, args ...string) ([]byte, error) {
+		current, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.Contains(string(current), "| Responded |") {
+			return nil, errors.New("canonical writer did not observe the fresh on-disk state")
+		}
+		updated := strings.Replace(string(current), "| Responded |", "| Interview |", 1)
+		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+			return nil, err
+		}
+		return []byte(`{"changed":true}`), nil
+	}
+	if err := UpdateApplicationStatus(tempDir, apps[0], "Interview"); err != nil {
+		t.Fatalf("UpdateApplicationStatus with stale status: %v", err)
+	}
+
+	out, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if !strings.Contains(string(out), "| Interview |") {
+		t.Errorf("status not updated, file now:\n%s", string(out))
+	}
+	if strings.Contains(string(out), "| Responded |") || strings.Contains(string(out), "| Applied |") {
+		t.Errorf("old status still present, file now:\n%s", string(out))
+	}
+}
+
+// Canonical-writer failures must surface without the dashboard attempting a
+// second, direct tracker mutation.
+func TestUpdateApplicationStatusPropagatesCanonicalWriterRefusal(t *testing.T) {
+	tempDir := t.TempDir()
+	dataDir := filepath.Join(tempDir, "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	applications := `# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | PDF | Report | Notes |
+|---|------|---------|------|-------|--------|-----|--------|-------|
+| 3 | 2026-07-10 | Acme | Engineer | 3.1/5 | Evaluated | ✅ | [3](reports/003.md) | note |
+`
+	path := filepath.Join(dataDir, "applications.md")
+	if err := os.WriteFile(path, []byte(applications), 0o644); err != nil {
+		t.Fatalf("write tracker: %v", err)
+	}
+
+	apps := ParseApplications(tempDir)
+	if len(apps) != 1 {
+		t.Fatalf("expected 1 app, got %d", len(apps))
+	}
+
+	// Corrupt the status cell into something that is not a status.
+	broken := strings.Replace(applications, "| Evaluated |", "| ??? |", 1)
+	if err := os.WriteFile(path, []byte(broken), 0o644); err != nil {
+		t.Fatalf("rewrite tracker: %v", err)
+	}
+
+	originalWriter := canonicalStatusWriter
+	defer func() { canonicalStatusWriter = originalWriter }()
+	canonicalStatusWriter = func(_ string, _ ...string) ([]byte, error) {
+		return []byte(`{"error":"unrecognizable current status"}`), errors.New("exit status 1")
+	}
+
+	if err := UpdateApplicationStatus(tempDir, apps[0], "Discarded"); err == nil {
+		t.Fatal("expected an error when the status cell is unrecognizable, got nil")
+	} else if !strings.Contains(err.Error(), "unrecognizable current status") {
+		t.Fatalf("canonical writer detail was not propagated: %v", err)
+	}
+
+	out, _ := os.ReadFile(path)
+	if !strings.Contains(string(out), "| ??? |") {
+		t.Errorf("file was modified despite refusal, now:\n%s", string(out))
 	}
 }

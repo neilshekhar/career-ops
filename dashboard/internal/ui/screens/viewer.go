@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/santifer/career-ops/dashboard/internal/data"
+	"github.com/santifer/career-ops/dashboard/internal/i18n"
 	"github.com/santifer/career-ops/dashboard/internal/model"
 	"github.com/santifer/career-ops/dashboard/internal/theme"
 )
@@ -715,16 +716,18 @@ func (m ViewerModel) renderFooter() string {
 
 	if m.statusPicker {
 		return style.Render(
-			keyStyle.Render("↑/↓/j/k") + descStyle.Render(" select  ") +
-				keyStyle.Render("Enter") + descStyle.Render(" confirm  ") +
-				keyStyle.Render("Esc/q") + descStyle.Render(" cancel"))
+			keyStyle.Render("↑/↓/j/k") + descStyle.Render(i18n.Current.HelpNav) +
+				keyStyle.Render("Enter") + descStyle.Render(i18n.Current.HelpConfirm) +
+				keyStyle.Render("Esc/q") + descStyle.Render(i18n.Current.HelpCancel))
 	}
 
-	footer := keyStyle.Render("↑↓") + descStyle.Render(" scroll  ") +
-		keyStyle.Render("PgUp/Dn") + descStyle.Render(" page  ") +
-		keyStyle.Render("g/G") + descStyle.Render(" top/end  ") +
-		keyStyle.Render("c") + descStyle.Render(" status  ") +
-		keyStyle.Render("Esc") + descStyle.Render(" back")
+	// Render standard footer shortcuts
+	footer := keyStyle.Render("↑↓") + descStyle.Render(i18n.Current.HelpScroll) + // nav
+		keyStyle.Render("PgUp/Dn") + descStyle.Render(i18n.Current.HelpPage) + // pagination
+		keyStyle.Render("g/G") + descStyle.Render(i18n.Current.HelpTopEnd) + // top/bottom
+		keyStyle.Render("c") + descStyle.Render(i18n.Current.HelpChange) + // status
+		keyStyle.Render("t") + descStyle.Render(i18n.Current.HelpLanguage) + // language
+		keyStyle.Render("Esc") + descStyle.Render(i18n.Current.HelpBack) // exit
 
 	if m.coverLetterPath != "" {
 		footer += "  " + keyStyle.Render("L") + descStyle.Render(" cover letter")
@@ -782,7 +785,7 @@ func (m ViewerModel) overlayStatusPicker(body string) string {
 		Bold(true)
 
 	var picker []string
-	picker = append(picker, padStyle.Render(borderStyle.Render("Change status:")))
+	picker = append(picker, padStyle.Render(borderStyle.Render(i18n.Current.PickerChangeStatus)))
 
 	for i, opt := range m.statusOptions() {
 		style := lipgloss.NewStyle().Foreground(m.theme.Text).Width(pickerWidth)
@@ -791,9 +794,9 @@ func (m ViewerModel) overlayStatusPicker(body string) string {
 		}
 		prefix := "  "
 		if i == m.statusCursor {
-			prefix = "> "
+			prefix = " >"
 		}
-		picker = append(picker, padStyle.Render(style.Render(prefix+opt)))
+		picker = append(picker, padStyle.Render(prefix+style.Render(statusDisplay(opt))))
 	}
 
 	bodyLines = append(bodyLines, picker...)
