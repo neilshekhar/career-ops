@@ -16,7 +16,18 @@ const runner = join(ROOT, 'batch', 'batch-runner.sh');
 const source = readFileSync(runner, 'utf8');
 const bash = process.env.BASH || '/bin/bash';
 
-assert.equal(spawnSync(bash, ['-n', runner]).status, 0);
+// The syntax check needs a real bash. On Windows there is none at /bin/bash, so
+// spawnSync returns status null and the assertion below would fail for a reason
+// that has nothing to do with the runner. Every other assertion in this file
+// reads the script as text and is genuinely platform-independent, so skip only
+// this one rung when no interpreter is available.
+const bashProbe = spawnSync(bash, ['-n', runner]);
+if (bashProbe.status === null) {
+  pass(`batch-runner syntax check skipped (no bash interpreter at ${bash})`);
+} else {
+  assert.equal(bashProbe.status, 0,
+    `bash -n rejected batch-runner.sh: ${bashProbe.stderr}`);
+}
 assert.doesNotMatch(source, /--dangerously-skip-permissions/);
 assert.match(source, /--permission-mode dontAsk/);
 assert.match(source, /--safe-mode/);

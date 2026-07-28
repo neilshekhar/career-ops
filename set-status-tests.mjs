@@ -798,7 +798,7 @@ const TRACKER_REVEAL = `# Applications Tracker
 }
 
 // ── 16. Write failure surfaces as a structured error, not a stack ─
-{
+writeFailureCase: {
   if (process.platform !== 'win32' && process.getuid?.() === 0) {
     pass('write-failure: skipped (running as root — directory permissions are not enforced)');
   } else {
@@ -818,7 +818,21 @@ const TRACKER_REVEAL = `# Applications Tracker
     const restore = () => process.platform === 'win32'
       ? execFileSync('icacls', [roDir, '/remove:d', '*S-1-1-0'])
       : chmodSync(roDir, 0o755);
-    denyWrite();
+    // The deny itself can fail for platform reasons (icacls unavailable, an
+    // elevated runner, a filesystem that ignores the ACL). That is a missing
+    // precondition, not a defect in set-status — skip rather than crash the
+    // whole suite from outside the try/finally below.
+    let denied = true;
+    try {
+      denyWrite();
+    } catch (e) {
+      denied = false;
+      pass(`write-failure: skipped (cannot deny writes on this platform — ${e.message})`);
+    }
+    if (!denied) {
+      rmSync(dir, { recursive: true, force: true });
+      break writeFailureCase;
+    }
     try {
       const r = runSetStatus(['2', 'Applied', '--external', '--json'], { tracker, lock });
       let parsed = null;
