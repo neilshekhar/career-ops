@@ -116,9 +116,19 @@ try {
 }
 
 const normalizeSource = readFileSync(join(ROOT, 'normalize-statuses.mjs'), 'utf8');
-assert(normalizeSource.includes('acquireTrackerLock('), 'normalizer must acquire the shared tracker lock');
-assert(normalizeSource.includes('trackerLockDirFor(APPS_FILE)'), 'normalizer must use the canonical tracker lock key');
-assert(normalizeSource.includes('writeFileAtomic(APPS_FILE'), 'normalizer must atomically replace the tracker');
+// The normalizer reaches the shared lock through openTrackerTransaction (upstream #1912)
+// rather than calling acquireTrackerLock/writeFileAtomic itself. Assert the whole chain —
+// the call site here AND the guarantee inside the helper — so neither half can regress
+// silently: dropping the lock or the atomic replace from tracker-utils.mjs still fails.
+const trackerUtilsSource = readFileSync(join(ROOT, 'tracker-utils.mjs'), 'utf8');
+const transactionBody = trackerUtilsSource.slice(trackerUtilsSource.indexOf('export async function openTrackerTransaction('));
+assert(transactionBody.length > 0, 'tracker-utils.mjs must export openTrackerTransaction');
+assert(normalizeSource.includes('openTrackerTransaction(APPS_FILE)'), 'normalizer must open a tracker transaction on the canonical tracker');
+assert(transactionBody.includes('acquireTrackerLock('), 'tracker transaction must acquire the shared tracker lock');
+assert(transactionBody.includes('trackerLockDirFor('), 'tracker transaction must use the canonical tracker lock key');
+assert(transactionBody.includes('writeFileAtomic('), 'tracker transaction must atomically replace the tracker');
+assert(/trackerTransaction\??\.replace\(/.test(normalizeSource), 'normalizer must write through the transaction, not a direct file write');
+assert(/trackerTransaction\??\.close\(\)/.test(normalizeSource), 'normalizer must release the tracker lock in a finally block');
 assert(normalizeSource.includes('[status-normalized:'), 'normalizer must add migration provenance');
 assert(normalizeSource.includes("'[external-status]'"), 'progression migrations must be marked external');
 assert(!/writeFileSync\s*\(\s*APPS_FILE/.test(normalizeSource), 'normalizer must not use a bare tracker write');
