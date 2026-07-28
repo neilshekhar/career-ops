@@ -21,18 +21,22 @@ const source = readFileSync(runner, 'utf8');
 // form that interpreter can open. Both are identity operations off Windows.
 const bash = getBash();
 
-// Git Bash hands arguments to native Windows binaries through MSYS conversion:
-// a POSIX-looking path is rewritten under a drive letter, and brace groups
-// get mangled (a doubled-brace placeholder loses its braces).
-// render_prompt_template shells out
-// to `node`, so that rewriting happens BEFORE the script's own substitution
-// logic — the assertions below would be testing MSYS, not batch-runner.sh.
-// Turn conversion off so the unit under test is the script. (Real Windows users
-// running the runner under Git Bash still get the conversion, which is what they
-// want for paths: node.exe needs Windows paths.)
+// Git Bash rewrites arguments on their way to native Windows binaries, and
+// render_prompt_template shells out to `node`. That conversion is REQUIRED for
+// the path arguments — node.exe cannot open a /d/... form — but it also mangles
+// the URL fixture, stripping the braces from its deliberately placeholder-like
+// text. Exclude URLs from conversion and leave it on for everything else;
+// disabling it wholesale makes node resolve the bash-form paths against the
+// current drive instead.
 const bashEnv = process.platform === 'win32'
-  ? { ...process.env, MSYS_NO_PATHCONV: '1', MSYS2_ARG_CONV_EXCL: '*' }
+  ? { ...process.env, MSYS2_ARG_CONV_EXCL: 'http://;https://' }
   : process.env;
+
+// A POSIX-looking JD path would itself be converted before the script sees it,
+// so the fixture is expressed in the form each platform passes through
+// unchanged. What the assertion is really about is the ampersand surviving
+// substitution, which both forms exercise.
+const jdFixture = process.platform === 'win32' ? 'C:/tmp/jd&one' : '/tmp/jd&one';
 
 assert.equal(spawnSync(bash, ['-n', toBashPath(runner)]).status, 0);
 assert.doesNotMatch(source, /--dangerously-skip-permissions/);
@@ -54,7 +58,7 @@ try {
   const renderScript = [
     'runner="$1"; template="$2"; output="$3"; url="$4"; shift 4; set --',
     'source "$runner"',
-    'render_prompt_template "$template" "$output" "$url" "/tmp/jd&one" "007" "2026-07-16" "42"',
+    `render_prompt_template "$template" "$output" "$url" "${jdFixture}" "007" "2026-07-16" "42"`,
   ].join('\n');
   const renderResult = spawnSync(
     bash,
@@ -65,7 +69,7 @@ try {
   assert.equal(renderResult.status, 0, renderResult.stderr);
   assert.equal(
     readFileSync(rendered, 'utf8'),
-    `URL=${specialUrl}\nJD=/tmp/jd&one\nREPORT=007\nDATE=2026-07-16\nID=42\n`,
+    `URL=${specialUrl}\nJD=${jdFixture}\nREPORT=007\nDATE=2026-07-16\nID=42\n`,
   );
   pass('prompt rendering preserves ampersands, backslashes, and placeholder-like URL text');
 
