@@ -5,6 +5,13 @@
 The fork keeps its own version line and release metadata. The following upstream
 release notes record the santifer/career-ops changes incorporated by this merge.
 
+## [1.22.1](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.22.0...career-ops-v1.22.1) (2026-08-20)
+
+
+### Performance Improvements
+
+* **apify:** refit discovery cadence to the $5/mo budget from measured invoices ([3151456](https://github.com/neilshekhar/career-ops/commit/31514561051f8632b3b7fd82c10762183a2d3dbb))
+
 ## [1.22.0](https://github.com/neilshekhar/career-ops/compare/career-ops-v1.21.1...career-ops-v1.22.0) (2026-07-28)
 
 
