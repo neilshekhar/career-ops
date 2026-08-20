@@ -4,31 +4,65 @@ name: Apify Job Discovery Cron
 # Discovers new roles and inserts status='new' stubs into Supabase via the
 # RLS-bounded career_ops_cron credential. Zero LLM tokens — pure HTTP + JSON.
 #
-# Schedules (budget-adaptive — cadence scales with the Apify balance):
-#   Weekly (Monday, 20:00 UTC):   all three actors, including Fantastic 200-job run.
-#   Weekly (Thursday, 19:30 UTC): Seek + Indeed only (20 results/title cap each).
-#   Weekly (Tuesday, 19:30 UTC):  Seek + Indeed only — POST-RESET ONLY (see below).
+# Schedule: Mon / Wed / Fri, 19:30 UTC (= 05:30 AEST next day).
+#   Monday      = Seek + Indeed + Fantastic (Workday)   $0.54
+#   Wed and Fri = Seek + Fantastic                      $0.25
+#   Indeed rides weekly because it is the only actor with no incremental mode;
+#   see 'Why Indeed is weekly' below.
 #
-#   Two budget regimes, switched automatically by the 'Decide run plan' step
-#   (no manual edit needed at the boundary):
-#     • Now → 2026-07-22 (~$3.38 balance): Mon all-three + Thu Seek+Indeed only.
-#       The Tuesday trigger still fires but the decision gate makes it a no-op
-#       (no JWT mint, no Apify call, $0) until the reset date.
-#     • 2026-07-23 onward ($5/mo recurring): the Tuesday pass activates, giving
-#       Mon all-three + Tue + Thu Seek+Indeed = 2× weekly Seek+Indeed. A single
-#       permanent date threshold suffices — each monthly reset refills $5 and the
-#       Mon+Tue+Thu cadence stays sized for it.
+#   Cost calibration — MEASURED from live Apify invoices on 2026-08-20 at the
+#   current 10-title portals.yml seed list, not estimated:
+#     • Seek      $0.01/run + $0.002/result, ONE run per title, and it TRUNCATES
+#                 at maxResults (9 of 10 titles returned exactly the old cap of
+#                 20). So Seek = titles x ($0.01 + cap x $0.002), fully
+#                 deterministic. At 10 titles / cap 6 → $0.22 per pass.
+#                 Incremental mode verified working: a second run 10 minutes
+#                 later returned 0 results and billed run-charges only.
+#     • Indeed    $0.005/run + $0.003/result, one run per title, NO incremental
+#                 mode — a repeat run 10 minutes later re-billed the full $0.33
+#                 for the identical 92 records and inserted nothing. At the 7-day
+#                 window it is demand-saturated, so its cap binds too:
+#                 titles x ($0.005 + cap x $0.003) = $0.29/pass at cap 8.
+#     • Fantastic single run for ALL titles (titleSearch takes the array), so its
+#                 cost does NOT scale with the seed count: 13 results → $0.03.
 #
-#   Cost calibration (Apify Store pricing, 2026): Seek $0.01/run + $0.002/result
-#   (incremental mode → cheap after baseline); Indeed $0.005/run + $0.003/result;
-#   Fantastic $1.20/1000 jobs → ~$0.24 for the 200-job Monday run. A Seek+Indeed
-#   pass (5+5 per-title invocations) runs ~$0.20–0.42; a Monday all-three ~$0.44–0.66.
-#   The 4 weekly Monday all-three runs (~$1.8–2.6/cycle) are the dominant cost.
-#     - $3.38 window (~29 days): ~4 Thu + 4 Mon ≈ $2.6 realistic — survives to reset
-#       (daily burned it in ~9 days; every-other-day in ~16).
-#     - $5/mo window: ~8–9 Tue+Thu + 4 Mon ≈ $3.6 (realistic) to ~$4.9 (mid) — fits $5.
-#   apify-discover.mjs logic/caps/per-title loops are unchanged.
-#   api-cron.yml runs at 19:00 UTC; this workflow is offset +30–60 min to prevent
+#   Cost-per-inserted-role on the 2026-08-20 measurement pass:
+#     Fantastic $0.015  ·  Seek $0.052  ·  Indeed $0.083
+#
+#   Monthly total at Seek cap 6 / Indeed cap 8, over every month of 2026-2027:
+#     • average month → $4.52
+#     • worst-case month (2027-03: 5 Mon + 9 Wed/Fri) → $4.95
+#   Both inside the $5/mo budget, and the caps are sized against the WORST month
+#   rather than the average so a 5-Monday month cannot breach it.
+#   The previous Mon/Tue/Thu all-source cadence measured ~$11.35/month at the
+#   same seed list — over budget by 2.3x.
+#
+#   HEADROOM WARNING: Fantastic's $0.03 is the one term that is NOT fixed — it
+#   bills per result and currently returns 13. Worst case leaves only ~$0.05 of
+#   slack, so if the Workday pool grows past ~30 results the month can tip over.
+#   First dial to turn if that happens: Seek maxResults 6 -> 5 (saves ~$0.28/mo).
+#
+# Why Mon/Wed/Fri and not weekly: fresher postings mean a better chance of being
+#   an early applicant, so the budget is spent on FREQUENCY rather than depth.
+#   Seek's incremental mode makes frequency cheap (only genuinely-new postings
+#   are billed); its per-title run charge is the only fixed cost.
+#
+# Why the lookbacks differ (apify-discover.mjs): each actor's window must span
+#   its own longest gap, or the intervening days are never scanned. The old
+#   24-hour lookback on a Mon/Tue/Thu schedule left Friday, Saturday and most of
+#   Wednesday permanently invisible — roughly 3 of every 7 days. Now:
+#     Seek   runs Mon/Wed/Fri → 3-day window (widest gap is Fri→Mon)
+#     Indeed runs Mondays     → 7-day window (gap is a full week)
+#   A wider window does not re-bill Seek, because incremental mode suppresses
+#   already-seen postings. It DOES cost Indeed, which is why Indeed's cap is low.
+#
+# Why Indeed is weekly rather than every run: it has the worst cost-per-insert of
+#   the three AND no incremental mode, so each run pays full price for a heavily
+#   overlapping window. Putting it on all three days would force Seek's cap down
+#   to ~2 to stay in budget, losing far more than Indeed adds. Weekly keeps the
+#   source without letting it crowd out the frequency on Seek.
+#
+#   api-cron.yml runs at 19:00 UTC; this workflow is offset +30 min to prevent
 #   concurrent Supabase writes.
 #
 # ── First-run validation ────────────────────────────────────────────────────────
@@ -63,24 +97,17 @@ name: Apify Job Discovery Cron
 #
 on:
   schedule:
-    # Thursday 19:30 UTC = Friday 05:30 AEST — Seek + Indeed only, weekly.
-    # Always-on in both budget regimes (see the # Schedules: header for the
-    # $3.38 → $5 transition). Day-of-week weekly (not day-of-month stepping) so
-    # there is NO month-boundary drift and the spacing is even.
-    - cron: '30 19 * * 4'
-    # Tuesday 19:30 UTC = Wednesday 05:30 AEST — Seek + Indeed only, weekly.
-    # POST-RESET ONLY: this is the second weekly Seek+Indeed pass that the $5/mo
-    # budget affords from 2026-07-23 onward. The 'Decide run plan' step below
-    # gates it to a no-op (no JWT mint, no Apify call, $0) on every Tuesday
-    # BEFORE 2026-07-23, so it costs nothing during the current $3.38 window.
-    # Intentional, not a bug — do not remove the date gate.
-    - cron: '30 19 * * 2'
-    # Monday 20:00 UTC = 06:00 AEST (next-day) — all three actors incl. Fantastic
-    - cron: '0 20 * * 1'
+    # Monday 19:30 UTC = 05:30 AEST Tue — all three actors, Indeed's weekly slot.
+    - cron: '30 19 * * 1'
+    # Wed + Fri 19:30 UTC — Seek + Fantastic only (Indeed would re-bill its whole
+    # window for nothing). Day-of-week (not day-of-month stepping) so there is NO
+    # month-boundary drift. 12-14 runs/month total, $4.52 avg (see header).
+    - cron: '30 19 * * 3,5'
   workflow_dispatch:
     # Manual trigger for smoke testing and on-demand runs.
-    # Default is the cheap subset (no 200-job Fantastic cost) so a smoke run
-    # doesn't spend budget unless you explicitly choose 'all'.
+    # Default matches the schedule so a manual run costs what a scheduled one
+    # costs; pick 'indeed' or 'all' only when you deliberately want to spend the
+    # extra ~$0.33 on the non-incremental Indeed actor.
     # Note: workflow_dispatch from a feature branch will fail on the mint step
     # if the 'cron' environment restricts secrets to main only. Run from main,
     # or temporarily add the branch to the environment's branch policy during dev.
@@ -88,10 +115,11 @@ on:
       source:
         description: 'Actors to run'
         type: choice
-        default: 'seek,indeed'
+        default: 'seek,fantastic-ats'
         options:
-          - 'seek,indeed'   # Seek + Indeed only (cheap, ~20 results/title each)
-          - 'all'           # Seek + Indeed + Fantastic (200-job min; weekly budget)
+          - 'seek,fantastic-ats'  # Wed/Fri schedule — ~$0.25/run at 10 titles
+          - 'all'                 # Monday schedule, all three — ~$0.54/run
+          - 'indeed'              # Indeed alone, on demand — ~$0.29/run
 
 permissions:
   contents: read  # checkout only; nothing is committed or pushed
@@ -108,10 +136,11 @@ jobs:
         #               install, PORTALS_YML reconstruction, validate, JWT mint,
         #               Apify run) so a no-op invocation is a true no-op: no
         #               secret reconstruction, no JWT mint, no Apify call ($0).
-        #   mode:       'all' | 'seek,indeed' — which actors to run.
-        # The Tuesday schedule is the only date-gated branch: it is the second
-        # weekly Seek+Indeed pass that the $5/mo budget affords, so it stays a
-        # no-op until the budget resets on 2026-07-23. No ${{ }} interpolation
+        #   mode:       which actors to run. Monday runs 'all' (Indeed's weekly
+        #               slot); Wed/Fri run 'seek,fantastic-ats'; a dispatch may
+        #               override with any documented choice.
+        # No date-gated branches remain — the cadence is sized to fit the $5/mo
+        # budget outright (see the header calibration). No ${{ }} interpolation
         # here (github.event values are read via env, not spliced into bash).
         id: decide
         env:
@@ -120,24 +149,20 @@ jobs:
           DISPATCH_SOURCE: ${{ github.event.inputs.source }}
         run: |
           SHOULD_RUN=false
-          MODE="seek,indeed"
+          MODE="seek,fantastic-ats"
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             SHOULD_RUN=true
-            if [ "$DISPATCH_SOURCE" = "all" ]; then MODE="all"; fi
-          elif [ "$SCHEDULE" = "0 20 * * 1" ]; then
-            # Monday weekly: all three actors, Fantastic included.
+            # Only accept the documented choices; anything else keeps the default.
+            case "$DISPATCH_SOURCE" in
+              all|indeed|seek,fantastic-ats) MODE="$DISPATCH_SOURCE" ;;
+            esac
+          elif [ "$SCHEDULE" = "30 19 * * 1" ]; then
+            # Monday: all three actors — this is Indeed's weekly slot.
             SHOULD_RUN=true
             MODE="all"
-          elif [ "$SCHEDULE" = "30 19 * * 4" ]; then
-            # Thursday weekly: Seek + Indeed. Always on (both budget regimes).
+          elif [ "$SCHEDULE" = "30 19 * * 3,5" ]; then
+            # Wed + Fri: Seek + Fantastic only.
             SHOULD_RUN=true
-          elif [ "$SCHEDULE" = "30 19 * * 2" ]; then
-            # Tuesday weekly: Seek + Indeed, POST-RESET ONLY. Spend only once the
-            # $5/mo budget is in effect (2026-07-23 onward). UTC epoch compare;
-            # GNU date on ubuntu-latest supports -d.
-            NOW="$(date -u +%s)"
-            RESET="$(date -u -d '2026-07-23' +%s)"
-            if [ "$NOW" -ge "$RESET" ]; then SHOULD_RUN=true; fi
           fi
           echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
@@ -215,15 +240,18 @@ jobs:
 
       - name: Run Apify discovery
         # apify-discover.mjs selects actors via --source (or runs all three if
-        # omitted). The script logic, caps, guards, and dedup are unchanged:
-        #   Seek:    maxResults 20/title, incremental mode (changeType filter)
-        #   Indeed:  maxItems 20/title, last-24h datePosted
-        #   Fantastic: maxJobs 200, weekly-intended budget
+        # omitted). Current script caps:
+        #   Seek:      maxResults 6/title, 3-day dateRange, incremental mode
+        #   Indeed:    maxItems 8/title, 7-day datePosted, NO incremental mode
+        #   Fantastic: maxJobs 200, single run for all titles
         # --apply is always passed so inserts actually happen; fail-closed guards
         # inside the script reject --apply when cron creds or portals.yml are absent.
         # SUPABASE_CRON_JWT is already in GITHUB_ENV from the mint step above.
-        # RUN_MODE ('all' | 'seek,indeed') comes from the 'Decide run plan' step,
-        # which already resolved event/schedule/date — this step just dispatches.
+        # RUN_MODE comes from the 'Decide run plan' step, which already resolved
+        # event/schedule and validated the value against the allowed set. It is
+        # forwarded verbatim to --source, EXCEPT 'all', which means "omit --source
+        # so every registered actor runs" ('all' is not an actor name, so passing
+        # it through would match no sources and exit 1).
         if: steps.decide.outputs.should_run == 'true'
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
@@ -232,9 +260,9 @@ jobs:
           RUN_MODE: ${{ steps.decide.outputs.mode }}
         run: |
           if [ "$RUN_MODE" = "all" ]; then
-            # All three actors including Fantastic 200-job (Monday, or dispatch 'all')
+            # Every registered actor, Indeed included (~$0.70/run at 10 titles).
             node apify-discover.mjs --apply
           else
-            # Seek + Indeed only (Thursday, post-reset Tuesday, or dispatch default)
-            node apify-discover.mjs --source seek,indeed --apply
+            # Scheduled default 'seek,fantastic-ats', or an on-demand 'indeed'.
+            node apify-discover.mjs --source "$RUN_MODE" --apply
           fi

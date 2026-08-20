@@ -208,8 +208,16 @@ async function fetchSeek(token, _exclusions, d = DEFAULT_DISCOVERY) {
       query:           title,
       country:         d.country,
       location:        d.location,
-      dateRange:       '1',
-      maxResults:      20,
+      // '3' (days) covers the widest Mon/Wed/Fri gap (Fri→Mon) with margin, so
+      // no posting falls in a blind window. Incremental mode means a wider
+      // lookback does NOT re-charge for already-seen postings.
+      dateRange:       '3',
+      // Budget cap. Seek bills $0.01/run + $0.002/result and truncates at this
+      // value (9/10 titles hit the old cap of 20), so Seek cost is exactly
+      // titles x ($0.01 + cap x $0.002) — deterministic, not an estimate.
+      // At 10 titles, cap 6 = $0.22/run. Seek runs on all three scheduled days,
+      // so its cap is the main budget dial (see .github/workflows/apify-cron.yml).
+      maxResults:      6,
       compact:         true,
       includeDetails:  false,
       incrementalMode: true,
@@ -252,8 +260,16 @@ async function fetchIndeed(token, _exclusions, d = DEFAULT_DISCOVERY) {
       query:              title,
       location:           d.location,
       country:            d.country,
-      datePosted:         '1',   // "1" = last 24 hours (actor enum: "", "1", "3", "7", "14")
-      maxItems:           20,
+      // "7" = last 7 days (actor enum: "", "1", "3", "7", "14"). Indeed runs
+      // WEEKLY (Mondays), so the window must span a full week or the intervening
+      // days are never scanned.
+      datePosted:         '7',
+      // Indeed has NO incremental mode: every run re-fetches and re-bills the
+      // whole window (proven 2026-08-20 — a repeat run 10 minutes later billed
+      // the full $0.33 for 92 identical records and inserted nothing). At a
+      // 7-day window it is demand-saturated, so this cap binds and Indeed costs
+      // exactly titles x ($0.005 + cap x $0.003) = $0.29/run at 10 titles.
+      maxItems:           8,
       includeDescription: false,
     }, token);
 
