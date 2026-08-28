@@ -9,6 +9,16 @@ import { escapeLatex, sanitizeUrl } from './lib/latex-escape.mjs';
 import { resolveTemplate } from './cv-templates.mjs';
 import { stripEmptySections } from './cv-sections-core.mjs';
 
+// The preserved fork template wraps EMAIL_URL in `mailto:` itself, while
+// newer/custom templates consume sanitizeUrl()'s complete `mailto:` URL. Keep
+// both shapes valid so restoring the fork's visual identity cannot create a
+// doubled `mailto:mailto:` link.
+function emailUrlForTemplate(template, emailUrl) {
+  return template.includes('mailto:{{EMAIL_URL}}')
+    ? emailUrl.replace(/^mailto:/i, '')
+    : emailUrl;
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_PATH = resolve(__dirname, 'templates', 'cv-template.tex');
 const PLACEHOLDER_RE = /\{\{[A-Z_]+\}\}/g;
@@ -209,7 +219,7 @@ async function main() {
   const substitutions = {
     NAME: escapeLatex(payload.name || ''),
     CONTACT_LINE: escapeLatex(payload.contact_line || ''),
-    EMAIL_URL: emailUrl,
+    EMAIL_URL: emailUrlForTemplate(template, emailUrl),
     EMAIL_DISPLAY: escapeLatex(emailDisplay),
     LINKEDIN_URL: linkedinUrl,
     LINKEDIN_DISPLAY: escapeLatex(linkedinDisplay),
@@ -337,7 +347,7 @@ async function runSelfTest() {
   const substitutions = {
     NAME: escapeLatex(sample.name),
     CONTACT_LINE: escapeLatex(sample.contact_line),
-    EMAIL_URL: emailUrl,
+    EMAIL_URL: emailUrlForTemplate(template, emailUrl),
     EMAIL_DISPLAY: escapeLatex(emailDisplay),
     LINKEDIN_URL: linkedinUrl,
     LINKEDIN_DISPLAY: escapeLatex(linkedinDisplay),

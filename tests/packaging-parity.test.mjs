@@ -250,12 +250,13 @@ pass('doctor --setup skips the onboarding prerequisites the scaffolder deliberat
 // ── 1 + 3. Shared voice policy, personal digest ────────────────────────────
 const voiceTemplate = execFileSync('git', ['ls-files', 'voice-dna.template.md'], { cwd: ROOT, encoding: 'utf8' }).trim();
 assert.equal(voiceTemplate, 'voice-dna.template.md', 'voice-dna.template.md must ship as the safe seed');
-assert.match(doctorSrc, /target: 'voice-dna\.md', template: 'voice-dna\.template\.md'/);
+assert.doesNotMatch(doctorSrc, /target: 'voice-dna\.md', template: 'voice-dna\.template\.md'/,
+  'doctor must not introduce a voice workflow by auto-copying the optional template');
 assert.match(readFileSync(join(ROOT, 'DATA_CONTRACT.md'), 'utf8'), /`voice-dna\.md` \| Your private voice\/style rules/);
 const updaterSrc = readFileSync(join(ROOT, 'update-system.mjs'), 'utf8');
 assert.match(updaterSrc, /USER_PATHS[\s\S]*?'voice-dna\.md'/);
 assert.match(updaterSrc, /filter\(\(path\) => path !== 'voice-dna\.md'\)/);
-pass('acceptance 1: private voice DNA is seeded from a template and never overwritten by updates');
+pass('acceptance 1: private voice DNA is never auto-created or overwritten; an optional template ships separately');
 
 const gitignore = readFileSync(join(ROOT, '.gitignore'), 'utf8');
 assert.match(gitignore, /^article-digest\.md$/m,

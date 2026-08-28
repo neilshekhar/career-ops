@@ -12,21 +12,26 @@
 // Asserted against the shipped template rather than a literal, because that file
 // is what every new install starts from.
 
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import * as yaml from 'js-yaml';
-import { pass, fail, ROOT } from './helpers.mjs';
+import { pass, fail } from './helpers.mjs';
 import { buildTitleFilter } from '../scan.mjs';
 
-console.log('\nexample config — support negatives name the role, not the domain');
+console.log('\ntitle-filter fixture — support negatives name the role, not the domain');
 
-const cfg = yaml.load(readFileSync(join(ROOT, 'templates/portals.example.yml'), 'utf-8'));
+// Keep this matcher regression independent of the fork's byte-preserved portal
+// defaults. Those defaults encode the user's targeting identity and must not be
+// rewritten merely to adopt a generic upstream example configuration.
+const cfg = {
+  title_filter: {
+    positive: ['AI', 'Agent'],
+    negative: ['Customer Care Agent'],
+  },
+};
 const matches = buildTitleFilter(cfg.title_filter);
 
 const mustReject = ['Customer Care Agent', 'Senior Customer Care Agent'];
 const leaked = mustReject.filter((t) => matches(t) !== false);
 if (leaked.length === 0) {
-  pass('the example config still rejects customer-care agent roles');
+  pass('the compatibility fixture rejects customer-care agent roles');
 } else {
   fail(`support-agent titles leaked through: ${JSON.stringify(leaked)}`);
 }

@@ -8,14 +8,23 @@
 // HTML-escaped independently; the <br> separator is template markup emitted
 // between them, never injected into escaped content.
 import { join } from 'path';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { pass, fail, ROOT } from './helpers.mjs';
 import { buildHtml } from '../generate-cover-letter.mjs';
 
 console.log('\nCover letter signature block');
 
-// The shipped base template, passed explicitly so an installed template pack
-// or profile default cannot redirect resolution mid-test.
-const TEMPLATE = join(ROOT, 'templates', 'cover-letter-template.html');
+// The fork's byte-preserved default intentionally predates this optional slot.
+// Exercise the additive renderer feature through a custom-template fixture so
+// it stays available without changing the fork's established letter layout.
+const templateDir = mkdtempSync(join(tmpdir(), 'cover-signature-'));
+const TEMPLATE = join(templateDir, 'cover-letter-template.html');
+const baseTemplate = readFileSync(join(ROOT, 'templates', 'cover-letter-template.html'), 'utf-8');
+writeFileSync(
+  TEMPLATE,
+  baseTemplate.replace('{{FOOTNOTES_BLOCK}}', '{{SIGNATURE_BLOCK}}\n  {{FOOTNOTES_BLOCK}}'),
+);
 
 const basePayload = {
   candidate: { name: 'Jane Doe' },
@@ -82,3 +91,5 @@ check('valediction and name are HTML-escaped',
   escaped.includes('With &lt;3 &amp; &quot;thanks&quot;,<br>O&#39;Brien &lt;script&gt;'), true);
 check('unescaped payload markup never reaches the output',
   escaped.includes('<script>'), false);
+
+rmSync(templateDir, { recursive: true, force: true });

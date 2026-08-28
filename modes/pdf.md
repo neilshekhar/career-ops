@@ -1,8 +1,5 @@
 # Mode: pdf — ATS-Optimized PDF Generation
 
-Optional pass:
-- **`--hm-audit`:** `/career-ops pdf --hm-audit` adds the hiring-manager audit at Step 20 — an adversarial read of the tailored CV by a separate, research-grounded reviewer before it becomes a PDF (`modes/pdf/hm-audit.md`). Off by default: it costs a subagent dispatch plus web research. Turn it on per run with the flag, or for every run in your own `modes/_custom.md`.
-
 ## Full pipeline
 
 1. Read `cv.md` as the canonical CV and `article-digest.md` when present as the
@@ -12,16 +9,9 @@ Optional pass:
 3. Extract 15-20 keywords from the JD
 4. Run the zero-LLM skill-gap check before drafting anything: write the JD to a scratch file (e.g. `jds/{slug}.md`) if it isn't already one, then `node jd-skill-gap.mjs jds/{slug}.md --summary`. This classifies the JD's explicit requirements against `cv.md` into three buckets — never surface `result.gap` items as if the candidate has them:
    - `existing` — already a named skill in cv.md's Skills section, safe to lead with
-   - `supportedByResume` — not a named skill yet, but cv.md's prose already demonstrates it; legitimate candidates for the Skills section in the user's own words (Step 13's competency grid draws from here first)
+   - `supportedByResume` — not a named skill yet, but cv.md's prose already demonstrates it; legitimate candidates for the Skills section in the user's own words (Step 12's competency grid draws from here first)
    - `gap` — cv.md has no trace of it at all. **Tell the user explicitly which skills are gaps before generating the CV.** Never paper over a gap by inventing a claim, and never silently drop it from the conversation — the user decides whether to proceed, address it in the cover letter/interview, or skip the role
-
-   If the output prints a `🚨 LOW CONFIDENCE` block, zero skills were classified, so the three empty buckets mean "nothing was classified", not "no gaps found". **Never treat this as a pass, whichever reason is given.** Read the JD yourself to identify the required skills before drafting, and tell the user the automated check produced no result. The reason code says which of the three shapes it is:
-   - `no-requirements-section` — no requirements section was recognized, so no text was scanned at all
-   - `no-skill-candidates` — a requirements section was scanned, but no skill candidates came out of it. This does not mean the skills are absent from the vocabulary; the extractor only picks up capitalized tokens, so a lowercase bullet yields nothing
-   - `empty-jd` — the JD file has no content, so there was nothing to read. Check the file was written correctly before continuing
-
-   > ⚠️ **Skill-gap check inconclusive:** [Render in {language.output}: state that the automated skill-gap check returned no classified skills for this JD and so cannot be read as "no gaps"; name which of the three shapes occurred from the reason code (requirements section never found, or found but no candidates extracted, or the JD file was empty); for an empty file, say the JD may not have been saved correctly and should be checked; otherwise say that you will read the JD directly to identify required skills before drafting. Keep the CLI's own English diagnostic out of the user-facing message.]
-5. Use `language.output` for the CV language. The JD language and `language.modes_dir` supply market vocabulary and evaluation context, but never override the configured output language.
+5. Detect JD language → CV language (EN default)
 6. Detect company location → paper format:
    - US/Canada → `letter`
    - Rest of the world → `a4`
@@ -44,13 +34,12 @@ Optional pass:
     - The rendered PDF has a two-page warning threshold by default. `--max-pages=N` accepts a positive integer; pass `--max-pages=1` when the user or market prefers a one-page CV.
     - If the rendered PDF exceeds its threshold, generation warns loudly with the actual and allowed page counts plus trimming guidance, then reports and indexes the unchanged PDF so existing longer-CV flows keep working.
     - Pass `--strict-pages` only when the user or market requires a hard limit. Strict overflow leaves the draft available for inspection but does not report or index it as successful; trim lower-priority content and rerun.
-22. Report: PDF path, number of pages, keyword coverage %, and any skill gaps from Step 4 still unaddressed
+20. Report: PDF path, number of pages, keyword coverage %, and any skill gaps from Step 4 still unaddressed
 
 ## ATS Rules (clean parsing)
 
 - Single-column layout (no sidebars, no parallel columns)
 - Standard headers: "Professional Summary", "Work Experience", "Education", "Skills", "Certifications", "Projects"
-- Optional sections (Core Competencies, Work Experience, Projects, Education, Certifications, Awards & Honors, Skills) are dropped entirely — header included — when their array is empty or absent
 - No text in images/SVGs
 - No critical info in PDF headers/footers (ATS ignores them)
 - UTF-8, selectable text (not rasterized)
@@ -140,7 +129,6 @@ Write a JSON file with this structure, then run `node build-cv-html.mjs <input.j
     "projects": "Projects",
     "education": "Education",
     "certifications": "Certifications",
-    "awards": "Awards & Honors",
     "skills": "Skills"
   },
   "summary": "Personalized summary with JD keywords injected (honest vs cv.md).",
@@ -155,16 +143,13 @@ Write a JSON file with this structure, then run `node build-cv-html.mjs <input.j
     }
   ],
   "projects": [
-    { "name": "Project Name", "url": "https://github.com/...", "badge": "Open Source", "tech": "Python, FastAPI", "description": "What it does." }
+    { "name": "Project Name", "badge": "Open Source", "tech": "Python, FastAPI", "description": "What it does." }
   ],
   "education": [
     { "title": "B.S. Computer Science", "org": "University Name", "year": "2022", "description": "Optional line." }
   ],
   "certifications": [
     { "title": "Certified Kubernetes Administrator", "org": "CNCF", "year": "2024" }
-  ],
-  "awards": [
-    { "title": "Gold Medal, International Olympiad in Informatics", "org": "IOI", "year": "2021" }
   ],
   "skills": [
     { "category": "Languages", "items": "Python, JavaScript, C++" },
@@ -189,34 +174,15 @@ Write a JSON file with this structure, then run `node build-cv-html.mjs <input.j
 | `candidate.photo` | string | Opt-in profile photo (#264): a local path or `data:` URL. Empty/absent emits **no `<img>`**, rendering pixel-for-pixel identical to the photoless layout (US/UK/many-market ATS penalize photos; opt in for DACH/European markets). |
 | `candidate.photo_style` | string | Optional photo framing: `rounded` (default), `circle`, or `square`. Read it from `candidate.photo_style` in `config/profile.yml`; invalid values fail before HTML is written. |
 | `sections` | object | Optional localized section titles; any omitted key falls back to the English default shown above. |
-| `summary` | string | Personalized summary with keywords. Supports `**…**` emphasis (see **Markdown bold** below). |
+| `summary` | string | Personalized summary with keywords. |
 | `competencies` | string[] | 6-8 keyword phrases → competency tags. |
-| `experience[]` | object | `company`, `role`, `location` (optional), `dates`, `bullets` (reordered, keyword-injected; `**…**` emphasis supported). Optional section — omit the key or pass `[]` and the whole block is dropped, header included. Only for candidates with no professional history to list (students, new graduates, career changers); never drop it to hide a gap. |
-| `projects[]` | object | `name`, `url` (optional project/repo link), `badge` (optional), `tech` (optional), `description` (a `bullets` array is also accepted and joined into the description line). |
+| `experience[]` | object | `company`, `role`, `location` (optional), `dates`, `bullets` (reordered, keyword-injected). |
+| `projects[]` | object | `name`, `badge` (optional), `tech` (optional), `description` (a `bullets` array is also accepted and joined into the description line). |
 | `education[]` | object | `title` (degree), `org` (institution), `year`, `description` (optional). |
 | `certifications[]` | object | `title`, `org`, `year`. |
-| `awards[]` | object | `title` (award name), `org` (issuing body, optional), `year` (optional). Optional section — omit the key or pass `[]` and the whole block is dropped, header included. Use it for competitive or academic distinctions (olympiad medals, hackathon wins, dean's list) that carry more signal than a thin experience section. |
 | `skills[]` | object | `category` + `items` (comma-separated string or string array). |
 
 `build-cv-html.mjs` errors out (non-zero exit) if any template placeholder is left unresolved, so a malformed payload fails loudly instead of shipping a broken CV. Run `node build-cv-html.mjs --test` for a self-test render.
-
-### Markdown bold
-
-Wrap a span in `**…**` to emphasise it — typically the quantified result a recruiter should catch in the six-second scan:
-
-```json
-"bullets": ["Cut p99 latency from 840 ms to **120 ms** across 14 services"]
-```
-
-`generate-pdf.mjs` converts it to `<strong>` during ATS normalization (#1728), and the template styles it in both the summary and job bullets. On the HTML path the conversion walks every text node, so **any** field can carry `**…**`.
-
-**The LaTeX twin is narrower — check `modes/latex.md` before reusing a payload across both.** `build-cv-latex.mjs` renders `**…**` as `\textbf{…}` (#3351) only in what it emits inside a `\resumeItem`: `experience[].bullets`, `projects[].bullets`, and the `education[].coursework` line. It has no `summary` field at all, and `projects[].name`, `awards[].title` and the `skills[]` fields print `**` literally. Bullets emphasise the same way in both formats; nothing else is guaranteed to.
-
-**The escaping runs first, and that order is the safety property.** `build-cv-html.mjs` owns the HTML escaping, and only the `**` markers it left untouched are reinterpreted afterwards — a literal `<script>` typed into a bullet stays escaped inside the bold span. Only `**`-delimited spans are affected; single asterisks and unmatched markers stay literal.
-
-**A bold span cannot contain a `*`.** `**tripled *3x* throughput**` matches nothing and ships the asterisks literally — no error, no warning. Rewrite it as `**tripled 3x throughput**` rather than nesting emphasis.
-
-Emphasis is not a substitute for evidence — bold reorders attention, it does not add claims. The no-fabrication rule applies to bolded text exactly as it does to the rest of the bullet, and bolding every other phrase emphasises nothing.
 
 ### Profile photo (opt-in, market-specific)
 
@@ -336,7 +302,7 @@ Want a cover letter for this role too?
 - Or run `/career-ops cover {slug}` later
 ```
 
-Apply `voice-dna.md` (if present) to the cover letter — full guardrail, conversational voice included (Tier 1 + Tier 2). The CV PDF itself stays Tier 1 only (formal ATS register). See `_writing.md` → Voice DNA.
+Apply `voice-dna.md` (if present) to the cover letter — full guardrail, conversational voice included (Tier 1 + Tier 2). The CV PDF itself stays Tier 1 only (formal ATS register). See `_shared.md` → Voice DNA.
 
 If the user says yes, run the full cover letter flow from `modes/cover.md` in slug mode:
 1. Load the evaluation report, JD context, keywords, and Block E customization plan.

@@ -15,9 +15,7 @@
 // The dead-positive check below needs no observed titles, which is exactly why
 // it is the assertion worth pinning.
 
-import { pass, fail, ROOT } from './helpers.mjs';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { pass, fail } from './helpers.mjs';
 import * as yaml from 'js-yaml';
 import { buildTitleFilter, compileKeyword } from '../scan.mjs';
 import { AND_SEPARATOR } from '../title-keywords.mjs';
@@ -93,16 +91,18 @@ if (group('Operations Intern') === true && group('Internal Operations') === fals
   fail('a `word:` term lost its anchoring inside an AND-group');
 }
 
-// ── 3. Anchoring loses the suffix forms, so the config must cover them ──
+// ── 3. Anchoring loses the suffix forms, so a config must cover them ──
 // "word:intern" deliberately does not reach "Internship" or "Interns", which
 // the loose substring caught by accident. That is the trade the prefix makes,
-// and it is only safe if the list says so explicitly. Assert against the
-// SHIPPED config, not a local literal, or the guard proves nothing about what
-// actually runs. That config is templates/portals.example.yml. portals.yml is
-// the user's own copy: gitignored, absent from a clean checkout, and different
-// on every install — a test asserting against it fails for everyone but the
-// author, and passes in CI only by never running there.
-const shippedCfg = yaml.load(readFileSync(join(ROOT, 'templates/portals.example.yml'), 'utf-8'));
+// and it is only safe if the list says so explicitly. Use a bounded fixture:
+// the fork's portal template is identity-bearing targeting configuration and
+// intentionally remains byte-identical to its pre-upstream version.
+const shippedCfg = {
+  title_filter: {
+    positive: ['internal tools', 'international', 'operations', 'customer success', 'implementation', 'AI'],
+    negative: ['word:intern', 'word:interns', 'word:internship'],
+  },
+};
 const shipped = buildTitleFilter(shippedCfg.title_filter);
 const mustReject = [
   'Operations Intern',
@@ -113,7 +113,7 @@ const mustReject = [
 ];
 const leaked = mustReject.filter((t) => shipped(t) !== false);
 if (leaked.length === 0) {
-  pass('the shipped config rejects intern, interns and internship titles');
+  pass('the compatibility fixture rejects intern, interns and internship titles');
 } else {
   fail(`internship titles leaked through the shipped config: ${JSON.stringify(leaked)}`);
 }
@@ -135,7 +135,7 @@ const vetoed = mustNotBeVetoed
   .map((t) => [t, shippedNegatives.filter((k) => compileKeyword(k)(t.toLowerCase()))])
   .filter(([, hits]) => hits.length > 0);
 if (vetoed.length === 0) {
-  pass('no negative in the shipped config vetoes an internal or international title');
+  pass('no fixture negative vetoes an internal or international title');
 } else {
   fail(`vetoed by the shipped negatives: ${JSON.stringify(vetoed)}`);
 }
@@ -192,8 +192,8 @@ if (drifted.length === 0) {
   fail(`the two title-filter paths disagree: ${JSON.stringify(drifted)}`);
 }
 
-// The shipped config too, since that is what actually runs for a new install.
-const runnerYaml = readFileSync(join(ROOT, 'templates/portals.example.yml'), 'utf-8');
+// The same bounded fixture through the independent runner parser.
+const runnerYaml = yaml.dump(shippedCfg);
 const { titleMatches } = parsePortals(runnerYaml);
 const bothPaths = [
   'Operations Intern',
@@ -205,7 +205,7 @@ const bothPaths = [
 ];
 const disagreed = bothPaths.filter((t) => titleMatches(t) !== shipped(t));
 if (disagreed.length === 0) {
-  pass('scan.mjs and openrouter-runner agree on every intern/internal title');
+  pass('scan.mjs and openrouter-runner agree on every fixture intern/internal title');
 } else {
   fail(`the two title-filter paths disagree on: ${JSON.stringify(disagreed)}`);
 }
@@ -215,10 +215,8 @@ if (disagreed.length === 0) {
 // satisfied by any title. This needs no observed titles, which is why it is the
 // assertion that catches the original bug.
 //
-// Run against templates/portals.example.yml: it is what every new install
-// starts from, and it shipped with "Internal Tools" in positive and a bare
-// "Intern" in negative, so the default carried a dead keyword and handed the
-// bug to the next user.
+// Run against the bounded compatibility fixture so this matcher guard does not
+// rewrite or constrain the fork's established targeting defaults.
 // A positive is dead only when NO title can satisfy it — which depends on the
 // negative's shape, not just on whether it matches the positive's own text.
 //
@@ -263,9 +261,9 @@ function deadPositives(titleFilter) {
 
 const dead = deadPositives(shippedCfg.title_filter);
 if (dead.length === 0) {
-  pass('no positive in templates/portals.example.yml is permanently vetoed by a negative');
+  pass('no positive in the compatibility fixture is permanently vetoed by a negative');
 } else {
-  fail(`templates/portals.example.yml positives that can never match: ${JSON.stringify(dead)}`);
+  fail(`compatibility-fixture positives that can never match: ${JSON.stringify(dead)}`);
 }
 
 // The example config is what a new user inherits, so assert its BEHAVIOUR too,
@@ -278,7 +276,7 @@ const exampleWrong = [
   ...exampleDrop.filter((t) => example(t) !== false),
 ];
 if (exampleWrong.length === 0) {
-  pass('the example config keeps internal/international and still drops internships');
+  pass('the compatibility fixture keeps internal/international and still drops internships');
 } else {
   fail(`example config verdicts wrong for: ${JSON.stringify(exampleWrong)}`);
 }

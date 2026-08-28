@@ -13,15 +13,13 @@
  */
 
 import { readFileSync, copyFileSync, existsSync } from 'fs';
-import { dirname, join } from 'path';
+import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
 import {
   rebuildRow,
   resolveTrackerPath,
   openTrackerTransaction,
-  loadCanonicalStates,
-  resolveCanonicalState,
   cell,
 } from './tracker-utils.mjs';
 
@@ -29,17 +27,6 @@ const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
 const APPS_FILE = resolveTrackerPath(CAREER_OPS);
 const DRY_RUN = process.argv.includes('--dry-run');
 const PROGRESSION_STATES = new Set(['Applied', 'Responded', 'Interview', 'Offer', 'Hired', 'Rejected']);
-
-let statesCache = null;
-function canonicalStates() {
-  if (statesCache) return statesCache;
-  try {
-    statesCache = loadCanonicalStates(join(CAREER_OPS, 'templates', 'states.yml'));
-  } catch {
-    statesCache = [];
-  }
-  return statesCache;
-}
 
 // Canonical status mapping
 export function normalizeStatus(raw) {
@@ -59,11 +46,7 @@ export function normalizeStatus(raw) {
   if (/^descartado$/i.test(s)) return { status: 'Discarded' };
 
   // Rechazada / Rechazado → Rejected
-  // `rechazada?` reads as "rechazad" + an OPTIONAL trailing "a", so it accepted
-  // "rechazada" and the bare stem "rechazad" but never "rechazado" — the masculine
-  // form this comment claims to handle, that states.yml lists as an alias, and that
-  // the header of this file names. A bare "Rechazado" fell through to unknown.
-  if (/^rechazad[oa]$/i.test(s)) return { status: 'Rejected' };
+  if (/^rechazada?$/i.test(s)) return { status: 'Rejected' };
   if (/^rechazado\s+\d{4}/i.test(s)) return { status: 'Rejected' };
 
   // Aplicado with date → Applied (strip date)
@@ -93,14 +76,15 @@ export function normalizeStatus(raw) {
     if (lower === c.toLowerCase()) return { status: c };
   }
 
-  // Every remaining alias comes from templates/states.yml, not a list here.
-  // The hand-written list this replaces had drifted: it carried the Spanish
-  // aliases and none of the Turkish ones, so a `Mülakat` row was reported as
-  // an unknown status by the very tool whose job is normalizing statuses
-  // (#2704). test-all already asserted states.yml ⊆ this function; deriving
-  // makes that hold by construction instead of by remembering.
-  const fromStates = resolveCanonicalState(lower, canonicalStates());
-  if (fromStates) return { status: fromStates };
+  // Spanish aliases → English canonicals
+  if (['evaluada'].includes(lower)) return { status: 'Evaluated' };
+  if (['aplicado', 'enviada', 'aplicada', 'applied', 'sent'].includes(lower)) return { status: 'Applied' };
+  if (['respondido'].includes(lower)) return { status: 'Responded' };
+  if (['entrevista'].includes(lower)) return { status: 'Interview' };
+  if (['oferta'].includes(lower)) return { status: 'Offer' };
+  if (['contratado', 'contratada', 'hired', 'accepted', 'accept'].includes(lower)) return { status: 'Hired' };
+  if (['cerrada', 'descartada'].includes(lower)) return { status: 'Discarded' };
+  if (['no aplicar', 'no_aplicar', 'skip'].includes(lower)) return { status: 'SKIP' };
 
   // Unknown — flag it
   return { status: null, unknown: true };

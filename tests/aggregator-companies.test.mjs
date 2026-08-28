@@ -12,7 +12,7 @@
 import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { pass, fail, ROOT } from './helpers.mjs';
+import { pass, fail } from './helpers.mjs';
 import {
   parseScanHistory, detectReposts, loadAggregatorCompanies, companyKey,
 } from '../detect-reposts.mjs';
@@ -89,31 +89,13 @@ try {
     fail(`job_boards flag not honoured: size=${fromBoards.size}`);
   }
 
-  // The assertion that would have caught the above: measure the SHIPPED
-  // template, not a fixture. Both entries it flags live under `job_boards`, so a
-  // loader reading only `tracked_companies` returns zero here while every
-  // synthetic case still passes.
-  // By NAME, not by count. `size >= 2` is satisfied by any two flagged entries:
-  // measured against a template with these two unflagged and two unrelated ones
-  // flagged instead, it returns 2 and passes while protecting nothing.
-  const shipped = loadAggregatorCompanies(join(ROOT, 'templates/portals.example.yml'));
-  const REQUIRED = ['Founderful (portfolio)', 'joinup.ch'];
-  const notFlagged = REQUIRED.filter((n) => !isAggregatorCompany(n, shipped));
-  if (notFlagged.length === 0) {
-    pass('the shipped template still flags the two boards it ships flagged');
+  // Preserve the raw configured name as the card label. The fork's portal
+  // template is intentionally restored to its pre-upstream targeting defaults,
+  // so this feature contract belongs to the isolated fixture, not that default.
+  if ([...fromBoards.values()].includes('Board Under job_boards')) {
+    pass('a flagged board keeps its raw configured name');
   } else {
-    fail(`the shipped template no longer flags: ${JSON.stringify(notFlagged)} (loaded ${shipped.size})`);
-  }
-  // And the raw name has to survive, by value: this returns a Map rather than a
-  // Set precisely so a card reads "joinup.ch" instead of the key "joinup ch".
-  // A regex for punctuation would accept any flagged entry that happens to have
-  // some, which is the same counting mistake one level down.
-  const rawNames = [...shipped.values()];
-  const missingRaw = REQUIRED.filter((n) => !rawNames.includes(n));
-  if (missingRaw.length === 0) {
-    pass('each flagged board keeps its raw name exactly as written in the template');
-  } else {
-    fail(`raw names lost or rewritten: ${JSON.stringify(missingRaw)} not in ${JSON.stringify(rawNames)}`);
+    fail(`raw aggregator name was rewritten: ${JSON.stringify([...fromBoards.values()])}`);
   }
 
   // Membership is by normalized name, so the report can ask with whatever

@@ -20,7 +20,7 @@ These files contain your personal data, customizations, and work product. Update
 | `interview-prep/story-bank.md` | Your accumulated STAR+R stories |
 | `interview-prep/{company}-{role}.md` | Company-specific interview prep reports (written by `/career-ops interview-prep`) |
 | `interview-prep/sessions/*.md` | Interview sessions — real transcripts + mock sessions (sensitive: real names/companies; gitignored except scaffold). Drives `patterns` Step 1b targeting signal and `interview-redflag` analysis. Scaffold files (`README.md`, `.gitkeep`) are system-owned. |
-| `documents/*` | Your profile intake sources — master CV, LinkedIn export, diplomas, reference letters (PII — wholly user-owned and gitignored; read locally by `intake.mjs`, see `modes/intake.md`). |
+| `documents/*` | Your local source documents — master CV, LinkedIn export, diplomas, reference letters (PII — wholly user-owned and gitignored). The optional `intake.mjs` utility runs only when explicitly invoked. |
 | `data/intake-state.json` | Fingerprints of already-ingested intake sources (written by `node intake.mjs --commit`; makes re-runs propose only new material — safe to delete, next intake re-proposes everything) |
 | `portals.yml` | Your customized company list |
 | `config/plugins.yml` | Your plugin activation toggles (opt-in; seeded from `config/plugins.example.yml`) |
@@ -36,7 +36,7 @@ These files contain your personal data, customizations, and work product. Update
 | `data/follow-ups.md` | Your follow-up history |
 | `data/apply-queue.json` | Your apply queue — scored roles, drafts, decisions |
 | `data/offers/*` | Your received offers/contracts, promise notes, prep reports, and reply drafts (PII — gitignored, written by the `offer-prep` mode) |
-| `data/outcomes/*` | Your application outcome logs and archived application artifacts (written by the `outcome` mode) |
+| `data/outcomes/*` | Your application outcome logs and archived application artifacts (written only when `outcome.mjs` is explicitly invoked) |
 | `data/salary-observations.tsv` | Your append-only compensation observation log: `{tracker#}\t{date}\t{desired\|advertised\|actual}\t{amount}\t{currency}\t{source}\t{note}`. Written by interactive modes when a figure is stated/confirmed; never edited in place. Advertised figures come from reports' `advertised_comp` instead — reports are themselves observation sources. Read by `salary-gap.mjs` |
 | `status-log.tsv` (sibling of the active tracker file — `data/status-log.tsv` in the default layout) | Optional append-only status transition ledger: `{tracker#}\t{date}\t{from}\t{to}\t{source}\t{note}`. The tracker remains the source of truth for current state. This fork's protected `set-status.mjs` workflow does not create or append this file, so it may not exist; compatible manual/backfill writers can populate it without changing tracker behavior. Corrections are new `correction`-source lines, never in-place edits. An unknown from- or to-state is the sentinel `-`, never an empty cell. The source vocabulary is defined by `VALID_SOURCES` in `funnel-velocity.mjs`. Read defensively by `funnel-velocity.mjs` and `company-history.mjs` when present. |
 | `data/upskill/*` | Your skill-gap analysis reports (written by the `upskill` mode) |
@@ -79,7 +79,6 @@ These files contain system logic, scripts, templates, and instructions that impr
 | File | Purpose |
 |------|---------|
 | `modes/_shared.md` | Eval-core: scoring system, global rules, tools |
-| `modes/_writing.md` | Writing guardrails (Voice DNA / Writing Style / ATS) — loaded by the CV/cover/apply writing modes, not by evaluation (#1710) |
 | `modes/_custom.template.md` | Template seed for the user's `modes/_custom.md` |
 | `voice-dna.template.md` | Shared seed copied to the private, user-owned `voice-dna.md` when that file is missing; updates never overwrite the user's copy |
 | `cover-quality.mjs` | Locale-aware greeting/sign-off ladders, banned-term parsing, skeleton fingerprints (zero model tokens) |
@@ -131,7 +130,6 @@ These files contain system logic, scripts, templates, and instructions that impr
 | `modes/interview.md` | Interactive profile/CV onboarding interview instructions |
 | `modes/interview-prep.md` | Company-specific interview prep instructions |
 | `modes/interview-redflag.md` | Company red-flag detection instructions |
-| `modes/outcome.md` | Application outcome instructions |
 | `modes/interview/*` | Interview prep planning, practice, and debrief skills |
 | `modes/agent-inbox.md` | Agent inbox (queued requests) instructions |
 | `modes/reply-watch.md` | Employer reply classification instructions |

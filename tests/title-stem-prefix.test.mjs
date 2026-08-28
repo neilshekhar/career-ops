@@ -14,10 +14,7 @@
 // the default alone would pass on an implementation that simply anchored both
 // sides, which is `word:` under another name.
 
-import { pass, fail, ROOT } from './helpers.mjs';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import * as yaml from 'js-yaml';
+import { pass, fail } from './helpers.mjs';
 import { compileKeyword, buildTitleFilter } from '../scan.mjs';
 
 console.log('\ntitle filter — `stem:` prefix');
@@ -137,9 +134,15 @@ if (negWrong.length === 0) {
   fail(`negative-side behaviour wrong: ${JSON.stringify(negWrong)}`);
 }
 
-// ── 5. The shipped template still parses and behaves ─────────────────
-// Adding a prefix must not change any verdict for a config that does not use it.
-const cfg = yaml.load(readFileSync(join(ROOT, 'templates/portals.example.yml'), 'utf-8'));
+// ── 5. A prefix-free compatibility config still behaves ─────────────
+// Adding parser support for stem: must not change a config that does not use
+// it. Keep this independent of the fork's identity-bearing portal defaults.
+const cfg = {
+  title_filter: {
+    positive: ['Internal Tools', 'International AI', 'Operations', 'Machine Learning'],
+    negative: ['word:intern', 'word:internship'],
+  },
+};
 const shipped = buildTitleFilter(cfg.title_filter);
 const unchanged = [
   ['Internal Tools Engineer', true],
@@ -149,7 +152,7 @@ const unchanged = [
 ];
 const drifted = unchanged.filter(([t, want]) => shipped(t) !== want);
 if (drifted.length === 0) {
-  pass('the shipped template is unaffected: no entry uses the new prefix yet');
+  pass('a prefix-free compatibility config is unaffected');
 } else {
   fail(`shipped-config verdicts moved: ${JSON.stringify(drifted)}`);
 }

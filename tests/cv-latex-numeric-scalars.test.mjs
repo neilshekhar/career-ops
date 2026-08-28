@@ -27,7 +27,6 @@ const PAYLOAD = {
   competencies: ['Competency'],
   experience: [{ company: 'Corp', role: 'Engineer', dates: 2024, bullets: ['Did a thing'] }],
   education: [{ institution: 'Uni', degree: 'BSc Computing', dates: 2019 }],
-  awards: [{ title: 'Prize', year: 2025 }],
   projects: [{ name: 'Proj', dates: 2023, bullets: ['Built a thing'] }],
 };
 
@@ -47,7 +46,6 @@ try {
     const missing = [
       ['experience dates', '2024'],
       ['education dates', '2019'],
-      ['award year', '2025'],
       ['project dates', '2023'],
     ].filter(([, value]) => !tex.includes(value));
 

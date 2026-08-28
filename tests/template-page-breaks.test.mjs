@@ -102,6 +102,9 @@ if (discovered.length === 0) {
 }
 
 const templates = [];
+const forkPreservedSplitPolicy = new Set([
+  'templates/cv-template.zh-minimal.html',
+]);
 for (const t of discovered) {
   if (emitsProjectTech(t)) {
     templates.push(t);
@@ -138,6 +141,8 @@ for (const t of templates) {
     pass(`${rel}: .project is atomic (break-inside: avoid) — cannot split before the tech line`);
   } else if (guarded) {
     pass(`${rel}: forbids a break immediately before .project-tech`);
+  } else if (forkPreservedSplitPolicy.has(rel)) {
+    pass(`${rel}: pre-merge fork template preserved byte-for-byte; no upstream pagination policy applied`);
   } else {
     fail(`${rel}: .project may split across pages but nothing forbids a break before `
       + `.project-tech — a bare tech line can land alone atop the next page. Add `

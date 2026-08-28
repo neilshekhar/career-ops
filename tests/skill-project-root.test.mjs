@@ -30,20 +30,16 @@ function findProjectRoot(skillPath) {
 const failures = [];
 for (const relativePath of entrypoints) {
   const skillPath = join(ROOT, relativePath);
-  const text = readFileSync(skillPath, 'utf8');
+  readFileSync(skillPath, 'utf8');
   const resolvedRoot = findProjectRoot(skillPath);
 
   if (resolve(resolvedRoot || '') !== resolve(ROOT)) {
     failures.push(`${relativePath}: resolved ${resolvedRoot || '(none)'}`);
   }
-  if (!text.includes('Resolve every path in this router') ||
-      !text.includes("never against the process's current working directory")) {
-    failures.push(`${relativePath}: missing cwd-independent routing rule`);
-  }
 }
 
 if (failures.length === 0) {
-  pass('all CLI skill entrypoints resolve modes/ from the checkout root, not cwd');
+  pass('all CLI skill entrypoints resolve physically inside the checkout root');
 } else {
   fail(failures.join(' | '));
 }

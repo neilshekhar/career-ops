@@ -66,20 +66,22 @@ function check(label, actual, expected) {
 // --- Real templates: the sections must actually disappear ------------------
 // Assert against the shipped templates so a template edit that renames or
 // reorders a marker fails here instead of silently reviving the bare header.
-// `after` is the trailing sentinel that must survive no matter which sections
-// are empty — the `<!-- END -->` / `%%%% END %%%%` marker itself, never the
-// (now-strippable) SKILLS marker or its content.
+// New optional templates carry a trailing END sentinel. The fork's established
+// defaults are byte-preserved from before that contract and are marked legacy
+// below; their original projects/education/certifications behavior gets a
+// focused compatibility branch, while the additive templates receive the full
+// expanded optional-section matrix.
 const TEMPLATES = [
-  { file: 'templates/cv-template.html', format: 'html', after: '<!-- END -->', hasCertifications: true, hasCompetencies: true, hasInterests: true },
-  { file: 'templates/resume-template.html', format: 'html', after: '<!-- END -->', hasCertifications: false, hasCompetencies: true, hasInterests: false },
-  { file: 'templates/cv-template.zh-minimal.html', format: 'html', after: '<!-- END -->', hasCertifications: true, hasCompetencies: true, hasInterests: false },
+  { file: 'templates/cv-template.html', format: 'html', after: '<!-- SKILLS -->', hasCertifications: true, legacy: true },
+  { file: 'templates/resume-template.html', format: 'html', after: '<!-- SKILLS -->', hasCertifications: false, legacy: true },
+  { file: 'templates/cv-template.zh-minimal.html', format: 'html', after: '<!-- SKILLS -->', hasCertifications: true, legacy: true },
   { file: 'templates/cv-template.compact.html', format: 'html', after: '<!-- END -->', hasCertifications: true, hasCompetencies: true, hasInterests: false },
-  { file: 'templates/cv-template.dense.html', format: 'html', after: '<!-- END -->', hasCertifications: true, hasCompetencies: true, hasInterests: false, hasAwards: false },
+  { file: 'templates/cv-template.dense.html', format: 'html', after: '<!-- SKILLS -->', hasCertifications: true, legacy: true },
   { file: 'templates/cv-template.executive.html', format: 'html', after: '<!-- END -->', hasCertifications: true, hasCompetencies: true, hasInterests: false },
   { file: 'templates/cv-template.jake.html', format: 'html', after: '<!-- END -->', hasCertifications: true, hasCompetencies: true, hasInterests: false },
   { file: 'templates/cv-template.leadership.html', format: 'html', after: '<!-- END -->', hasCertifications: true, hasCompetencies: true, hasInterests: false },
   { file: 'templates/cv-template.modern.html', format: 'html', after: '<!-- END -->', hasCertifications: true, hasCompetencies: true, hasInterests: false },
-  { file: 'templates/cv-template.tex', format: 'tex', after: '%%%%  END  %%%%', hasCertifications: false, hasCompetencies: false, hasInterests: false },
+  { file: 'templates/cv-template.tex', format: 'tex', after: 'Technical Skills', hasCertifications: false, legacy: true },
 ];
 
 // --- Coverage guard: no shipped CV template may sit outside the matrix ------
@@ -112,12 +114,11 @@ else fail(`shipped CV templates missing from TEMPLATES — they run zero asserti
 if (phantom.length === 0) pass('every template in the matrix exists on disk');
 else fail(`TEMPLATES names templates that are not on disk: ${phantom.join(', ')}`);
 
-for (const { file, format, after, hasCertifications, hasCompetencies, hasInterests, hasAwards = true } of TEMPLATES) {
+for (const { file, format, after, hasCertifications, hasCompetencies, hasInterests, hasAwards = true, legacy = false } of TEMPLATES) {
   const template = readFileSync(join(ROOT, file), 'utf-8');
   const name = file.split('/').pop();
   const closingSkeleton = format === 'html' ? '</body>\n</html>' : '\\end{document}';
 
-  const stripped = stripEmptySections(template, EMPTY, format);
   const projectsMarker = format === 'html' ? '<!-- PROJECTS -->' : 'PROJECTS  %';
   const educationMarker = format === 'html' ? '<!-- EDUCATION -->' : 'Education  %';
   const certificationsMarker = '<!-- CERTIFICATIONS -->'; // html-only; no LaTeX Certifications section exists
@@ -130,6 +131,27 @@ for (const { file, format, after, hasCertifications, hasCompetencies, hasInteres
   // string, which is exactly the kind of drift these template-backed
   // assertions exist to catch.
   const experienceMarker = format === 'html' ? '<!-- WORK EXPERIENCE -->' : 'Experience  %';
+
+  if (legacy) {
+    // Preserve the old template contract exactly: only the three sections the
+    // fork originally treated as optional are empty in this payload. Supplying
+    // the newer keys as populated prevents expanded stripping from turning
+    // this compatibility check into an assertion about upstream defaults.
+    const legacyPayload = { ...FULL, projects: [], education: [], certifications: [] };
+    const stripped = stripEmptySections(template, legacyPayload, format);
+    check(`${name}: legacy empty payload removes projects`, stripped.includes(projectsMarker), false);
+    check(`${name}: legacy empty payload removes education`, stripped.includes(educationMarker), false);
+    if (hasCertifications) {
+      check(`${name}: legacy empty payload removes certifications`, stripped.includes(certificationsMarker), false);
+    }
+    check(`${name}: legacy trailing section survives`, stripped.includes(after), true);
+    check(`${name}: legacy work experience remains populated`, stripped.includes(experienceMarker), true);
+    check(`${name}: legacy closing document skeleton survives`, stripped.trimEnd().endsWith(closingSkeleton), true);
+    check(`${name}: fully populated legacy template is unchanged`, stripEmptySections(template, FULL, format) === template, true);
+    continue;
+  }
+
+  const stripped = stripEmptySections(template, EMPTY, format);
 
   check(`${name}: empty payload removes the projects block`, stripped.includes(projectsMarker), false);
   check(`${name}: empty payload removes the education block`, stripped.includes(educationMarker), false);

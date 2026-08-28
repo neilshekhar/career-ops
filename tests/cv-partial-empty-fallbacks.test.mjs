@@ -135,13 +135,14 @@ function blockSuffixedTemplate() {
     writeFileSync(file, renamed);
   }
 
-  return join(packDir, 'cv-template.html');
+  return join(packDir, 'cv-template.compact.html');
 }
 
 try {
-  // Default template, so the shipped templates/sections/ partials are the ones
-  // under test rather than a fixture copy.
-  const shipped = build('shipped', null);
+  // Use an additive named template that exposes both sections. The fork's
+  // byte-preserved default predates Awards, but all templates share the same
+  // shipped sections/ partials whose fallback behavior is under test.
+  const shipped = build('shipped', join(ROOT, 'templates', 'cv-template.compact.html'));
   if (shipped) {
     checkRows('shipped:', shipped);
 

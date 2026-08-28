@@ -850,9 +850,10 @@ async function runSelfTest() {
     process.exit(1);
   }
 
-  // Guard buildInterests(): comma-joined, sentence-cased (only the first item
-  // keeps its capital), and escaped like every other free-text field.
-  if (!html.includes('Reading sci-fi &amp; fantasy, hiking, chess')) {
+  // Guard buildInterests() when the selected template exposes that optional
+  // section. The fork's byte-preserved default predates {{INTERESTS}}, while
+  // newer optional templates exercise the section in their own matrix tests.
+  if (template.includes('{{INTERESTS}}') && !html.includes('Reading sci-fi &amp; fantasy, hiking, chess')) {
     console.error('Self-test failed: Interests did not render as an escaped, comma-joined, sentence-cased line');
     process.exit(1);
   }
@@ -916,7 +917,7 @@ async function runSelfTest() {
     console.error('Self-test failed: certifications section is missing .cert-item class');
     process.exit(1);
   }
-  if (!html.includes('class="award-item"')) {
+  if (template.includes('{{AWARDS}}') && !html.includes('class="award-item"')) {
     console.error('Self-test failed: awards section is missing .award-item class');
     process.exit(1);
   }

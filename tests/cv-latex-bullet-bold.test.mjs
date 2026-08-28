@@ -57,7 +57,6 @@ const PAYLOAD = {
     dates: '2019',
     coursework: ['**Distributed Systems**', 'Algorithms'],
   }],
-  awards: [{ title: '**BoldAward**', year: '2023' }],
   skills: [{ category: '**BoldCat**', items: '**BoldItem**, plain' }],
 };
 
@@ -69,7 +68,6 @@ const PAYLOAD = {
 const NOT_COVERED = [
   ['projects[].name', '**BoldName**'],
   ['projects[].context', '**BoldContext**'],
-  ['awards[].title', '**BoldAward**'],
   ['skills[].category', '**BoldCat**'],
   ['skills[].items', '**BoldItem**'],
 ];

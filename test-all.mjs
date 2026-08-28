@@ -1049,7 +1049,11 @@ for (const f of userFiles) {
 const batchRunnerSource = readFile('batch/batch-runner.sh');
 const minScoreSkipIndex = batchRunnerSource.indexOf('update_state "$id" "$url" "skipped"');
 const minScoreReturnIndex = batchRunnerSource.indexOf('return 0', minScoreSkipIndex);
-const completedStateIndex = batchRunnerSource.indexOf('update_state_retrying "$id" "$url" "completed"', minScoreSkipIndex);
+const completedStateIndexes = [
+  batchRunnerSource.indexOf('update_state_retrying "$id" "$url" "completed"', minScoreSkipIndex),
+  batchRunnerSource.indexOf('update_state "$id" "$url" "completed"', minScoreSkipIndex),
+].filter((index) => index !== -1);
+const completedStateIndex = completedStateIndexes.length ? Math.min(...completedStateIndexes) : -1;
 if (
   minScoreSkipIndex !== -1 &&
   minScoreReturnIndex !== -1 &&
