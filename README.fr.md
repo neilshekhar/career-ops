@@ -101,7 +101,7 @@ career-ops est agentic : Claude Code navigue sur les pages carrières avec Playw
 | **Scanner de Portails** | Plus de 45 entreprises préconfigurées (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + requêtes personnalisées sur Ashby, Greenhouse, Lever, Wellfound |
 | **Traitement en Lot** | Évaluation parallèle avec des processus de travail `claude -p` |
 | **Tableau kanban local** | Tableau de bord pour revoir et préparer les rôles, mettre les demandes de candidature en file pour l'agent actif et vérifier le travail prêt à relire |
-| **Humain dans la Boucle** | L'IA évalue et recommande, vous décidez et agissez. Le système ne soumet jamais de candidature automatiquement — vous avez toujours le dernier mot |
+| **Humain dans la Boucle** | L'IA évalue et recommande, vous décidez et agissez. Le système ne soumet jamais de candidature — vous avez toujours le dernier mot <!-- hitl: absolute guarantee. Do not add "automatically", "by itself", "without your permission" or any other hedge when translating this row. --> |
 | **Intégrité du Pipeline** | Fusion automatisée, déduplication, normalisation des statuts et vérifications de santé |
 
 ## Démarrage rapide

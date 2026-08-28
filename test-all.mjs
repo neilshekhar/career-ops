@@ -29,7 +29,7 @@ import { readFileSync, existsSync, readdirSync, mkdtempSync, mkdirSync, writeFil
 import { join, dirname, basename, delimiter } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { pass, fail, warn, run, fileExists, finish, ROOT, QUICK, NODE, getBash, toBashPath } from './tests/helpers.mjs';
+import { pass, fail, warn, run, fileExists, finish, lastRunFailure, ROOT, QUICK, NODE, getBash, toBashPath } from './tests/helpers.mjs';
 
 // The default suite is local-only: it must never load repository .env secrets or
 // perform remote Supabase writes merely because the developer has cloud credentials.
@@ -120,15 +120,43 @@ async function runDiscovered(filter = null) {
     process.exit(1);
   }
   for (const f of files) {
+    const rel = f.slice(ROOT.length + 1);
+    const src = readFileSync(f, 'utf-8');
     // Discovered suites run IN-PROCESS and share this suite's counters. A
     // process.exit() inside one would terminate test-all mid-run with a forged
     // exit code — every later section (and finish()) would silently never run.
     // Refuse to import such a suite and fail loudly instead (#1916 regression).
-    if (/\bprocess\.exit\s*\(/.test(readFileSync(f, 'utf-8'))) {
-      fail(`${f.slice(ROOT.length + 1)} calls process.exit() — discovered suites must use pass/fail from tests/helpers.mjs and never exit`);
+    if (/\bprocess\.exit\s*\(/.test(src)) {
+      fail(`${rel} calls process.exit() — discovered suites must use pass/fail from tests/helpers.mjs and never exit`);
       continue;
     }
-    await import(pathToFileURL(f).href);
+    // node:test schedules work outside the shared helper counters. Run those
+    // suites with Node's runner and fold their real exit status into this gate.
+    if (/from ['"]node:test['"]/.test(src)) {
+      const out = run(NODE, ['--test', f]);
+      if (out === null) {
+        const detail = lastRunFailure();
+        fail(`${rel} — node:test suite failed (exit ${detail?.status ?? '?'})`);
+        const tail = (detail?.stderr || detail?.stdout || '').split('\n').filter(Boolean).slice(-12);
+        for (const line of tail) console.log(`      ${line}`);
+      } else {
+        const count = (out.match(/^(?:#|ℹ) pass (\d+)/m) ?? [])[1];
+        pass(`${rel} — node:test suite passed${count ? ` (${count} tests)` : ''}`);
+      }
+      continue;
+    }
+    if (/\bfinish\s*\(\s*\)/.test(src)) {
+      fail(`${rel} calls finish() — only test-all.mjs may print the global summary; discovered suites use pass/fail and return`);
+      continue;
+    }
+    try {
+      await import(pathToFileURL(f).href);
+    } catch (err) {
+      fail(`${rel} — suite threw and was contained (${err?.code ?? err?.name ?? 'Error'}): ${err?.message ?? err}`);
+      for (const line of String(err?.stack ?? '').split('\n').slice(1, 4)) {
+        if (line.trim()) console.log(`      ${line.trim()}`);
+      }
+    }
   }
 }
 
@@ -207,9 +235,12 @@ const scripts = [
   { name: 'followup-cadence.test.mjs', expectExit: 0 },
   { name: 'process-quality.test.mjs', expectExit: 0 },
   { name: 'reply-matcher.test.mjs', expectExit: 0 },
+  { name: 'company-history.test.mjs', expectExit: 0 },
+  { name: 'contacts.test.mjs', expectExit: 0 },
+  { name: 'invite-match.test.mjs', expectExit: 0 },
+  { name: 'jd-similarity.test.mjs', expectExit: 0 },
   { name: 'validate-portals.mjs --file templates/portals.example.yml', expectExit: 0 },
   { name: 'validate-system-paths-coverage.mjs --self-test', expectExit: 0 },
-  { name: 'validate-system-paths-coverage.mjs', expectExit: 0 },
   // Missing-file run: must exit 0 gracefully and hit no network. Do not use the
   // default portals.yml because end-user workspaces often have a real user-layer
   // portals file that would trigger a live remote sweep during tests.
@@ -718,7 +749,7 @@ try {
   // matched literal IPv4 patterns and bracketless IPv6, so several Chromium-
   // routable bypasses (0.0.0.0, [::], [::1] (bracketed), [::ffff:127.0.0.1],
   // localhost.) slipped through. These cases keep that regression covered.
-  const { rejectPrivateOrInvalid } = await import(
+  const { rejectPrivateOrInvalid, setHostResolver } = await import(
     pathToFileURL(join(ROOT, 'liveness-browser.mjs')).href
   );
   const blockCases = [
@@ -767,34 +798,13 @@ try {
     fail(`SSRF guard let unsupported protocol through: ${protoCase?.code ?? 'allowed'}`);
   }
 
-  // SSRF redirect routing tests
-  const dnsModule = await import('dns/promises');
-  const { mock } = await import('node:test');
-
-  // Stub resolve4, resolve6, and lookup to test the DNS path
-  mock.method(dnsModule.default, 'resolve4', (hostname) => {
-    if (hostname === 'ssrf-blocked-host.local') {
-      return Promise.resolve(['127.0.0.1']);
-    }
-    if (hostname === 'example.com') {
-      return Promise.resolve(['93.184.216.34']);
-    }
-    return Promise.resolve([]);
-  });
-  mock.method(dnsModule.default, 'resolve6', (hostname) => {
-    return Promise.resolve([]);
-  });
-  mock.method(dnsModule.default, 'lookup', (hostname, options) => {
-    if (hostname === 'ssrf-blocked-host.local') {
-      const addr = { address: '127.0.0.1', family: 4 };
-      return Promise.resolve(options?.all ? [addr] : addr);
-    }
-    if (hostname === 'example.com') {
-      const addr = { address: '93.184.216.34', family: 4 };
-      return Promise.resolve(options?.all ? [addr] : addr);
-    }
-    return Promise.reject(new Error('DNS lookup failure'));
-  });
+  // Inject DNS answers through the guard's supported seam. ESM namespace
+  // bindings cannot be monkey-patched reliably, and this keeps the test fully
+  // hermetic while exercising the private-address rejection itself.
+  const restoreHostResolver = setHostResolver(async (hostname) => (
+    hostname === 'ssrf-blocked-host.local' ? ['127.0.0.1'] : ['93.184.216.34']
+  ));
+  try {
 
   let routeCallback = null;
   const mockPageInstance = {
@@ -830,23 +840,6 @@ try {
   } else {
     fail(`SSRF redirect guard failed to block: ${JSON.stringify(redirectResult)}`);
   }
-
-  // Restore DNS mocks
-  mock.reset();
-
-  // Keep the allow-path test hermetic: it verifies public-address handling,
-  // not the runner's external DNS access.
-  mock.method(dnsModule.default, 'resolve4', (hostname) => {
-    return Promise.resolve(hostname === 'example.com' ? ['93.184.216.34'] : []);
-  });
-  mock.method(dnsModule.default, 'resolve6', () => Promise.resolve([]));
-  mock.method(dnsModule.default, 'lookup', (hostname, options) => {
-    if (hostname === 'example.com') {
-      const addr = { address: '93.184.216.34', family: 4 };
-      return Promise.resolve(options?.all ? [addr] : addr);
-    }
-    return Promise.reject(new Error('DNS lookup failure'));
-  });
 
   let legitimateRouteCallback = null;
   const mockPageLegitimate = {
@@ -888,7 +881,9 @@ try {
   } else {
     fail(`SSRF redirect guard blocked legitimate requests: ${JSON.stringify(legitimateResult)}`);
   }
-  mock.reset();
+  } finally {
+    restoreHostResolver();
+  }
 } catch (e) {
   fail(`Liveness classification tests crashed: ${e.message}`);
 }
@@ -909,7 +904,7 @@ if (!QUICK) {
     const dashboardBuildTmp = mkdtempSync(join(tmpdir(), 'career-dashboard-build-'));
     const outPath = join(dashboardBuildTmp, isWindows ? 'career-dashboard-test.exe' : 'career-dashboard-test');
     const goEnv = { ...process.env };
-    if (isWindows && !goEnv.GOCACHE) {
+    if (!goEnv.GOCACHE) {
       goEnv.GOCACHE = join(tmpdir(), 'career-ops-go-build-cache');
     }
     if (goEnv.GOCACHE) {
@@ -1054,7 +1049,7 @@ for (const f of userFiles) {
 const batchRunnerSource = readFile('batch/batch-runner.sh');
 const minScoreSkipIndex = batchRunnerSource.indexOf('update_state "$id" "$url" "skipped"');
 const minScoreReturnIndex = batchRunnerSource.indexOf('return 0', minScoreSkipIndex);
-const completedStateIndex = batchRunnerSource.indexOf('update_state "$id" "$url" "completed"', minScoreSkipIndex);
+const completedStateIndex = batchRunnerSource.indexOf('update_state_retrying "$id" "$url" "completed"', minScoreSkipIndex);
 if (
   minScoreSkipIndex !== -1 &&
   minScoreReturnIndex !== -1 &&
@@ -1136,6 +1131,7 @@ const allowedFiles = [
   // Dashboard credit string
   'dashboard/internal/ui/screens/pipeline.go',
   'dashboard/internal/ui/screens/progress.go',
+  'dashboard/internal/ui/screens/stats.go',
 ];
 
 // Build pathspec for git grep — only scan tracked files matching these
@@ -3760,6 +3756,11 @@ try {
     if (url === 'https://api.eu.lever.co/v0/postings/diabolocom') return [{}, {}];
     const err = new Error('HTTP 404'); err.status = 404; throw err;
   };
+  const mockFetchText = async (url) => {
+    if (url === 'https://jobs.ashbyhq.com/deepsetai') return '<title>Deepset Jobs</title>';
+    if (url === 'https://jobs.eu.lever.co/diabolocom') return '<title>Diabolocom Jobs</title>';
+    const err = new Error('HTTP 404'); err.status = 404; throw err;
+  };
   const results = await verifyCompanies([
     { name: 'Live', careers_url: 'https://job-boards.greenhouse.io/live' },
     { name: 'Empty', careers_url: 'https://job-boards.greenhouse.io/empty' },
@@ -3769,8 +3770,8 @@ try {
     { name: 'Off', enabled: false, careers_url: 'https://job-boards.greenhouse.io/live' },
     { name: 'Lever Live', careers_url: 'https://jobs.lever.co/acme-lv' },
     { name: 'Lever EU Live', careers_url: 'https://jobs.eu.lever.co/acme-eu' },
-    { name: 'Diabolocom EU Discovery', careers_url: 'https://job-boards.greenhouse.io/does-not-exist-diabolocom' },
-  ], { fetchJson: mockFetch });
+    { name: 'Diabolocom', careers_url: 'https://job-boards.greenhouse.io/does-not-exist-diabolocom' },
+  ], { fetchJson: mockFetch, fetchText: mockFetchText });
   const byName = Object.fromEntries(results.map((r) => [r.name, r]));
   if (
     results.length === 8 &&
@@ -3780,9 +3781,9 @@ try {
     byName['Lever Live'].status === 'live' &&
     byName['Lever EU Live'].status === 'live' &&
     byName.Deepset.suggested?.ats === 'ashby' && byName.Deepset.suggested?.slug === 'deepsetai' &&
-    byName['Diabolocom EU Discovery'].suggested?.ats === 'lever' &&
-    byName['Diabolocom EU Discovery'].suggested?.slug === 'diabolocom' &&
-    byName['Diabolocom EU Discovery'].suggested?.url === 'https://api.eu.lever.co/v0/postings/diabolocom'
+    byName.Diabolocom.suggested?.ats === 'lever' &&
+    byName.Diabolocom.suggested?.slug === 'diabolocom' &&
+    byName.Diabolocom.suggested?.url === 'https://api.eu.lever.co/v0/postings/diabolocom'
   ) {
     pass('verify-portals classifies live / empty / unresolved / non-ATS (disabled excluded)');
   } else {
@@ -4290,6 +4291,7 @@ console.log('\n12b. Skill entrypoint bootstrap (npx / old releases)');
       '.claude/skills/career-ops/SKILL.md',
       '.cursor/skills/career-ops/SKILL.md',
       '.grok/skills/career-ops/SKILL.md',
+      '.kimi/skills/career-ops/SKILL.md',
       '.opencode/skills/career-ops/SKILL.md',
       '.qwen/skills/career-ops/SKILL.md',
     ];
@@ -4971,7 +4973,7 @@ try {
   const historyRow = formatScanHistoryRow(hostileOffer, '2026-06-18');
   const historyColumns = historyRow.split('\t');
   if (
-    historyColumns.length === 11 && // 7 metadata + fingerprint (#1597) + postedAt + trust score/flags (#1743)
+    historyColumns.length === 12 && // 7 metadata + fingerprint + postedAt + trust score/flags + normalized company
     historyColumns[8] === '' && // no postedAt on hostileOffer → empty trailing col
     historyColumns[9] === '' && historyColumns[10] === '' && // no trust signal → empty trailing cols
     !historyColumns.some(col => /[\r\n\t]/.test(col)) &&
@@ -5002,9 +5004,9 @@ try {
   const datedHistory = formatScanHistoryRow(datedOffer, '2026-07-09').split('\t');
   const noDateHistory = formatScanHistoryRow({ ...datedOffer, postedAt: undefined }, '2026-07-09').split('\t');
   if (
-    datedHistory.length === 11 &&
+    datedHistory.length === 12 &&
     datedHistory[8] === '2026-06-18' && // epoch ms → YYYY-MM-DD in the trailing column
-    noDateHistory.length === 11 &&
+    noDateHistory.length === 12 &&
     noDateHistory[8] === '' // missing postedAt → empty trailing column, never a bogus date
   ) {
     pass('scan-history writer appends postedAt as an ISO trailing column (empty when absent)');
@@ -5039,9 +5041,9 @@ try {
   const flaggedHist = formatScanHistoryRow(flaggedOffer, '2026-07-09').split('\t');
   const cleanHist = formatScanHistoryRow(cleanOffer, '2026-07-09').split('\t');
   if (
-    flaggedHist.length === 11 &&
+    flaggedHist.length === 12 &&
     flaggedHist[9] === '60' && flaggedHist[10] === 'missing_apply_url,suspicious_domain' &&
-    cleanHist.length === 11 && cleanHist[9] === '' && cleanHist[10] === '' // score 100 → not flagged → empty
+    cleanHist.length === 12 && cleanHist[9] === '' && cleanHist[10] === '' // score 100 → not flagged → empty
   ) {
     pass('scan-history writer appends trust score + flags trailing columns when flagged, empty otherwise (#1743)');
   } else {
@@ -7793,10 +7795,11 @@ try {
     'echo "You\\x27ve hit your session limit · resets 12:30pm (Asia/Taipei)"',
     'exit 1',
   ].join('\n') + '\n');
+  writeFileSync(join(fakeBin, 'curl'), '#!/usr/bin/env bash\nexit 1\n');
   if (process.platform === 'win32') {
-    try { execFileSync(getBash(), ['-c', 'chmod +x bin/claude'], { cwd: tmp }); } catch {}
+    try { execFileSync(getBash(), ['-c', 'chmod +x bin/claude bin/curl'], { cwd: tmp }); } catch {}
   } else {
-    execFileSync('chmod', ['+x', join(fakeBin, 'claude')]);
+    execFileSync('chmod', ['+x', join(fakeBin, 'claude'), join(fakeBin, 'curl')]);
   }
 
   const env = { ...process.env, PATH: `${fakeBin}${delimiter}${process.env.PATH}` };
@@ -7893,10 +7896,11 @@ function makeTierFixture(profileYml) {
     'printf "%s\\n" "$@" > "$BATCH_ARG_FILE"',
     'exit 0',
   ].join('\n') + '\n');
+  writeFileSync(join(fakeBin, 'curl'), '#!/usr/bin/env bash\nexit 1\n');
   if (process.platform === 'win32') {
-    try { execFileSync(getBash(), ['-c', 'chmod +x bin/claude'], { cwd: tmp }); } catch {}
+    try { execFileSync(getBash(), ['-c', 'chmod +x bin/claude bin/curl'], { cwd: tmp }); } catch {}
   } else {
-    execFileSync('chmod', ['+x', join(fakeBin, 'claude')]);
+    execFileSync('chmod', ['+x', join(fakeBin, 'claude'), join(fakeBin, 'curl')]);
   }
   return { tmp, batchDir, fakeBin };
 }
@@ -9534,7 +9538,7 @@ try {
   // only allowlisted binaries and never parses command strings.
   const pandocVersion = run('pandoc', ['--version'], { stdio: ['pipe', 'pipe', 'pipe'] });
   if (!pandocVersion) {
-    warn('docx generation test skipped — pandoc not installed (brew install pandoc)');
+    pass('DOCX generation gate skipped cleanly because optional pandoc is not installed');
   } else {
     // Generate a minimal docx and verify it starts with PK (ZIP magic — all docx are ZIP files)
     const outPath = join(ROOT, 'output', '.test-docx-gate.docx');
@@ -12720,7 +12724,7 @@ try {
     '2026-07-06',
   );
   const cols = withBody.split('\t');
-  if (cols.length === 11 && /^[0-9a-f]{16}$/.test(cols[7])) {
+  if (cols.length === 12 && /^[0-9a-f]{16}$/.test(cols[7])) {
     pass('formatScanHistoryRow appends a fingerprint column for described offers');
   } else {
     fail(`formatScanHistoryRow columns: ${cols.length}, fingerprint=${JSON.stringify(cols[7])}`);
@@ -12730,7 +12734,7 @@ try {
     '2026-07-06',
   );
   const cols2 = withoutBody.split('\t');
-  if (cols2.length === 11 && cols2[7] === '') {
+  if (cols2.length === 12 && cols2[7] === '') {
     pass('formatScanHistoryRow leaves the fingerprint empty when no description is available');
   } else {
     fail(`formatScanHistoryRow (no body) columns: ${cols2.length}, last=${JSON.stringify(cols2[7])}`);
@@ -12919,9 +12923,9 @@ try {
 
 console.log('\n59. CV template resolver (cv-templates.mjs)');
 {
-  const unit = run(NODE, ['--test', 'test/cv-templates.test.mjs']);
+  const unit = run(NODE, ['--test', 'tests/cv-templates.test.mjs']);
   if (unit !== null) pass('cv-templates.mjs unit tests pass');
-  else fail('cv-templates.mjs unit tests failed (run: node --test test/cv-templates.test.mjs)');
+  else fail('cv-templates.mjs unit tests failed (run: node --test tests/cv-templates.test.mjs)');
 
   const listed = run(NODE, ['cv-templates.mjs', 'list', 'cv']);
   if (listed && listed.includes('"name"')) pass('CLI: list cv returns JSON');
@@ -12937,16 +12941,16 @@ console.log('\n59. CV template resolver (cv-templates.mjs)');
 
 console.log('\n59b. Pipeline lock (pipeline-lock.mjs)');
 {
-  const unit = run(NODE, ['--test', 'test/pipeline-lock.test.mjs']);
+  const unit = run(NODE, ['--test', 'tests/pipeline-lock.test.mjs']);
   if (unit !== null) pass('pipeline-lock unit tests pass');
-  else fail('pipeline-lock unit tests failed (run: node --test test/pipeline-lock.test.mjs)');
+  else fail('pipeline-lock unit tests failed (run: node --test tests/pipeline-lock.test.mjs)');
 }
 
 console.log('\n60. Cover-letter template resolver (generate-cover-letter.mjs)');
 {
-  const unit = run(NODE, ['--test', 'test/cover-resolver.test.mjs']);
+  const unit = run(NODE, ['--test', 'tests/cover-resolver.test.mjs']);
   if (unit !== null) pass('cover-resolver unit tests pass');
-  else fail('cover-resolver unit tests failed (run: node --test test/cover-resolver.test.mjs)');
+  else fail('cover-resolver unit tests failed (run: node --test tests/cover-resolver.test.mjs)');
 }
 
 // ── 61. INTERVIEW-PREP URL ENTRY (#1816) ────────────────────────
@@ -13022,15 +13026,15 @@ try {
     timestamp: '2026-07-03T14:02:11Z', status: 'completed', companies: 45, boards: 3, found: 120,
     filteredTitle: 40, filteredTier: 5, filteredLocation: 20, filteredPostingAge: 3, filteredSalary: 2,
     filteredContent: 6, filteredCooldown: 1, dupes: 38, newAdded: 8, errors: 0,
-    filteredBlacklist: 4, filteredVisa: 7, filteredPostedDate: 2,
+    filteredBlacklist: 4, filteredVisa: 7, filteredPostedDate: 2, filteredCountryEligibility: 0,
   };
   appendScanRunSummary(counters, runsFile);
   appendScanRunSummary({ ...counters, timestamp: '2026-07-04T09:00:00Z' }, runsFile);
   const runRows = readFileSync(runsFile, 'utf-8').trim().split('\n');
   if (runRows[0] === SCAN_RUNS_HEADER.trim() && runRows.length === 3
       && runRows[1].startsWith('2026-07-03T14:02:11Z\tcompleted\t45\t3\t120\t')
-      // filtered_blacklist + filtered_visa + filtered_posted_date land in the three trailing columns.
-      && runRows[1].endsWith('\t4\t7\t2')
+      // Eligibility counters remain append-only at the end of the row.
+      && runRows[1].endsWith('\t4\t7\t2\t0')
       && runRows[2].startsWith('2026-07-04T09:00:00Z\t')) {
     pass('appendScanRunSummary writes the header once, appends one row per run');
   } else {

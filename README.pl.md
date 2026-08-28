@@ -93,7 +93,7 @@ Pierwotnie stworzony przez [santifer](https://santifer.io), który użył go do 
 | **Skaner portali**             | 45+ firm skonfigurowanych (Anthropic, OpenAI, ElevenLabs, Retool, n8n…) + zapytania przez Ashby, Greenhouse, Lever, Wellfound                  |
 | **Przetwarzanie wsadowe**      | Równoległa ocena przez workery `claude -p`                                                                                                      |
 | **Lokalny dashboard kanban**   | Dashboard do review i przygotowania ról, kolejkowania żądań aplikacyjnych dla aktywnego agenta oraz kontroli pracy gotowej do przeglądu         |
-| **Human-in-the-Loop**          | AI ocenia i rekomenduje, ty decydujesz i działasz. System nigdy nie wysyła aplikacji — ostatnie słowo zawsze należy do ciebie                  |
+| **Human-in-the-Loop**          | AI ocenia i rekomenduje, ty decydujesz i działasz. System nigdy nie wysyła aplikacji — ostatnie słowo zawsze należy do ciebie <!-- hitl: absolute guarantee. Do not add "automatically", "by itself", "without your permission" or any other hedge when translating this row. -->                  |
 | **Integralność pipeline'u**    | Automatyczny merge, deduplikacja, normalizacja statusów, sprawdzenia zdrowia danych                                                             |
 
 ## Szybki start

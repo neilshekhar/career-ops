@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 
-import { pass, ROOT, getBash, toBashPath } from './helpers.mjs';
+import { pass, NODE, ROOT, getBash, toBashPath } from './helpers.mjs';
 
 console.log('\nBatch runner hardening');
 
@@ -208,19 +208,42 @@ try {
     'id\turl\tsource\tnotes\n42\thttps://example.test/slow\tfixture\t-\n',
   );
   const fakeClaude = join(fakeBin, 'claude');
+  const fakeCurl = join(fakeBin, 'curl');
+  const fakeNode = join(fakeBin, 'node');
   writeFileSync(fakeClaude, [
     '#!/usr/bin/env bash',
     'trap "exit 143" HUP INT TERM',
     'while true; do sleep 0.1; done',
   ].join('\n') + '\n');
   chmodSync(fakeClaude, 0o755);
+  writeFileSync(fakeCurl, '#!/usr/bin/env bash\nexit 1\n');
+  chmodSync(fakeCurl, 0o755);
+  writeFileSync(fakeNode, [
+    '#!/usr/bin/env bash',
+    'if [[ "${1:-}" == */reserve-report-num.mjs ]]; then',
+    '  [[ "${2:-}" == "--release" ]] && exit 0',
+    '  printf "007\\n"',
+    '  exit 0',
+    'fi',
+    'exec "$REAL_NODE" "$@"',
+  ].join('\n') + '\n');
+  chmodSync(fakeNode, 0o755);
 
   const child = spawn(bash, [toBashPath(join(batchDir, 'batch-runner.sh'))], {
     cwd: interruptProject,
     // delimiter, not ':' — Windows separates PATH entries with ';'.
-    env: { ...bashEnv, PATH: `${fakeBin}${delimiter}${process.env.PATH}`, TMPDIR: tempDir },
-    stdio: 'ignore',
+    env: {
+      ...bashEnv,
+      PATH: `${fakeBin}${delimiter}${process.env.PATH}`,
+      REAL_NODE: NODE,
+      TMPDIR: tempDir,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
+  let childStdout = '';
+  let childStderr = '';
+  child.stdout.on('data', (chunk) => { childStdout += chunk; });
+  child.stderr.on('data', (chunk) => { childStderr += chunk; });
   const workerTempFiles = () => readdirSync(tempDir, { withFileTypes: true }).flatMap((entry) => {
     if (!entry.isDirectory()) return [entry.name];
     return readdirSync(join(tempDir, entry.name)).map((name) => `${entry.name}/${name}`);
@@ -229,7 +252,11 @@ try {
   while (Date.now() < deadline && workerTempFiles().length < 2) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  assert.equal(workerTempFiles().length, 2, 'worker temp files were not created in time');
+  assert.equal(
+    workerTempFiles().length,
+    2,
+    `worker temp files were not created in time (exit=${child.exitCode}; stdout=${childStdout}; stderr=${childStderr})`,
+  );
   child.kill('SIGTERM');
   const exit = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('interrupted runner did not exit')), 5000);

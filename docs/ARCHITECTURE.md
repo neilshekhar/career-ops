@@ -1,5 +1,8 @@
 # Architecture
 
+This file describes the runtime flows. Design principles and the
+system/user data-contract layers live in [../ARCHITECTURE.md](../ARCHITECTURE.md).
+
 ## System Overview
 
 ```

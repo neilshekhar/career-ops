@@ -111,7 +111,7 @@ career-ops agentic है: जो भी AI coding CLI आप चुनें �
 | **Portal Scanner**       | 45+ companies pre-configured (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + custom queries across Ashby, Greenhouse, Lever, Wellfound |
 | **Batch Processing**     | Headless CLI workers के साथ parallel evaluation (`claude -p` / `opencode run`)                                                          |
 | **Local Kanban Dashboard** | Roles को review और prepare करने, active agent के लिए application requests queue करने और review-ready work inspect करने का browser dashboard |
-| **Human-in-the-Loop**    | AI evaluate और recommend करता है, आप decide और act करते हैं। System कभी application submit नहीं करता -- final call हमेशा आपका        |
+| **Human-in-the-Loop**    | AI evaluate और recommend करता है, आप decide और act करते हैं। System कभी application submit नहीं करता -- final call हमेशा आपका <!-- hitl: absolute guarantee. Do not add "automatically", "by itself", "without your permission" or any other hedge when translating this row. -->        |
 | **Pipeline Integrity**   | Automated merge, dedup, status normalization, health checks                                                                              |
 
 ## Quick Start

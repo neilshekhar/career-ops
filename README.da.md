@@ -93,7 +93,7 @@ Oprindeligt bygget af [santifer](https://santifer.io), som brugte det til at vur
 | **Portalskanner**              | 45+ virksomheder konfigureret (Anthropic, OpenAI, ElevenLabs, Retool, n8n…) + forespørgsler via Ashby, Greenhouse, Lever, Wellfound            |
 | **Batch-behandling**           | Parallel vurdering via `claude -p`-workers                                                                                                      |
 | **Lokalt kanban-dashboard**    | Browser-dashboard til at gennemgå og forberede roller, sætte ansøgningsanmodninger i kø til den aktive agent og kontrollere review-klart arbejde |
-| **Human-in-the-Loop**          | AI vurderer og anbefaler, du beslutter og handler. Systemet sender aldrig ansøgninger — det sidste ord er altid dit                            |
+| **Human-in-the-Loop**          | AI vurderer og anbefaler, du beslutter og handler. Systemet sender aldrig ansøgninger — det sidste ord er altid dit <!-- hitl: absolute guarantee. Do not add "automatically", "by itself", "without your permission" or any other hedge when translating this row. -->                            |
 | **Pipeline-integritet**        | Automatisk merge, deduplikering, statusnormalisering, datakvalitetstjek                                                                          |
 
 ## Hurtig start

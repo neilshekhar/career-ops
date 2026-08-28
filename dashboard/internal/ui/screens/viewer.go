@@ -803,6 +803,13 @@ func (m ViewerModel) overlayStatusPicker(body string) string {
 	return strings.Join(bodyLines, "\n")
 }
 
+// currentStatusPairs resolves the status-change picker options for the
+// application currently open in the viewer, so the picker leads with this
+// row's own status (see getStatusPairs).
+func (m ViewerModel) currentStatusPairs() []StatusPair {
+	return getStatusPairs(data.NormalizeStatus(m.app.Status))
+}
+
 // UpdateAppStatus updates the status of the current application inside the viewer model.
 func (m *ViewerModel) UpdateAppStatus(newStatus string) {
 	m.app.Status = newStatus

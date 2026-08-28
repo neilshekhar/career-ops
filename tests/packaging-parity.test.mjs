@@ -2,7 +2,7 @@
 /**
  * tests/packaging-parity.test.mjs — Finding 5 acceptance tests.
  *
- *  1. A fresh scaffold contains the canonical shared voice-dna.md; no template
+ *  1. The private voice-dna.md has a distributable template and updater guard
  *  3. A newly created article-digest.md is ignored by Git
  *  4. Failed dependency installation causes a nonzero scaffold exit
  *  5. Successful scaffolding runs doctor before printing ready
@@ -248,18 +248,14 @@ assert.match(doctorSrc, /SETUP_ONLY \? \[\] : USER_LAYER_PREREQS\.map\(checkPrer
 pass('doctor --setup skips the onboarding prerequisites the scaffolder deliberately leaves absent');
 
 // ── 1 + 3. Shared voice policy, personal digest ────────────────────────────
-const tracked = execFileSync('git', ['ls-files', 'voice-dna.md'], { cwd: ROOT, encoding: 'utf8' }).trim();
-assert.equal(tracked, 'voice-dna.md', 'voice-dna.md must stay TRACKED and shipped to every install');
-pass('acceptance 1: the canonical shared voice-dna.md is tracked and ships with a fresh scaffold');
-
-let templateExists = true;
-try {
-  execFileSync('git', ['ls-files', '--error-unmatch', 'voice-dna.template.md'], { cwd: ROOT, stdio: 'ignore' });
-} catch {
-  templateExists = false;
-}
-assert.equal(templateExists, false, 'no voice-dna template may exist — the real file is the shared default');
-pass('no voice-dna template was created; the opinionated default is shipped directly');
+const voiceTemplate = execFileSync('git', ['ls-files', 'voice-dna.template.md'], { cwd: ROOT, encoding: 'utf8' }).trim();
+assert.equal(voiceTemplate, 'voice-dna.template.md', 'voice-dna.template.md must ship as the safe seed');
+assert.match(doctorSrc, /target: 'voice-dna\.md', template: 'voice-dna\.template\.md'/);
+assert.match(readFileSync(join(ROOT, 'DATA_CONTRACT.md'), 'utf8'), /`voice-dna\.md` \| Your private voice\/style rules/);
+const updaterSrc = readFileSync(join(ROOT, 'update-system.mjs'), 'utf8');
+assert.match(updaterSrc, /USER_PATHS[\s\S]*?'voice-dna\.md'/);
+assert.match(updaterSrc, /filter\(\(path\) => path !== 'voice-dna\.md'\)/);
+pass('acceptance 1: private voice DNA is seeded from a template and never overwritten by updates');
 
 const gitignore = readFileSync(join(ROOT, '.gitignore'), 'utf8');
 assert.match(gitignore, /^article-digest\.md$/m,

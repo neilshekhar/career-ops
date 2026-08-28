@@ -46,7 +46,7 @@ Cette premiere iteration couvre les quatre modes a plus fort impact :
 | `postuler.md` | `modes/apply.md` (EN) | Wrapper linguistique français; le workflow canonique reste dans le fichier racine |
 | `pipeline.md` | `modes/pipeline.md` (EN) | Wrapper linguistique francais; execute le pipeline canonique sans le redefinir |
 
-Les autres modes (`scan`, `batch`, `pdf`, `tracker`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`) restent en EN/ES. Leur contenu est surtout du tooling, des chemins et des commandes -- il doit rester independant de la langue.
+Les autres modes (`scan`, `batch`, `pdf`, `tracker`, `outcome`, `auto-pipeline`, `deep`, `contacto`, `ofertas`, `project`, `training`) restent en EN/ES. Leur contenu est surtout du tooling, des chemins et des commandes -- il doit rester independant de la langue.
 
 ## Ce qui reste en anglais
 

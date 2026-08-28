@@ -21,9 +21,16 @@ export async function POST(req: Request) {
   if (!n || typeof status !== "string" || !status.trim()) {
     return NextResponse.json({ error: "n and status required" }, { status: 400 });
   }
+  // Rejected here rather than left to the CLI: these characters would break the
+  // markdown row, and refusing them before spawning keeps the failure cheap and
+  // the message specific.
   if (/[|\r\n*]/.test(status)) {
     return NextResponse.json({ error: "invalid status (table-breaking characters)" }, { status: 400 });
   }
+  // Resolving aliases here lets the response echo the canonical label without
+  // waiting on the CLI, and costs no process spawn for an unknown state.
+  // set-status.mjs validates again against states.yml — this is a fast path,
+  // not the authority.
   const canon = canonicalizeStatus(status);
   if (!canon) {
     return NextResponse.json({ error: `not a tracker-scoped canonical status: ${status}` }, { status: 400 });

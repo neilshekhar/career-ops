@@ -95,7 +95,7 @@ career-ops 最初由 [santifer](https://santifer.io) 打造，他親身用它評
 | **平台掃描器**   | 預設超過 45 家企業（Anthropic、OpenAI、ElevenLabs、Retool、n8n...）+ 跨 Ashby、Greenhouse、Lever、Wellfound 的自訂查詢 |
 | **批次處理**     | 使用 `claude -p` 工作器並行評估                                                                                        |
 | **本地 Kanban 儀表板** | 在瀏覽器中審閱、篩選和準備職缺，為目前代理排入申請處理請求，並檢查可供審閱的工作                                   |
-| **人機協作**     | AI 負責評估與建議，你負責決策與行動。系統絕不自動送出應徵 — 最終決定永遠在你手上                                       |
+| **人機協作**     | AI 負責評估與建議，你負責決策與行動。系統絕不送出應徵 — 最終決定永遠在你手上 <!-- hitl: absolute guarantee. Do not add "automatically", "by itself", "without your permission" or any other hedge when translating this row. -->                                       |
 | **管道完整性**   | 自動合併、去重、狀態正規化、健康檢查                                                                                   |
 
 ## 快速開始
