@@ -2,7 +2,7 @@
 /**
  * tests/packaging-parity.test.mjs — Finding 5 acceptance tests.
  *
- *  1. The private voice-dna.md has a distributable template and updater guard
+ *  1. The shared voice-dna.md ships as an upstream-updatable system file
  *  3. A newly created article-digest.md is ignored by Git
  *  4. Failed dependency installation causes a nonzero scaffold exit
  *  5. Successful scaffolding runs doctor before printing ready
@@ -13,7 +13,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import yaml from 'js-yaml';
@@ -248,17 +248,27 @@ assert.match(doctorSrc, /SETUP_ONLY \? \[\] : USER_LAYER_PREREQS\.map\(checkPrer
 pass('doctor --setup skips the onboarding prerequisites the scaffolder deliberately leaves absent');
 
 // ── 1 + 3. Shared voice policy, personal digest ────────────────────────────
-const voiceTemplate = execFileSync('git', ['ls-files', 'voice-dna.template.md'], { cwd: ROOT, encoding: 'utf8' }).trim();
-assert.equal(voiceTemplate, 'voice-dna.template.md', 'voice-dna.template.md must ship as the safe seed');
+const trackedVoice = execFileSync('git', ['ls-files', 'voice-dna.md'], { cwd: ROOT, encoding: 'utf8' }).trim();
+assert.equal(trackedVoice, 'voice-dna.md', 'voice-dna.md must ship as the shared writing baseline');
+assert.equal(existsSync(join(ROOT, 'voice-dna.template.md')), false,
+  'a second voice-dna.template.md would create a conflicting ownership model');
 assert.doesNotMatch(doctorSrc, /target: 'voice-dna\.md', template: 'voice-dna\.template\.md'/,
-  'doctor must not introduce a voice workflow by auto-copying the optional template');
-assert.match(readFileSync(join(ROOT, 'DATA_CONTRACT.md'), 'utf8'), /`voice-dna\.md` \| Your private voice\/style rules/);
+  'doctor must not copy a private voice file over the shared baseline');
+const dataContract = readFileSync(join(ROOT, 'DATA_CONTRACT.md'), 'utf8');
+assert.doesNotMatch(dataContract, /`voice-dna\.md` \| Your private voice\/style rules/);
+assert.match(dataContract, /`voice-dna\.md` \| \*\*Opinionated shared writing default\*\*/);
 const updaterSrc = readFileSync(join(ROOT, 'update-system.mjs'), 'utf8');
-assert.match(updaterSrc, /USER_PATHS[\s\S]*?'voice-dna\.md'/);
-assert.match(updaterSrc, /filter\(\(path\) => path !== 'voice-dna\.md'\)/);
-pass('acceptance 1: private voice DNA is never auto-created or overwritten; an optional template ships separately');
+const systemManifest = (updaterSrc.match(/const SYSTEM_PATHS = \[([\s\S]*?)\];/) || [, ''])[1];
+const userManifest = (updaterSrc.match(/const USER_PATHS = \[([\s\S]*?)\];/) || [, ''])[1];
+assert.match(systemManifest, /'voice-dna\.md'/);
+assert.doesNotMatch(systemManifest, /'voice-dna\.template\.md'/);
+assert.doesNotMatch(userManifest, /'voice-dna\.md'/);
+assert.doesNotMatch(updaterSrc, /filter\(\(path\) => path !== 'voice-dna\.md'\)/);
+pass('acceptance 1: shared voice DNA is tracked and updateable without a conflicting private template');
 
 const gitignore = readFileSync(join(ROOT, '.gitignore'), 'utf8');
+assert.doesNotMatch(gitignore, /^voice-dna\.md$/m,
+  'the tracked shared voice baseline must not be classified as ignored user data');
 assert.match(gitignore, /^article-digest\.md$/m,
   'article-digest.md must be in the TRACKED .gitignore, not just .git/info/exclude');
 pass('acceptance 3: article-digest.md is ignored by the tracked .gitignore a fresh clone inherits');

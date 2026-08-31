@@ -104,7 +104,7 @@ const SYSTEM_PATHS = [
   'modes/_shared.md',
   'modes/_profile.template.md',
   'modes/_custom.template.md',
-  'voice-dna.template.md',
+  'voice-dna.md',
   'modes/oferta.md',
   'modes/pdf.md',
   'modes/cover.md',
@@ -150,9 +150,7 @@ const SYSTEM_PATHS = [
   'modes/es/',
   'modes/es/interview/',
   'modes/id/',
-  'modes/id/interview/',
   'modes/it/',
-  'modes/it/interview/',
   'modes/ja/',
   'modes/ko/',
   'modes/nl/',
@@ -160,10 +158,8 @@ const SYSTEM_PATHS = [
   'modes/pt/',
   'modes/pt/interview/',
   'modes/ru/',
-  'modes/ru/interview/',
   'modes/tr/',
   'modes/ua/',
-  'modes/ua/interview/',
   'modes/heuristics/',
   'modes/regional/',
   'modes/zh/',
@@ -501,7 +497,6 @@ export const USER_PATHS = [
   'config/profile.yml',
   'modes/_profile.md',
   'modes/_custom.md',
-  'voice-dna.md',
   'portals.yml',
   'article-digest.md',
   'interview-prep/',
@@ -1835,11 +1830,9 @@ async function apply() {
 
     // 3a. Keep bootstrap paths as a fallback for very old targets, but the
     // target updater's SYSTEM_PATHS is now the source of truth for new files.
-    // Fork invariant: voice-dna.md is private user data. Even if an imported
-    // upstream updater classifies it as system-owned, never place it in this
-    // install's checkout set. Only voice-dna.template.md is distributable.
-    const updatePaths = mergePathLists(SYSTEM_PATHS, remoteSystemPaths, BOOTSTRAP_PATHS)
-      .filter((path) => path !== 'voice-dna.md');
+    // voice-dna.md is the shared system baseline. The ownership-migration
+    // block below preserves a legacy private copy before its first update.
+    const updatePaths = mergePathLists(SYSTEM_PATHS, remoteSystemPaths, BOOTSTRAP_PATHS);
 
     // Local system edits are recoverable and opt-in to overwrite. Keep the
     // local version by default, save a sibling .bak, and use pathspec

@@ -111,3 +111,10 @@ test('tracker header compatibility preserves the fork baseline plus URL dedup', 
     'tracker aliases must not import upstream workflow columns implicitly',
   );
 });
+
+test('headless OpenAI tailoring uses the retained shared voice policy', () => {
+  const source = readFileSync(join(ROOT, 'openai-tailor.mjs'), 'utf8');
+  assert.doesNotMatch(source, /modes\/_writing\.md|_writing\.md/);
+  assert.match(source, /join\(ROOT, 'voice-dna\.md'\)/);
+  assert.match(source, /VOICE DNA \(voice-dna\.md\)/);
+});

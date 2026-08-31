@@ -15,7 +15,6 @@ These files contain your personal data, customizations, and work product. Update
 | `config/local-paths.txt` | Files *this clone* owns that upstream does not ship — one repo-relative path per line (optional; copy `config/local-paths.example.txt` here and edit). See [Fork-local paths](#fork-local-paths) below |
 | `modes/_profile.md` | Your archetypes, narrative, negotiation scripts |
 | `modes/_custom.md` | Your house rules, custom workflows & output preferences (procedural — survives updates) |
-| `voice-dna.md` | Your private voice/style rules and machine-readable banned-term customizations |
 | `article-digest.md` | Your proof points from portfolio (personal — gitignored; the agent offers import/build/skip during onboarding) |
 | `interview-prep/story-bank.md` | Your accumulated STAR+R stories |
 | `interview-prep/{company}-{role}.md` | Company-specific interview prep reports (written by `/career-ops interview-prep`) |
@@ -80,7 +79,7 @@ These files contain system logic, scripts, templates, and instructions that impr
 |------|---------|
 | `modes/_shared.md` | Eval-core: scoring system, global rules, tools |
 | `modes/_custom.template.md` | Template seed for the user's `modes/_custom.md` |
-| `voice-dna.template.md` | Shared seed copied to the private, user-owned `voice-dna.md` when that file is missing; updates never overwrite the user's copy |
+| `voice-dna.md` | **Opinionated shared writing default**, tracked and shipped to every install. Governs *how* generated prose reads (banned vocabulary, anti-AI-slop rules, formatting), and **never** introduces a factual claim about the candidate. Its `career-ops:banned-terms` block is the machine-readable list `cover-quality.mjs` parses deterministically. Reviewed upstream changes may replace this shared baseline when released by this fork; put personal preferences in `modes/_custom.md`, `modes/_profile.md`, `application_quality.banned_terms_allow` / `banned_terms_add`, or `writing-samples/`. |
 | `cover-quality.mjs` | Locale-aware greeting/sign-off ladders, banned-term parsing, skeleton fingerprints (zero model tokens) |
 | `cv-tailoring.mjs` | Contextual identical-CV / duplicate-cover checks (zero model tokens) |
 | `application-request.mjs` | Shared browser-controller lease + four-active-role cap for durable application requests |

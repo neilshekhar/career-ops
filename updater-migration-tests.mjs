@@ -68,6 +68,20 @@ for (const [listName, entries] of [['SYSTEM_PATHS', systemPaths], ['BOOTSTRAP_PA
   }
 }
 
+// test-all.mjs intentionally omits .agents/ from its isolated script fixture;
+// the standalone run still verifies that directory in the real checkout.
+const FIXTURE_OMITTED_SYSTEM_DIRECTORIES = new Set(['.agents/']);
+const missingSystemDirectories = systemPaths.filter((entry) =>
+  entry.endsWith('/')
+  && !FIXTURE_OMITTED_SYSTEM_DIRECTORIES.has(entry)
+  && !existsSync(entry.slice(0, -1))
+);
+if (missingSystemDirectories.length === 0) {
+  pass('SYSTEM_PATHS has no stale directory entries');
+} else {
+  fail(`SYSTEM_PATHS has stale directory entries: ${missingSystemDirectories.join(', ')}`);
+}
+
 const requiredSystemPaths = [
   'modes/email.md',
   'modes/followup.md',
@@ -99,7 +113,7 @@ const requiredSystemPaths = [
   'generate-cover-markdown.mjs',
   'generate-cover-formats.mjs',
   'cover-format-policy.mjs',
-  'voice-dna.template.md',
+  'voice-dna.md',
   'CODE_OF_CONDUCT.md',
   'GOVERNANCE.md',
   'SECURITY.md',
@@ -286,22 +300,25 @@ for (const check of twoPassManifestChecks) {
   else fail(check.name);
 }
 
-// Fork boundary: the shared template can update, but the candidate's private
-// voice-dna.md is always user-owned and is filtered out even if a future
-// imported manifest accidentally classifies it as a system path.
+// Fork boundary: voice-dna.md is the shared, updateable writing baseline.
+// Personal voice preferences belong in the user-layer override files.
 if (
-  systemPaths.includes('voice-dna.template.md')
-  && !systemPaths.includes('voice-dna.md')
-  && userPaths.includes('voice-dna.md')
+  systemPaths.includes('voice-dna.md')
+  && !systemPaths.includes('voice-dna.template.md')
+  && !userPaths.includes('voice-dna.md')
 ) {
-  pass('voice-dna template is system-owned while voice-dna.md remains user-owned');
+  pass('voice-dna.md is system-owned without a conflicting private template');
 } else {
   fail('voice-dna system/user ownership boundary drifted');
 }
-if (/mergePathLists\(SYSTEM_PATHS, remoteSystemPaths, BOOTSTRAP_PATHS\)[\s\S]{0,180}?filter\(\(path\) => path !== 'voice-dna\.md'\)/.test(source)) {
-  pass('apply filters private voice-dna.md out of every merged update manifest');
+if (
+  /const updatePaths = mergePathLists\(SYSTEM_PATHS, remoteSystemPaths, BOOTSTRAP_PATHS\);/.test(source)
+  && /if \(updatePaths\.includes\('voice-dna\.md'\)\)/.test(source)
+  && !/filter\(\(path\) => path !== 'voice-dna\.md'\)/.test(source)
+) {
+  pass('apply admits shared voice-dna.md and preserves the ownership-migration backup');
 } else {
-  fail('apply can still admit private voice-dna.md from a remote system manifest');
+  fail('apply does not consistently update the shared voice baseline');
 }
 
 // #1706: update-system.mjs must be self-loading — no static (top-level) relative

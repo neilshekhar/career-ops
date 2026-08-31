@@ -33,7 +33,7 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 // ---------------------------------------------------------------------------
 const PATHS = {
   shared:   join(ROOT, 'modes', '_shared.md'),
-  writing:  join(ROOT, 'modes', '_writing.md'),
+  voice:    join(ROOT, 'voice-dna.md'),
   pdfMode:  join(ROOT, 'modes', 'pdf.md'),
   cv:       join(ROOT, 'cv.md'),
   profile:  join(ROOT, 'config', 'profile.yml'),
@@ -183,10 +183,9 @@ function readFile(path, label, required = false) {
 console.log('\\n📂  Loading context files...');
 
 const sharedContext  = readFile(PATHS.shared, 'modes/_shared.md', false);
-// Writing guardrails (Voice DNA / Writing Style / Professional Writing) live in
-// _writing.md since #1710 — a CV-tailoring script needs them, unlike the eval
-// engines that read the eval-core _shared.md alone.
-const writingContext = readFile(PATHS.writing, 'modes/_writing.md', false);
+// The fork keeps writing guardrails in the tracked shared voice baseline;
+// personal style continues to come from config/profile.yml and user overrides.
+const voiceContext   = readFile(PATHS.voice, 'voice-dna.md', false);
 const pdfModeLogic   = readFile(PATHS.pdfMode, 'modes/pdf.md', false);
 const cvContent      = readFile(PATHS.cv, 'cv.md', true);
 const profileContent = readFile(PATHS.profile, 'config/profile.yml', true);
@@ -205,9 +204,9 @@ SYSTEM CONTEXT (_shared.md)
 ${sharedContext}
 
 ═══════════════════════════════════════════════════════
-WRITING GUARDRAILS (_writing.md)
+VOICE DNA (voice-dna.md)
 ═══════════════════════════════════════════════════════
-${writingContext}
+${voiceContext}
 
 ═══════════════════════════════════════════════════════
 PDF TAILORING MODE (pdf.md)
