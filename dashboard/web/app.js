@@ -197,6 +197,7 @@ async function loadQueue() {
       document.getElementById('threshold-input').value = settings.score_threshold;
     }
     syncAutoFillAllButton();
+    syncPortalDefaultCvButton();
     renderAll(data.stats);
     syncBatchBar();
   } catch (err) {
@@ -1159,6 +1160,33 @@ async function toggleAutoFillAll() {
   }
 }
 
+// Portal-hosted resume (settings.portal_default_cv): Seek and Indeed attach the
+// candidate's own profile resume to their NATIVE forms, so PREPARE skips CV
+// generation there. A listing that redirects to an external ATS is decided by
+// the host the form lands on and still gets a tailored CV. Cover letters are
+// generated either way. Marker only — nothing launches now.
+function syncPortalDefaultCvButton() {
+  const btn = document.getElementById('btn-portal-default-cv');
+  if (!btn) return;
+  const on = settings.portal_default_cv === true;
+  btn.classList.toggle('active', on);
+  btn.textContent = on ? '📄 Portal CV: Seek/Indeed' : '📄 Portal CV: off';
+}
+
+async function togglePortalDefaultCv() {
+  const next = !(settings.portal_default_cv === true);
+  try {
+    const res = await postJson('/api/portal-default-cv', { value: next });
+    if (!res.ok) { toast('Could not update portal-CV setting', 3000); return; }
+    toast(next
+      ? '📄 Portal CV ON — Seek/Indeed native forms use your profile resume; a redirect to an external ATS still gets a tailored CV. Cover letters unchanged.'
+      : 'Portal CV off — every application gets a freshly tailored CV', 4000);
+    await loadQueue();
+  } catch {
+    toast('Portal-CV update failed — check server logs', 4000);
+  }
+}
+
 // ── Theme ─────────────────────────────────────────────────────────────────────
 // data-theme is set before first paint by the inline <head> script; this only
 // handles the toggle and keeps the button glyph in sync.
@@ -1330,6 +1358,7 @@ function setupEventListeners() {
   document.getElementById('btn-deep-eval').addEventListener('click', toggleDeepEval);
   document.getElementById('btn-auto-fill').addEventListener('click', toggleAutoFill);
   document.getElementById('btn-auto-fill-all').addEventListener('click', toggleAutoFillAll);
+  document.getElementById('btn-portal-default-cv').addEventListener('click', togglePortalDefaultCv);
 
   document.getElementById('btn-select-all').addEventListener('click', selectAll);
   document.getElementById('btn-clear-all').addEventListener('click', clearAll);

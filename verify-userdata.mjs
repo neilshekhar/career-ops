@@ -28,6 +28,7 @@ import {
   resolveRoleJdInput,
 } from './application-source-contract.mjs';
 import { ACTIVE_STATUSES, loadQueue } from './queue-store.mjs';
+import { portalResumeExemptionApplies } from './portal-resume-hosts.mjs';
 import {
   DEFAULT_TAILORING,
   TAILORING_COMPARABLE_STATUSES,
@@ -919,7 +920,16 @@ export function validateApplicationRole(role, options = {}) {
 
   const cv = resolveApplicationAsset(root, role.cv_pdf, 'cv_pdf');
   if (!cv) {
-    issues.push(issue('error', 'cv-missing', 'Tailored CV PDF is missing, out of scope, symlinked, or has the wrong format.', role, role.cv_pdf || null));
+    // Seek/Indeed attach the candidate's own profile resume to a NATIVE
+    // application, so with the dashboard toggle on there is deliberately no
+    // tailored CV to resolve. The exemption is decided by the host the FORM is
+    // on, so a listing that redirects to an external ATS keeps the hard
+    // requirement — see portal-resume-hosts.mjs. Cover letters are untouched.
+    if (portalResumeExemptionApplies(role, options.settings)) {
+      issues.push(issue('info', 'cv-portal-default', 'No tailored CV: this application uses the resume hosted on the job board profile.', role, null));
+    } else {
+      issues.push(issue('error', 'cv-missing', 'Tailored CV PDF is missing, out of scope, symlinked, or has the wrong format.', role, role.cv_pdf || null));
+    }
   }
 
   const covers = coverPaths(role);
@@ -1255,7 +1265,7 @@ export function verifyUserData(options = {}) {
   for (const role of roles) {
     const requireAssets = roleId ? true : ASSET_STATUSES.has(role.status);
     issues.push(...validateApplicationRole(role, {
-      root, profile, quality, now, requireAssets, peers,
+      root, profile, quality, now, requireAssets, peers, settings: queue.settings,
     }));
   }
 

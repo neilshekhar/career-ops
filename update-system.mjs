@@ -210,6 +210,7 @@ const SYSTEM_PATHS = [
   'one-shot-request.mjs',
   'cv-tailoring.mjs',
   'cover-quality.mjs',
+  'portal-resume-hosts.mjs',
   'install-browser.mjs',
   'benchmark-evidence-protocol.mjs',
   'benchmark-lean-application.mjs',

@@ -1103,6 +1103,30 @@ function apiSetAutoFillAll(req, res) {
   });
 }
 
+// Portal-hosted resume (settings.portal_default_cv): Seek/Indeed attach the
+// candidate's own profile resume to a NATIVE application, so PREPARE skips CV
+// generation for those and the asset gate accepts the absence. It is decided at
+// fill time by the host the FORM is on, so a "apply on company site" listing
+// that redirects to an external ATS still requires a tailored CV
+// (portal-resume-hosts.mjs). Cover letters are always generated regardless.
+// Stored in queue settings so the prepare agent reads it from the same store.
+// It never selects a role and never launches anything from the server.
+function apiSetPortalDefaultCv(req, res) {
+  readBody(req, res, (body) => {
+    const { value } = safeJson(body) || {};
+    if (typeof value !== 'boolean') {
+      return respond(res, 400, { error: 'value must be a boolean' });
+    }
+
+    try {
+      mutateQueue((queue) => { queue.settings.portal_default_cv = value; });
+    } catch (err) {
+      return respond(res, 503, { error: `queue store write failed: ${err.message}` });
+    }
+    respond(res, 200, { portal_default_cv: value });
+  });
+}
+
 function apiRoleFill(req, res, id) {
   readBody(req, res, (body) => {
   const parsed = safeJson(body) || {};
@@ -1713,6 +1737,7 @@ const server = http.createServer((req, res) => {
   if (path === '/api/queue'    && method === 'GET')  return apiGetQueue(res);
   if (path === '/api/threshold' && method === 'POST') return apiSetThreshold(req, res);
   if (path === '/api/autofill'  && method === 'POST') return apiSetAutoFillAll(req, res);
+  if (path === '/api/portal-default-cv' && method === 'POST') return apiSetPortalDefaultCv(req, res);
   if (path === '/api/roles/prepare' && method === 'POST') return apiBulkPrepare(req, res);
   if (path === '/api/run'      && method === 'POST')  return apiRun(req, res);
   if (path === '/api/activity' && method === 'GET')   return apiActivity(req, res);
