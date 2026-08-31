@@ -3,7 +3,7 @@
  *
  * The web ORCHESTRATES the real career-ops engine — it does NOT reimplement it.
  * kind "evaluate" runs the REAL modes/oferta.md and persists the canonical
- * artifacts (A–F report + tracker row) via the SAME scripts the CLI uses
+ * artifacts (A–G report + tracker row) via the SAME scripts the CLI uses
  * (reserve-report-num.mjs → reports/ → batch/tracker-additions/ → merge-tracker.mjs),
  * so a web evaluation is byte-identical to a CLI one (single source of truth, no
  * drift). kind "research" stays read-only.

@@ -180,17 +180,29 @@ assert.match(applyButton, /dashboard-first selection → PREPARE/);
 assert.doesNotMatch(applyButton, /pdfReady|useJobs/);
 pass('web Apply CTA opens the dashboard from a valid URL without a PDF-readiness gate');
 
+// The route keeps the orchestration commentary; #2172/#2185 moved the prompts
+// themselves into run-prompts.mjs, so each assertion reads the file that now
+// owns the text rather than the one that used to.
 const webRun = read('web/src/app/api/run/route.ts');
+const webPrompts = read('web/src/lib/run-prompts.mjs');
 assert.match(webRun, /artifacts \(A–G report \+ tracker row\)/);
-assert.match(webRun, /complete A–G evaluation and Machine Summary/);
 assert.match(webRun, /An A–G score is meaningless without a CV/);
 assert.doesNotMatch(webRun, /A[–-]F (?:report|score)/);
-assert.match(webRun, /headless, the asset is a non-release draft/i);
-assert.match(webRun, /node find\.mjs \$\{input\}/);
-assert.match(webRun, /retain the source beside the PDF as [^\n]*output\/cv-/);
-assert.match(webRun, /must never mark a queue role prepared or bypass interactive PREPARE/i);
 assert.doesNotMatch(webRun, /\/tmp\//);
-pass('web evaluation comments and prompt consistently describe A-G');
+// The evaluation prompt must still demand the whole A–G contract. Upstream words
+// it as the explicit block list; either phrasing is fine, dropping G is not.
+assert.match(
+  webPrompts,
+  /(?:complete A–G evaluation and Machine Summary|blocks A–F, G posting-legitimacy, and the Machine Summary)/,
+);
+assert.doesNotMatch(webPrompts, /A[–-]F (?:report|score)/);
+assert.doesNotMatch(webPrompts, /\/tmp\//);
+// The PDF worker tailors content only and never writes: the platform owns output.
+assert.match(webPrompts, /the platform handles output itself/i);
+assert.match(webPrompts, /Emit the envelope EXACTLY ONCE/);
+assert.match(webPrompts, /NEVER invent skills/);
+assert.doesNotMatch(webPrompts, /node\s+(?:set-status|mark-pdf-ready)\.mjs/);
+pass('web evaluation comments and prompts consistently describe A-G and delegate output');
 
 const patterns = read('modes/patterns.md');
 assert.match(patterns, /top-level\s+`auto_pdf_score_threshold` key in `config\/profile\.yml`/i);

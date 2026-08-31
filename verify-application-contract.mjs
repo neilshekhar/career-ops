@@ -1244,11 +1244,18 @@ export function checkWebPdfWorkerRuntime(file, source) {
   const errors = [];
   const pdf = /if \(kind === ["']pdf["']\) \{([\s\S]*?)\n\s*\}\n\s*if \(kind === ["']fix-portal["']\)/.exec(source)?.[1] ?? '';
   if (!pdf) return [issue(file, 'headless PDF worker prompt is missing')];
-  if (!/node set-status\.mjs \$\{input\} --pdf-ready --json/.test(pdf)) {
-    errors.push(issue(file, 'headless PDF worker does not use the canonical PDF-ready metadata writer'));
+  // #2172/#2185: the agent tailors CONTENT only and runs with no write tool at
+  // all — a prompt injection in the posting or report lands in its context, and
+  // tool grants are tool-name-only, so any Write/Edit it held would be unscoped.
+  // The platform (a plain Node child process, no CLI sandbox) writes the HTML,
+  // renders the PDF, and flips the tracker's PDF column through the canonical
+  // locked writer. So the prompt must delegate output explicitly and must never
+  // hand the agent a tracker write of ANY shape — canonical CLI or hand-edit.
+  if (!/platform writes the HTML, renders the PDF, and updates the tracker's PDF column itself, only after a confirmed successful render/i.test(pdf)) {
+    errors.push(issue(file, 'headless PDF worker does not delegate output and PDF-ready metadata to the platform'));
   }
-  if (!/Never edit data\/applications\.md by hand/i.test(pdf)) {
-    errors.push(issue(file, 'headless PDF worker does not forbid direct tracker editing'));
+  if (/node\s+(?:set-status|mark-pdf-ready)\.mjs/.test(pdf)) {
+    errors.push(issue(file, 'headless PDF worker prompt hands the agent a tracker metadata write'));
   }
   if (/in data\/applications\.md,\s*change the PDF column/i.test(pdf) ||
       /(?:edit|change|replace)[^\n]{0,80}(?:PDF column|PDF cell)[^\n]{0,80}applications\.md/i.test(pdf)) {
@@ -1568,7 +1575,9 @@ export function auditApplicationContract(root = ROOT) {
   }
   errors.push(...checkWebRuntime(root));
   {
-    const file = 'web/src/app/api/run/route.ts';
+    // #2172/#2185 moved the headless prompts out of the route and into
+    // run-prompts.mjs; the route now only orchestrates and renders.
+    const file = 'web/src/lib/run-prompts.mjs';
     const source = readRequired(root, file, errors);
     if (source) errors.push(...checkWebPdfWorkerRuntime(file, source));
   }

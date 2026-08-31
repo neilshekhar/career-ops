@@ -50,6 +50,12 @@ export const CANONICAL_STATES = [
   "SKIP",
 ] as const;
 
+export function canonStatus(s: string): string {
+  const k = s.trim().toLowerCase();
+  if (k === "" || k === "—" || k === "-") return "DISCARDED";
+  return STATUS_ALIAS[k] ?? s.toUpperCase();
+}
+
 /** Status dot colour, mirroring the Go TUI: green hired/interview/offer, sky
  *  applied/responded, red skip/rejected, gray discarded, neutral evaluated. */
 export function statusDot(status: string): string {

@@ -117,19 +117,42 @@ assert(
 );
 pass('plain Submit is registration-only behind conclusive live-page evidence');
 
-const pdfWorker = readFileSync(join(ROOT, 'web/src/app/api/run/route.ts'), 'utf8');
-assert.deepEqual(checkWebPdfWorkerRuntime('web/src/app/api/run/route.ts', pdfWorker), []);
+// #2172/#2185 moved the web PDF flow: the agent emits a CV envelope and holds no
+// write tool, while the platform renders and flips the PDF column. The prompt now
+// lives in run-prompts.mjs, so the guard reads it there.
+const PDF_WORKER_FILE = 'web/src/lib/run-prompts.mjs';
+const pdfWorker = readFileSync(join(ROOT, PDF_WORKER_FILE), 'utf8');
+assert.deepEqual(checkWebPdfWorkerRuntime(PDF_WORKER_FILE, pdfWorker), []);
 assert(
   checkWebPdfWorkerRuntime(
-    'web/src/app/api/run/route.ts',
+    PDF_WORKER_FILE,
     pdfWorker.replace(
-      'node set-status.mjs ${input} --pdf-ready --json',
-      'in data/applications.md, change the PDF column for row #${input} from ❌ to ✅',
+      'The platform writes the HTML, renders the PDF, and updates the tracker\'s PDF column itself, only after a confirmed successful render.',
+      'Then run `node set-status.mjs ${input} --pdf-ready --json` yourself.',
     ),
-  ).some((item) => item.message.includes('canonical PDF-ready metadata writer')),
-  'guard must reject headless PDF prompts that hand-edit the tracker',
+  ).some((item) => item.message.includes('hands the agent a tracker metadata write')),
+  'guard must reject headless PDF prompts that hand the agent a tracker write',
 );
-pass('headless PDF worker delegates PDF metadata to set-status.mjs');
+assert(
+  checkWebPdfWorkerRuntime(
+    PDF_WORKER_FILE,
+    pdfWorker.replace(
+      'The platform writes the HTML, renders the PDF, and updates the tracker\'s PDF column itself, only after a confirmed successful render.',
+      'In data/applications.md, change the PDF column for row #${input} from ❌ to ✅.',
+    ),
+  ).some((item) => item.message.includes('direct applications.md metadata edit')),
+  'guard must still reject a hand-edit instruction in the headless PDF prompt',
+);
+// The canonical locked writer did not disappear with #2172 — it moved from the
+// agent's prompt to the platform. Assert it where it now lives, so "the agent
+// holds no write tool" can never quietly become "nothing writes it safely".
+const pdfRenderBackend = readFileSync(join(ROOT, 'web/src/lib/pdf-render.mjs'), 'utf8');
+assert.match(
+  pdfRenderBackend,
+  /mark-pdf-ready\.mjs/,
+  'the platform must flip the PDF column through the canonical locked writer',
+);
+pass('headless PDF worker holds no tracker write; the platform uses mark-pdf-ready.mjs');
 
 const trackerRuntime = readFileSync(join(ROOT, 'tracker.mjs'), 'utf8');
 assert.deepEqual(checkTrackerDeleteRuntime('tracker.mjs', trackerRuntime), []);
