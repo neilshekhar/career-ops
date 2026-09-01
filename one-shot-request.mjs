@@ -558,6 +558,9 @@ export function verifyOneShotAssets(roleId, options = {}) {
       // Sibling roles with real assets, so the contextual tailoring gate can see
       // an untailored CV or a recycled cover body before a live fill is queued.
       peers: queue.roles,
+      // Queue settings carry the portal-hosted-resume toggle; without them this
+      // gate rejects a CV-less role the dashboard gate already accepted.
+      settings: queue.settings,
     })
       .filter((item) => item.level === 'error');
     if (errors.length) {
@@ -610,6 +613,9 @@ export function dispatchOneShotFill(roleId, options = {}) {
       // Sibling roles with real assets, so the contextual tailoring gate can see
       // an untailored CV or a recycled cover body before a live fill is queued.
       peers: queue.roles,
+      // Queue settings carry the portal-hosted-resume toggle; without them this
+      // gate rejects a CV-less role the dashboard gate already accepted.
+      settings: queue.settings,
     })
       .filter((item) => item.level === 'error');
     if (errors.length) {

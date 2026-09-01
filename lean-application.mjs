@@ -19,6 +19,7 @@ import { createHash } from 'crypto';
 import { fileURLToPath, pathToFileURL } from 'url';
 
 import { resolveApplicationAsset } from './application-source-contract.mjs';
+import { hostOf, hostsCandidateResume } from './portal-resume-hosts.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const TEST_PROJECT_ROOT_ALLOWED = process.env.NODE_ENV === 'test'
@@ -145,6 +146,37 @@ export function recordLeanPage(roleId, payload = {}) {
     entry.displayed_filenames = Array.isArray(progress.pending_resolver_evidence?.displayed_filenames)
       ? progress.pending_resolver_evidence.displayed_filenames.map(String)
       : [];
+
+    // Record the host of the page actually being filled, under the same lock
+    // that commits the page. This is the ONLY authority the portal-hosted-resume
+    // exemption trusts (portal-resume-hosts.mjs): Seek and Indeed also carry
+    // "apply on company site" listings that hand off to an external ATS holding
+    // no resume, and only the live page can prove where the form really is.
+    // Sticky once off-portal: a wizard that returns to a board-hosted page must
+    // not silently re-qualify a role whose form left the board.
+    const pageHost = hostOf(entry.url);
+    if (pageHost) {
+      const recorded = progress.application_host;
+      const alreadyOffPortal = recorded && !hostsCandidateResume(recorded);
+      if (!alreadyOffPortal) progress.application_host = pageHost;
+    }
+    // Fail closed the moment a redirect invalidates the exemption the role was
+    // prepared under. Without a tailored CV this application would otherwise be
+    // filled on an ATS with nothing attached at all — the exact outcome the
+    // asset gate exists to prevent. Stop here so PREPARE can generate the CV.
+    if (
+      queue.settings?.portal_default_cv === true
+      && role.cv_source === 'portal-default'
+      && !role.cv_pdf
+      && progress.application_host
+      && !hostsCandidateResume(progress.application_host)
+    ) {
+      throw new Error(
+        `this application left the job board for ${progress.application_host}, which holds no resume for you: `
+        + 'the portal-hosted-resume exemption no longer applies. Generate a tailored CV for this role '
+        + '(re-run PREPARE) before continuing the fill.',
+      );
+    }
 
     progress.lean_pages = Array.isArray(progress.lean_pages) ? progress.lean_pages : [];
     const existing = progress.lean_pages.findIndex((p) => p.page_index === pageIndex);

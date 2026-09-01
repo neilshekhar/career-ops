@@ -12,7 +12,8 @@ import { careerOpsRoot, readMemory, findReportFile, readInbox, readScanDates } f
 import { resolvePdfPaths, type PdfPaths } from "@/lib/pdf-paths.mjs";
 import { renderAndMarkPdf, writeCvHtml, pdfRunOutcome } from "@/lib/pdf-render.mjs";
 import { createCvEnvelopeFilter, type CvEnvelope } from "@/lib/cv-envelope.mjs";
-import { buildPrompt, isShellSafeCompanyName } from "@/lib/run-prompts.mjs";
+import { buildPrompt } from "@/lib/run-prompts.mjs";
+import { resolveRunPolicy } from "@/lib/run-policy.mjs";
 import { claudeCliArgs } from "@/lib/claude-invocation.mjs";
 import { acquireTrackerWrite, releaseTrackerWrite } from "@/lib/core/run-registry";
 
@@ -38,6 +39,17 @@ export async function POST(req: Request) {
   if (!input || !cliId) {
     return new Response(JSON.stringify({ error: "input and cliId required" }), { status: 400 });
   }
+  // Kind validation, the fix-portal shell-safety refusal, and every per-kind
+  // rule below come from run-policy.mjs — one table, unit-tested directly,
+  // because a Next route handler cannot be imported from `node --test`.
+  const decision = resolveRunPolicy({ kind, input });
+  if (!decision.ok) {
+    return new Response(JSON.stringify({ error: decision.error }), {
+      status: decision.status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const { policy } = decision;
   const resolved = resolveCli(cliId);
   if (!resolved) {
     return new Response(JSON.stringify({ error: `CLI '${cliId}' not found` }), {
@@ -49,8 +61,7 @@ export async function POST(req: Request) {
 
   // These run the REAL core (modes/scripts), not just data — fail clearly if the
   // root is incomplete instead of faking it.
-  const needsScript: Record<string, string> = { evaluate: "modes/oferta.md", "fix-portal": "verify-portals.mjs", pdf: "generate-pdf.mjs" };
-  const required = needsScript[kind];
+  const required = policy.requiresScript;
   if (required && !fs.existsSync(path.join(careerOpsRoot(), required))) {
     return new Response(
       JSON.stringify({
@@ -62,7 +73,7 @@ export async function POST(req: Request) {
 
   // An A–G score is meaningless without a CV to score against — the CLI would
   // hallucinate a fit narrative and still emit a VERDICT. Require cv.md first.
-  if ((kind === "evaluate" || kind === "pdf") && !fs.existsSync(path.join(careerOpsRoot(), "cv.md"))) {
+  if (policy.requiresCv && !fs.existsSync(path.join(careerOpsRoot(), "cv.md"))) {
     return new Response(
       JSON.stringify({ error: "Add your CV first so I can score this against you — drop it on the home page." }),
       { status: 400, headers: { "Content-Type": "application/json" } },
@@ -129,11 +140,11 @@ export async function POST(req: Request) {
       return [];
     }
   };
-  const persists = kind === "evaluate";
+  const persists = policy.persists;
   const reportsBefore = persists ? reportEntries() : [];
   // Tracker-mutating runs hold a write token so a row delete can't race their merge
   // (tracker.mjs delete doesn't yet share a lock with merge-tracker — see run-registry).
-  const writeToken = kind === "evaluate" || kind === "pdf" ? acquireTrackerWrite() : null;
+  const writeToken = policy.holdsTrackerWrite ? acquireTrackerWrite() : null;
 
   // stdin must reach EOF or the CLI waits on piped input that never comes: Codex's
   // `exec` blocks reading stdin for additional context, hangs until the kill timer,

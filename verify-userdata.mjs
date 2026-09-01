@@ -918,14 +918,26 @@ export function validateApplicationRole(role, options = {}) {
     issues.push(issue('error', 'jd-source-missing', 'No substantive inline JD or approved jds/ source is available for this application.', role, role.jd_path || null));
   }
 
+  // Seek/Indeed attach the candidate's own profile resume to a NATIVE
+  // application, so with the dashboard toggle on there is deliberately no
+  // tailored CV — neither the PDF nor its source HTML. Resolve the exemption
+  // ONCE here so every CV-specific requirement consults the same value:
+  // suppressing `cv-missing` alone still failed the role on
+  // `cv-source-html-missing` a few lines down, which made the toggle unusable
+  // while looking implemented. The host that decides is the one the FORM is on,
+  // so a listing that redirects to an external ATS keeps the full requirement
+  // (portal-resume-hosts.mjs). Cover letters, candidate-claim tracing and every
+  // non-CV check below are deliberately untouched.
+  //
+  // A role that DECLARES a cv_pdf must still resolve it: the exemption means
+  // "no tailored CV was generated", never "a broken asset path is acceptable".
+  const usesPortalResume = portalResumeExemptionApplies(role, options.settings)
+    && !role.cv_pdf
+    && !roleAssetPaths(role).cv_html;
+
   const cv = resolveApplicationAsset(root, role.cv_pdf, 'cv_pdf');
   if (!cv) {
-    // Seek/Indeed attach the candidate's own profile resume to a NATIVE
-    // application, so with the dashboard toggle on there is deliberately no
-    // tailored CV to resolve. The exemption is decided by the host the FORM is
-    // on, so a listing that redirects to an external ATS keeps the hard
-    // requirement — see portal-resume-hosts.mjs. Cover letters are untouched.
-    if (portalResumeExemptionApplies(role, options.settings)) {
+    if (usesPortalResume) {
       issues.push(issue('info', 'cv-portal-default', 'No tailored CV: this application uses the resume hosted on the job board profile.', role, null));
     } else {
       issues.push(issue('error', 'cv-missing', 'Tailored CV PDF is missing, out of scope, symlinked, or has the wrong format.', role, role.cv_pdf || null));
@@ -944,9 +956,9 @@ export function validateApplicationRole(role, options = {}) {
   const coverPayload = resolveApplicationAsset(root, covers.payload, 'cover_payload');
   const cvHtml = resolveApplicationAsset(root, roleAssetPaths(role).cv_html, 'cv_html');
 
-  if (!cvHtml) {
+  if (!cvHtml && !usesPortalResume) {
     issues.push(issue('error', 'cv-source-html-missing', 'The tailored CV source HTML must be retained beside the PDF for content QC and regeneration.', role, cvHtml?.relative || null));
-  } else {
+  } else if (cvHtml) {
     const currentTemplates = detectAssetTemplates(root, role);
     if (!isSupportedCvTemplateIdentity(currentTemplates.cv)) {
       issues.push(issue(
@@ -1193,6 +1205,10 @@ export function createApplicationQualityEvidence(role, options = {}) {
     quality: options.quality || applicationQualityConfig(profile),
     now,
     requireAssets: true,
+    // Queue settings decide the portal-hosted-resume exemption. Without them
+    // this gate reaches a different verdict than the one the caller already
+    // passed, so a legitimately CV-less role fails here only.
+    settings: options.settings ?? loadQueue().settings,
   }).filter((item) => item.level === 'error');
   if (errors.length) {
     throw new Error(`application quality gate failed: ${errors.map((item) => `${item.code}: ${item.message}`).join(' | ')}`);

@@ -846,6 +846,10 @@ function apiRun(req, res) {
             profile,
             quality,
             requireAssets: true,
+            // Queue settings carry the portal-hosted-resume toggle; without
+            // them this gate would demand a tailored CV the candidate
+            // deliberately did not generate.
+            settings: freshQueue.settings,
             // Sibling roles with real assets, so an untailored CV or a recycled
             // cover body is caught before a live fill request is created.
             peers: freshQueue.roles,

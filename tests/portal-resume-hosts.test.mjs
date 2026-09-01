@@ -115,20 +115,36 @@ assert.equal(
 );
 pass('a recorded application host overrides the listing URL, never the reverse');
 
-// ── The gate honours it, and only it ─────────────────────────────────────────
-const gate = readFileSync(join(ROOT, 'verify-userdata.mjs'), 'utf8');
-assert.match(gate, /portalResumeExemptionApplies\(role, options\.settings\)/,
-  'the asset gate must consult the exemption before erroring on a missing CV');
-assert.match(gate, /settings: queue\.settings/,
-  'queue settings must reach validateApplicationRole or the toggle can never be seen');
-assert.match(gate, /'cv-missing'/,
-  'the hard cv-missing error must still exist for every non-exempt role');
-pass('verify-userdata.mjs gates the exemption and keeps cv-missing for everyone else');
+// ── Every gate that can block a fill must see the toggle ─────────────────────
+// Behaviour is covered by tests/portal-resume-gate.test.mjs, which runs the real
+// validateApplicationRole. What source text is still the right tool for is
+// PROPAGATION: an exemption the CLI honours but the dashboard and One-shot gates
+// cannot see is worse than no exemption at all, because it fails only on the
+// paths that matter. Each of these call sites must pass queue settings through.
+for (const [file, needle] of [
+  ['verify-userdata.mjs', /settings: queue\.settings/],
+  ['verify-userdata.mjs', /settings: options\.settings \?\? loadQueue\(\)\.settings/],
+  ['dashboard-server.mjs', /settings: freshQueue\.settings/],
+  ['one-shot-request.mjs', /settings: queue\.settings/],
+]) {
+  assert.match(readFileSync(join(ROOT, file), 'utf8'), needle,
+    `${file} must pass queue settings into validateApplicationRole`);
+}
+// One-shot verifies AND dispatches; both re-run the gate under the lock.
+const oneShot = readFileSync(join(ROOT, 'one-shot-request.mjs'), 'utf8');
+assert.equal((oneShot.match(/settings: queue\.settings/g) || []).length, 2,
+  'both the One-shot verify and dispatch gates must pass settings');
+pass('all four asset gates receive the queue settings the exemption depends on');
 
-// The cover letter is never part of this exemption.
-assert.doesNotMatch(
-  gate,
-  /portalResumeExemptionApplies[\s\S]{0,400}cover-missing/,
-  'the portal exemption must never be extended to cover letters',
-);
-pass('cover letters stay required — the boards host a resume, not a cover letter');
+// ── The redirect producer exists in tracked code ─────────────────────────────
+// portal-resume-hosts.mjs only READS application_host. If nothing writes it, the
+// helper silently falls back to the Seek/Indeed listing URL and an external-ATS
+// redirect keeps an exemption it should have lost.
+const lean = readFileSync(join(ROOT, 'lean-application.mjs'), 'utf8');
+assert.match(lean, /progress\.application_host = pageHost/,
+  'the observed form host must be recorded under the queue lock');
+assert.match(lean, /alreadyOffPortal/,
+  'an off-portal host must be sticky, so returning to a board page cannot re-qualify');
+assert.match(lean, /the portal-hosted-resume exemption no longer applies/,
+  'a redirect discovered mid-fill must fail closed rather than fill with no CV');
+pass('recordLeanPage records the live form host and fails closed on a redirect');

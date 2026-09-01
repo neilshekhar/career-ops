@@ -3,40 +3,16 @@
 // core: normalize-statuses.mjs (aliases) + the Go TUI dashboard (score/status
 // colours = the current state-of-the-art).
 
-// Spanish + legacy aliases → canonical English tokens (normalize-statuses.mjs).
-const STATUS_ALIAS: Record<string, string> = {
-  evaluada: "EVALUATED",
-  evaluado: "EVALUATED",
-  condicional: "EVALUATED",
-  hold: "EVALUATED",
-  evaluar: "EVALUATED",
-  verificar: "EVALUATED",
-  aplicada: "APPLIED",
-  aplicado: "APPLIED",
-  enviada: "APPLIED",
-  sent: "APPLIED",
-  respondida: "RESPONDED",
-  respondido: "RESPONDED",
-  contestada: "RESPONDED",
-  entrevista: "INTERVIEW",
-  oferta: "OFFER",
-  contratado: "HIRED",
-  contratada: "HIRED",
-  hired: "HIRED",
-  accepted: "HIRED",
-  accept: "HIRED",
-  rechazada: "REJECTED",
-  rechazado: "REJECTED",
-  descartada: "DISCARDED",
-  descartado: "DISCARDED",
-  cerrada: "DISCARDED",
-  cancelada: "DISCARDED",
-  duplicado: "DISCARDED",
-  repost: "DISCARDED",
-  monitor: "SKIP",
-  no_aplicar: "SKIP",
-  "no aplicar": "SKIP",
-};
+// The alias map lives in status-alias.mjs, which exists precisely so this file
+// can import it (its header says so) and so tests/lib/status-alias.test.mjs can
+// pin every alias against templates/states.yml. Keeping a second copy here is
+// what broke `Hired` in #2249 and drifted again as #2917 — a third copy briefly
+// returned with the 2026-08-31 web repair and cost the queue-stage aliases
+// (`ready`, `pre-filled`, `prepare-queued`) that analytics and the pipeline
+// filters read through this module. Re-export, never re-declare.
+import { canonStatus } from "./status-alias.mjs";
+
+export { canonStatus };
 
 export const CANONICAL_STATES = [
   "Evaluated",
@@ -49,12 +25,6 @@ export const CANONICAL_STATES = [
   "Discarded",
   "SKIP",
 ] as const;
-
-export function canonStatus(s: string): string {
-  const k = s.trim().toLowerCase();
-  if (k === "" || k === "—" || k === "-") return "DISCARDED";
-  return STATUS_ALIAS[k] ?? s.toUpperCase();
-}
 
 /** Status dot colour, mirroring the Go TUI: green hired/interview/offer, sky
  *  applied/responded, red skip/rejected, gray discarded, neutral evaluated. */
