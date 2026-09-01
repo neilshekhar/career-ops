@@ -30,7 +30,7 @@ const VALID_CLIS = ['claude', 'codex', 'opencode', 'antigravity', 'grok', 'qwen'
 // silently diagnosed THIS checkout instead of the one asked for. Handled via
 // lib/cli-flags.mjs's validateFlags() (#2775), which rejects unrecognized
 // flags before --help so `--help --bogus` still errors.
-const KNOWN_FLAGS = ['--target', '--json', '--strict', '--cli', '--help', '-h'];
+const KNOWN_FLAGS = ['--target', '--json', '--strict', '--setup', '--cli', '--help', '-h'];
 
 // Both take their value as the next argv token.
 const VALUE_FLAGS = ['--target', '--cli'];
@@ -39,6 +39,7 @@ const USAGE = `Usage:
   node doctor.mjs                    # run the setup diagnostic
   node doctor.mjs --json             # machine-readable onboarding state
   node doctor.mjs --strict           # also probe portals.yml ATS slugs (network)
+  node doctor.mjs --setup            # check only the core runtime for a fresh install
   node doctor.mjs --target <path>    # diagnose another career-ops checkout
   node doctor.mjs --cli <name>       # check a specific CLI's integration
   node doctor.mjs --help             # show this message

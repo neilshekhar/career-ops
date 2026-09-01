@@ -28,6 +28,21 @@ const scaffolderSrc = readFileSync(join(ROOT, 'scaffolder', 'bin', 'cli.mjs'), '
 const doctorSrc = readFileSync(join(ROOT, 'doctor.mjs'), 'utf8');
 const trackerSrc = readFileSync(join(ROOT, 'tracker.mjs'), 'utf8');
 const interviewMode = readFileSync(join(ROOT, 'modes', 'interview.md'), 'utf8');
+const testWorkflow = readFileSync(join(ROOT, '.github', 'workflows', 'test.yml'), 'utf8');
+
+// The fork's PR workflow runs the complete test suite, whose first section is
+// the syntax gate. An upstream-only preflight once called a root npm script the
+// fork does not declare and failed on every OS before tests even installed.
+// Keep workflow commands executable, and keep one setup-node step per job.
+const workflowNpmScripts = [...testWorkflow.matchAll(/^\s*- run:\s+npm run ([\w:-]+)\s*$/gm)]
+  .map((match) => match[1]);
+for (const script of workflowNpmScripts) {
+  assert.equal(typeof rootPkg.scripts?.[script], 'string',
+    `.github/workflows/test.yml invokes missing root npm script: ${script}`);
+}
+assert.equal((testWorkflow.match(/uses:\s*actions\/setup-node@/g) || []).length, 2,
+  'Tests workflow must have one setup-node step in the matrix job and one in the Node 18 smoke job');
+pass('the PR workflow invokes only declared npm scripts and keeps one Node setup per job');
 
 // ── 2. The postinstall fallback is genuinely different ─────────────────────
 const postinstall = String(rootPkg.scripts?.postinstall || '');
@@ -246,6 +261,18 @@ pass('DOCX is a warning unless the profile actually requires it, then a clear fa
 // `--setup` must not demand the onboarding files.
 assert.match(doctorSrc, /SETUP_ONLY \? \[\] : USER_LAYER_PREREQS\.map\(checkPrereq\)/);
 pass('doctor --setup skips the onboarding prerequisites the scaffolder deliberately leaves absent');
+
+// Strict flag validation must recognize the fork's pre-existing setup mode.
+// `--help` exits before diagnostics, so this proves the real CLI parser accepts
+// the workflow/scaffolder command without consulting machine-specific state.
+const setupHelp = spawnSync(process.execPath, [join(ROOT, 'doctor.mjs'), '--setup', '--help'], {
+  cwd: ROOT,
+  encoding: 'utf8',
+});
+assert.equal(setupHelp.status, 0,
+  `doctor --setup was rejected by strict flag validation: ${setupHelp.stderr}`);
+assert.match(setupHelp.stdout, /node doctor\.mjs --setup/);
+pass('doctor strict flag validation accepts the existing --setup runtime mode');
 
 // ── 1 + 3. Shared voice policy, personal digest ────────────────────────────
 const trackedVoice = execFileSync('git', ['ls-files', 'voice-dna.md'], { cwd: ROOT, encoding: 'utf8' }).trim();
