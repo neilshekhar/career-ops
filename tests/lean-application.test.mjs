@@ -147,10 +147,13 @@ writeFileSync(reportPath, [
 const url = 'https://jobs.example.test/lean';
 const roleId = 'lean:analyst';
 const receiptRoleId = 'receipt:analyst';
+const portalRoleId = 'portal-resume:analyst';
+const portalUrl = 'https://www.seek.com.au/job/12345';
 
 writeFileSync(join(dataDir, 'apply-queue.json'), JSON.stringify({
   version: 1,
   settings: {
+    portal_default_cv: true,
     application_controller: {
       version: 1,
       controller: 'active-agent',
@@ -211,6 +214,40 @@ writeFileSync(join(dataDir, 'apply-queue.json'), JSON.stringify({
         ],
       },
     },
+    {
+      id: portalRoleId,
+      company: 'Lean Co',
+      title: 'Analyst',
+      url: portalUrl,
+      status: 'prepared',
+      cv_source: 'portal-default',
+      jd_path: 'jds/lean-analyst.md',
+      jd_text: jdText,
+      cover_letter_paths: { md: coverMd, pdf: coverPdf, payload: coverPayload },
+      one_shot_request: {
+        version: 1,
+        state: 'fill-requested',
+        selection_intent_id: 'portal-selection',
+        requested_at: '2026-07-20T00:00:00.000Z',
+        updated_at: '2026-07-20T00:00:00.000Z',
+        history: [],
+      },
+      application_request: {
+        version: 1,
+        request_id: 'portal-run:portal-resume:analyst',
+        run_id: 'portal-run',
+        role_id: portalRoleId,
+        source: 'dashboard-one-shot',
+        state: 'queued',
+        controller: 'active-agent',
+        controller_id: 'browser-controller:test',
+        requested_at: '2026-07-20T00:00:00.000Z',
+        url: portalUrl,
+        contract: [
+          'modes/apply.md', 'modes/_custom.md', 'queue-resolve.mjs', 'application-receipt.mjs',
+        ],
+      },
+    },
   ],
 }, null, 2) + '\n', 'utf8');
 
@@ -247,6 +284,63 @@ try {
       },
     };
   }
+
+  const idlePortalRoleId = 'portal-resume:idle';
+  store.mutateQueue((queue) => {
+    queue.roles.push({
+      id: idlePortalRoleId,
+      company: 'Idle Co',
+      title: 'Analyst',
+      url: portalUrl,
+      status: 'prepared',
+      cv_source: 'portal-default',
+    });
+  });
+  assert.throws(
+    () => receipt.recordObservedApplicationHost(
+      idlePortalRoleId,
+      'https://boards.greenhouse.io/idle-co/jobs/1',
+    ),
+    /durable queued dashboard application_request is required/,
+  );
+  const idlePortalRole = store.loadQueue().roles.find((r) => r.id === idlePortalRoleId);
+  assert.equal(idlePortalRole.application_host, undefined);
+  assert.equal(idlePortalRole.status, 'prepared');
+  pass('host observation cannot mutate an idle role without dashboard authorization');
+
+  const portalProgress = lean.beginLeanOrReceipt(portalRoleId, {
+    run_id: 'portal-run',
+    tab: { id: 'tab-portal', url: portalUrl, title: 'Analyst — Lean Co' },
+    ...leanPreflight(portalUrl, 'Lean Co', 'Analyst'),
+  });
+  assert.equal(portalProgress.application_host, 'seek.com.au');
+  assert.throws(
+    () => lean.recordLeanPage(portalRoleId, {
+      page_index: 0,
+      url: 'https://boards.greenhouse.io/lean-co/jobs/12345',
+      label: 'Application form',
+    }),
+    (error) => {
+      assert.equal(error.code, 'PORTAL_RESUME_REDIRECT');
+      assert.equal(error.httpCode, 409);
+      assert.match(error.message, /observed host was saved and this role was returned to PREPARE/i);
+      return true;
+    },
+  );
+  const redirectedPortalRole = store.loadQueue().roles.find((r) => r.id === portalRoleId);
+  assert.equal(redirectedPortalRole.application_host, 'boards.greenhouse.io');
+  assert.equal(redirectedPortalRole.application_progress, undefined);
+  assert.equal(redirectedPortalRole.status, 'prepare-queued');
+  assert.equal(redirectedPortalRole.application_request.state, 'parked');
+  assert.equal(redirectedPortalRole.application_request.asset_quality_evidence, undefined);
+  assert.equal(redirectedPortalRole.one_shot_request.state, 'preparing');
+  assert.equal(redirectedPortalRole.one_shot_request.selection_intent_id, 'portal-selection');
+  const { portalResumeExemptionApplies } = await import('../portal-resume-hosts.mjs');
+  assert.equal(
+    portalResumeExemptionApplies(redirectedPortalRole, store.loadQueue().settings),
+    false,
+  );
+  pass('external redirect persists before the 409, parks the stale fill, and rewinds One-shot to PREPARE');
 
   let progress;
   store.mutateQueue((queue) => {

@@ -29,6 +29,7 @@ import {
 } from './application-source-contract.mjs';
 import { buildMarkdown } from './generate-cover-markdown.mjs';
 import { coverSkeletonFingerprints } from './cover-quality.mjs';
+import { portalResumeExemptionApplies } from './portal-resume-hosts.mjs';
 import { loadQueue, mutateQueue } from './queue-store.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -276,6 +277,7 @@ export function buildGenerationProvenance({
   flow = RELEASE_FLOW,
   root = ROOT,
   now = new Date(),
+  settings = null,
 }) {
   if (!role?.id) throw new Error('A queue role with an id is required.');
   if (!String(cli || '').trim()) throw new Error('Generator CLI is required.');
@@ -287,6 +289,16 @@ export function buildGenerationProvenance({
   if (!resolveRoleJdInput(root, role)) {
     throw new Error('A substantive inline JD or approved jds/ source is required before generation provenance can be recorded.');
   }
+
+  // A native Seek/Indeed application may deliberately have no generated CV:
+  // the board attaches the candidate's profile resume. This is still a
+  // release-gated application asset set, so provenance must bind the generated
+  // cover files without manufacturing a fake CV path. The exception is exact
+  // and opt-in; every other flow keeps the historical CV requirements.
+  const usesPortalResume = flow === RELEASE_FLOW
+    && portalResumeExemptionApplies(role, settings)
+    && !role.cv_pdf
+    && !roleAssetPaths(role).cv_html;
 
   const assets = {};
   for (const [kind, value] of Object.entries(roleAssetPaths(role))) {
@@ -308,7 +320,13 @@ export function buildGenerationProvenance({
     };
   }
 
-  for (const required of ['cv_pdf', 'cv_html', 'cover_md', 'cover_pdf', 'cover_payload']) {
+  const requiredAssets = [
+    ...(!usesPortalResume ? ['cv_pdf', 'cv_html'] : []),
+    'cover_md',
+    'cover_pdf',
+    'cover_payload',
+  ];
+  for (const required of requiredAssets) {
     if (!assets[required]) throw new Error(`Required application asset is missing: ${required}`);
   }
   let coverPayload;
@@ -322,7 +340,7 @@ export function buildGenerationProvenance({
     throw new Error('Cover Markdown diverges from the canonical cover payload; re-render all cover formats before stamping provenance.');
   }
   const templates = detectAssetTemplates(root, role);
-  if (!isSupportedCvTemplateIdentity(templates.cv)) {
+  if (!usesPortalResume && !isSupportedCvTemplateIdentity(templates.cv)) {
     throw new Error(
       `CV template identity is missing or unsupported: `
       + `${templates.cv?.template_id || 'unrecorded'}@${templates.cv?.template_version || 'missing'}`,
@@ -340,6 +358,7 @@ export function buildGenerationProvenance({
       ...(String(effort || '').trim() ? { effort: String(effort).trim().toLowerCase() } : {}),
     },
     assets,
+    ...(usesPortalResume ? { cv_source: 'portal-default' } : {}),
     // Which supported renderer produced the CV. Recording the identity beats
     // requiring one exact CSS shape: standard, conservative, and localized
     // templates all stay valid, while a hand-built unrecorded template is
@@ -550,7 +569,9 @@ function stamp(args) {
   }
 
   const expectedAssets = roleAssetPaths(role);
-  const provenance = buildGenerationProvenance({ role, cli, model, effort });
+  const provenance = buildGenerationProvenance({
+    role, cli, model, effort, settings: queue.settings,
+  });
   mutateQueue((freshQueue) => {
     const freshRole = freshQueue.roles.find((item) => item.id === roleId);
     if (!freshRole) throw new Error(`Queue role disappeared before provenance commit: ${roleId}`);

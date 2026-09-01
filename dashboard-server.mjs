@@ -1248,6 +1248,7 @@ function apiRoleFill(req, res, id) {
         profile,
         quality,
         requireAssets: true,
+        settings: freshQueue.settings,
         peers: freshQueue.roles,
       }).filter((item) => item.level === 'error');
       if (qualityIssues.length > 0) {

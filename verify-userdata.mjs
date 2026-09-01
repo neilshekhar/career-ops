@@ -665,7 +665,9 @@ function validateCandidateClaims(role, issues, { root, cvText, coverBody }) {
   ].filter(Boolean).join(' '));
 }
 
-function validateGenerationProvenance(role, issues, { root, quality, source }) {
+function validateGenerationProvenance(role, issues, {
+  root, quality, source, usesPortalResume = false,
+}) {
   const provenance = role.generation_provenance;
   if (!provenance || typeof provenance !== 'object') {
     issues.push(issue('error', 'generation-provenance-missing', 'No generation_provenance record is stored for these application assets.', role));
@@ -748,13 +750,21 @@ function validateGenerationProvenance(role, issues, { root, quality, source }) {
   }
 
   const currentTemplates = detectAssetTemplates(root, role);
-  if (!isSupportedCvTemplateIdentity(currentTemplates.cv)) {
+  if (!usesPortalResume && !isSupportedCvTemplateIdentity(currentTemplates.cv)) {
     issues.push(issue(
       'error',
       'generation-provenance-template-unsupported',
       'Generation provenance cannot bind an unrecorded or unsupported CV template.',
       role,
       roleAssetPaths(role).cv_html,
+    ));
+  }
+  if (usesPortalResume && provenance.cv_source !== 'portal-default') {
+    issues.push(issue(
+      'error',
+      'generation-provenance-cv-source',
+      'Cover-only provenance must record cv_source as portal-default.',
+      role,
     ));
   }
   if (JSON.stringify(provenance.templates ?? null) !== JSON.stringify(currentTemplates)) {
@@ -1125,7 +1135,11 @@ export function validateApplicationRole(role, options = {}) {
 
   if (quality.requireQualityManifest) validateQualityManifest(role, issues, { root, source, coverBody, quality });
   if (quality.requireCandidateClaimTrace) validateCandidateClaims(role, issues, { root, cvText: cvHtml && existsSync(cvHtml.absolute) ? visibleHtmlText(readFileSync(cvHtml.absolute, 'utf-8')) : '', coverBody });
-  if (quality.requireGenerationProvenance) validateGenerationProvenance(role, issues, { root, quality, source });
+  if (quality.requireGenerationProvenance) {
+    validateGenerationProvenance(role, issues, {
+      root, quality, source, usesPortalResume,
+    });
+  }
 
   // Contextual role tailoring. Only runs when the caller supplied the sibling
   // roles to compare against — a single-role validation has nothing to compare,
@@ -1208,7 +1222,11 @@ export function createApplicationQualityEvidence(role, options = {}) {
     // Queue settings decide the portal-hosted-resume exemption. Without them
     // this gate reaches a different verdict than the one the caller already
     // passed, so a legitimately CV-less role fails here only.
-    settings: options.settings ?? loadQueue().settings,
+    // Evidence construction must stay deterministic and side-effect free.
+    // Production callers already own a queue snapshot and pass its settings;
+    // omission therefore means the strict toggle-off policy, not an implicit
+    // live/Supabase queue read from inside this validator.
+    settings: options.settings ?? {},
   }).filter((item) => item.level === 'error');
   if (errors.length) {
     throw new Error(`application quality gate failed: ${errors.map((item) => `${item.code}: ${item.message}`).join(' | ')}`);

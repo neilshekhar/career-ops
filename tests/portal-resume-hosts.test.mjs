@@ -115,6 +115,17 @@ assert.equal(
 );
 pass('a recorded application host overrides the listing URL, never the reverse');
 
+assert.equal(
+  portalResumeExemptionApplies({
+    url: 'https://www.seek.com.au/job/1',
+    cv_source: 'portal-default',
+    application_host: 'boards.greenhouse.io',
+    application_progress: { application_host: 'www.seek.com.au' },
+  }, on),
+  false,
+);
+pass('the durable role host overrides an abandoned progress receipt');
+
 // ── Every gate that can block a fill must see the toggle ─────────────────────
 // Behaviour is covered by tests/portal-resume-gate.test.mjs, which runs the real
 // validateApplicationRole. What source text is still the right tool for is
@@ -123,28 +134,45 @@ pass('a recorded application host overrides the listing URL, never the reverse')
 // paths that matter. Each of these call sites must pass queue settings through.
 for (const [file, needle] of [
   ['verify-userdata.mjs', /settings: queue\.settings/],
-  ['verify-userdata.mjs', /settings: options\.settings \?\? loadQueue\(\)\.settings/],
   ['dashboard-server.mjs', /settings: freshQueue\.settings/],
   ['one-shot-request.mjs', /settings: queue\.settings/],
 ]) {
   assert.match(readFileSync(join(ROOT, file), 'utf8'), needle,
     `${file} must pass queue settings into validateApplicationRole`);
 }
+const verifyUserdata = readFileSync(join(ROOT, 'verify-userdata.mjs'), 'utf8');
+assert.match(verifyUserdata, /settings: options\.settings \?\? \{\}/,
+  'quality-evidence construction must fail closed when no queue snapshot is supplied');
+assert.doesNotMatch(verifyUserdata, /options\.settings \?\? loadQueue\(\)\.settings/,
+  'a pure quality-evidence helper must not perform a hidden live queue read');
 // One-shot verifies AND dispatches; both re-run the gate under the lock.
 const oneShot = readFileSync(join(ROOT, 'one-shot-request.mjs'), 'utf8');
 assert.equal((oneShot.match(/settings: queue\.settings/g) || []).length, 2,
   'both the One-shot verify and dispatch gates must pass settings');
-pass('all four asset gates receive the queue settings the exemption depends on');
+const dashboard = readFileSync(join(ROOT, 'dashboard-server.mjs'), 'utf8');
+assert.equal((dashboard.match(/settings: freshQueue\.settings/g) || []).length, 2,
+  'both the dashboard Run and individual Fill gates must pass settings');
+pass('all verify, dashboard and One-shot asset gates receive the queue settings the exemption depends on');
 
-// ── The redirect producer exists in tracked code ─────────────────────────────
-// portal-resume-hosts.mjs only READS application_host. If nothing writes it, the
-// helper silently falls back to the Seek/Indeed listing URL and an external-ATS
-// redirect keeps an exemption it should have lost.
+// ── Every live entry point invokes the committed redirect observer ───────────
+// Runtime behaviour (including persistence after the 409) is exercised by
+// tests/lean-application.test.mjs. These source assertions pin propagation to
+// both protocols and to lookup, which runs before any values are filled.
+const receipt = readFileSync(join(ROOT, 'application-receipt.mjs'), 'utf8');
 const lean = readFileSync(join(ROOT, 'lean-application.mjs'), 'utf8');
-assert.match(lean, /progress\.application_host = pageHost/,
-  'the observed form host must be recorded under the queue lock');
-assert.match(lean, /alreadyOffPortal/,
-  'an off-portal host must be sticky, so returning to a board page cannot re-qualify');
-assert.match(lean, /the portal-hosted-resume exemption no longer applies/,
-  'a redirect discovered mid-fill must fail closed rather than fill with no CV');
-pass('recordLeanPage records the live form host and fails closed on a redirect');
+const applyPage = readFileSync(join(ROOT, 'apply-page.mjs'), 'utf8');
+assert.match(receipt, /export function recordObservedApplicationHost[\s\S]*?mutateQueue/,
+  'the observer must own a committed queue transaction');
+assert.match(receipt, /export function beginRole[\s\S]*?recordObservedApplicationHost/,
+  'receipt and default begin must observe the reached tab host');
+assert.match(receipt, /export function recordRolePage[\s\S]*?recordObservedApplicationHost/,
+  'receipt-v3 page writes must re-observe the host');
+assert.match(lean, /export function beginLeanOrReceipt[\s\S]*?beginRole/,
+  'the lean lifecycle helper must delegate to the host-observing canonical begin');
+assert.match(lean, /export function recordLeanPage[\s\S]*?recordObservedApplicationHost/,
+  'lean page writes must re-observe the host');
+assert.match(lean, /export function finishLean[\s\S]*?recordObservedApplicationHost/,
+  'lean finish must re-observe the terminal browser URL');
+assert.match(applyPage, /function lookupCommand[\s\S]*?recordObservedApplicationHost/,
+  'lookup must revoke a redirect exemption before any form value is filled');
+pass('all live begin/page/lookup paths invoke the committed redirect observer');

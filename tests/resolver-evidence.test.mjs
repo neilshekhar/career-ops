@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import { pass, ROOT } from './helpers.mjs';
+import { APPLICATION_RECEIPT_REQUEST_CONTRACT } from '../application-receipt-integrity.mjs';
 
 console.log('\nExecutable resolver evidence');
 
@@ -15,23 +16,56 @@ const dataDir = join(temp, 'data');
 mkdirSync(dataDir, { recursive: true });
 const roleId = 'test:resolver-evidence';
 const runId = 'apply-resolver-evidence';
+const requestId = `${runId}:${roleId}`;
+const controllerId = 'browser-controller:test';
 const url = 'https://jobs.example.test/apply/review';
 const lookupSnapshot = 'b'.repeat(64);
 const observedAt = '2026-07-16T01:00:00.000Z';
 writeFileSync(join(dataDir, 'apply-queue.json'), JSON.stringify({
   version: 1,
-  settings: {},
+  settings: {
+    application_controller: {
+      version: 1,
+      controller: 'active-agent',
+      controller_id: controllerId,
+      max_active_roles: 4,
+    },
+  },
   roles: [{
     id: roleId,
     company: 'Evidence Co',
     title: 'Analyst',
     url,
     status: 'prepared',
+    // The completed begin/asset gate represented by this fixture supplied a CV.
+    cv_pdf: 'output/test-cv.pdf',
     drafts: {},
-    application_progress: {
+    // This fixture starts after the canonical begin step. Preserve the durable
+    // dashboard request binding that every real in-progress run already has.
+    application_request: {
       version: 1,
+      request_id: requestId,
       run_id: runId,
       role_id: roleId,
+      source: 'dashboard-fill',
+      state: 'in-progress',
+      controller: 'active-agent',
+      controller_id: controllerId,
+      requested_at: '2026-07-16T00:00:00.000Z',
+      url,
+      contract: [...APPLICATION_RECEIPT_REQUEST_CONTRACT],
+    },
+    application_progress: {
+      version: 2,
+      run_id: runId,
+      role_id: roleId,
+      application_request_id: requestId,
+      controller_id: controllerId,
+      evidence_protocol: 'v3',
+      // This suite exercises the resolver envelope itself. Production v3 runs
+      // use snapshot-file capture through apply-page.mjs; inline-test is the
+      // explicit fixture-only escape used by the receipt contract tests.
+      evidence_capture: 'inline-test',
       tab: { id: 'tab-evidence', url },
       preflight: {
         liveness: {

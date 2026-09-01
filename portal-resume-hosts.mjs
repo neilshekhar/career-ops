@@ -80,7 +80,11 @@ export function hostsCandidateResume(value) {
 export function portalResumeExemptionApplies(role, settings) {
   if (settings?.portal_default_cv !== true) return false;
   if (role?.cv_source !== 'portal-default') return false;
-  const applyHost = role?.application_progress?.application_host ?? role?.application_host;
+  // The committed observer stores the cross-run authority at role level. A
+  // bound progress receipt mirrors it for audit/debugging, but may outlive its
+  // original request after a crash and therefore cannot override the durable
+  // value on a later PREPARE/gate pass.
+  const applyHost = role?.application_host ?? role?.application_progress?.application_host;
   // Once a form has been reached, that host is the ONLY authority: a redirect
   // off the board must not fall back to the (still seek/indeed) role URL.
   if (applyHost) return hostsCandidateResume(applyHost);

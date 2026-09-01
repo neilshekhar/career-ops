@@ -61,6 +61,7 @@ writeFileSync(join(temp, 'config', 'profile.yml'), [
 ].join('\n'), 'utf8');
 
 try {
+  const { APPLICATION_RECEIPT_REQUEST_CONTRACT } = await import('../application-receipt-integrity.mjs');
   const {
     buildPdfLayoutEvidence, persistPdfLayoutEvidence, printablePageBox,
   } = await import('../generation-provenance.mjs');
@@ -163,8 +164,24 @@ try {
     },
     roles: [{
       ...roleA,
-      application_progress: {
+      application_request: {
+        version: 1,
+        request_id: 'run-a:up-a',
         run_id: 'run-a',
+        role_id: 'up-a',
+        source: 'dashboard-fill',
+        state: 'in-progress',
+        controller: 'active-agent',
+        controller_id: 'browser-controller:test',
+        requested_at: '2026-07-28T00:00:00.000Z',
+        url: roleA.url,
+        contract: [...APPLICATION_RECEIPT_REQUEST_CONTRACT],
+      },
+      application_progress: {
+        role_id: 'up-a',
+        run_id: 'run-a',
+        application_request_id: 'run-a:up-a',
+        controller_id: 'browser-controller:test',
         execution_protocol: 'lean-llm-v1',
         verification_mode: 'selective',
         receipt_required: false,

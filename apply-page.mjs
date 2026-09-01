@@ -32,6 +32,7 @@ import { loadQueue } from './queue-store.mjs';
 import { liveResolveFromSnapshot, liveTeach } from './queue-resolve.mjs';
 import {
   beginRole, recordRolePage, finalizeRole, recordRoleFallback,
+  recordObservedApplicationHost,
 } from './application-receipt.mjs';
 import {
   readSnapshotFile, extractFields, extractDisplayedFilenames,
@@ -108,6 +109,11 @@ function lookupCommand(roleId, payload) {
   const url = requiredText(payload.url, 'lookup.url');
   const snapshotPath = requiredText(payload.snapshot, 'lookup.snapshot');
   const excludeControls = Array.isArray(payload.exclude_controls) ? payload.exclude_controls : [];
+
+  // The lookup happens before any values are filled, so this is the earliest
+  // executable redirect boundary. The observer persists an external host and
+  // returns the role to PREPARE before the agent can touch an upload control.
+  recordObservedApplicationHost(roleId, url, { requireActiveProgress: true });
 
   const out = liveResolveFromSnapshot(roleId, {
     pageIndex, url, snapshotPath, excludeControls,

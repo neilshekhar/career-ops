@@ -33,7 +33,15 @@ import {
   validateApplicationReceiptIntegrity,
 } from './application-receipt-integrity.mjs';
 import { applicationActionDecision, isFinalApplicationActionLabel } from './application-safety.mjs';
-import { closeOneShotRequestOnRole } from './one-shot-request.mjs';
+import {
+  closeOneShotRequestOnRole,
+  rewindOneShotRequestForPrepareOnRole,
+} from './one-shot-request.mjs';
+import {
+  hostOf,
+  hostsCandidateResume,
+  portalResumeExemptionApplies,
+} from './portal-resume-hosts.mjs';
 import { isLeanCompleteRole } from './run-partition.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -858,6 +866,7 @@ export function beginApplicationProgress(role, payload = {}, { queue = null } = 
   const preflight = cleanPreflight(payload, role, tabUrl);
   const assetQualityEvidence = createApplicationQualityEvidence(role, {
     root: APPLICATION_PROJECT_ROOT,
+    settings: queue?.settings,
   });
   // Default live runs use lean-llm-v1 (selective verification, finish→prefilled).
   // Opt into the historical receipt-v3 loop with execution_protocol: 'receipt-v3'
@@ -898,6 +907,7 @@ export function beginApplicationProgress(role, payload = {}, { queue = null } = 
       url: tabUrl,
       title: String(tab.title ?? '').trim(),
     },
+    ...(role.application_host ? { application_host: role.application_host } : {}),
     preflight,
     asset_quality_evidence: assetQualityEvidence,
     started_at: now,
@@ -1591,7 +1601,7 @@ function persistHandoverReceipt(role, progress) {
   });
 }
 
-export function finalizeApplicationProgress(role, payload) {
+export function finalizeApplicationProgress(role, payload, { settings = null } = {}) {
   const progress = role?.application_progress;
   if (!progress || progress.review_ready) throw new Error('an active application run is required');
   if (progress.verification_fallback) {
@@ -1620,6 +1630,7 @@ export function finalizeApplicationProgress(role, payload) {
   });
   const refreshedAssetQualityEvidence = createApplicationQualityEvidence(role, {
     root: APPLICATION_PROJECT_ROOT,
+    settings,
   });
   const finalPages = progress.pages?.filter((page) => page.final_page) ?? [];
   if (finalPages.length !== 1 || finalPages[0].page_index !== progress.pages.length - 1) {
@@ -1729,7 +1740,133 @@ function roleFromQueue(queue, roleId) {
   return role;
 }
 
+/**
+ * Persist the host of the form the browser actually reached.
+ *
+ * This is deliberately its own committed transaction. A redirect that revokes
+ * a portal-hosted-resume exemption must survive the error returned to the
+ * caller; assigning the host and then throwing inside one mutateQueue callback
+ * rolls the assignment back with the rest of that transaction.
+ */
+export function recordObservedApplicationHost(roleId, value, {
+  runId = null,
+  controllerId = null,
+  requireActiveProgress = false,
+} = {}) {
+  const result = mutateQueue((queue) => {
+    const role = roleFromQueue(queue, roleId);
+    const progress = role.application_progress;
+    const currentRequest = role.application_request;
+    const hasBoundProgress = Boolean(
+      progress
+      && currentRequest
+      && progress.application_request_id === currentRequest.request_id
+      && progress.run_id === currentRequest.run_id
+      && progress.role_id === role.id
+      && progress.controller_id === currentRequest.controller_id,
+    );
+    if (requireActiveProgress
+        && (!hasBoundProgress || progress.review_ready || progress.lean_review_ready)) {
+      throw new Error('an active application run is required');
+    }
+    if (hasBoundProgress) {
+      const { request } = applicationRequestForRun(
+        role,
+        runId ?? progress.run_id,
+        'in-progress',
+        controllerId ?? progress.controller_id,
+      );
+      if (progress.application_request_id !== request.request_id) {
+        throw new Error('application host observation belongs to a different application_request');
+      }
+    } else {
+      // Begin observes the reached tab before quality evidence is created, but
+      // it still needs the candidate's durable dashboard authorization. Without
+      // this check an arbitrary/typoed CLI call could poison application_host or
+      // move an otherwise idle CV-less role back to PREPARE.
+      const request = currentRequest;
+      applicationRequestForRun(
+        role,
+        runId ?? request?.run_id,
+        'queued',
+        controllerId ?? request?.controller_id,
+      );
+    }
+    const raw = String(value ?? role.url ?? '').trim();
+    const observedHost = hostOf(raw);
+    // The top-level value is the durable cross-run authority. Consult progress
+    // only when it is proven to belong to the current request; an abandoned
+    // receipt must never override a previously recorded external redirect.
+    const priorHost = role.application_host
+      ?? (hasBoundProgress ? progress.application_host : null);
+    const priorIsOffPortal = priorHost && !hostsCandidateResume(priorHost);
+    // Invalid live URLs are represented by a non-qualifying sentinel rather
+    // than falling back to the discovery URL. That is the fail-closed direction.
+    const nextHost = priorIsOffPortal ? priorHost : (observedHost || 'invalid-observed-host');
+
+    role.application_host = nextHost;
+    if (hasBoundProgress) progress.application_host = nextHost;
+
+    // Any live role without a generated CV must still satisfy the exemption at
+    // every observed page. Checking only `cv_source === portal-default` would
+    // let a concurrent/stale mutation erase that marker after begin and bypass
+    // the redirect guard while the role still has no CV to upload.
+    const missingGeneratedCv = !role.cv_pdf;
+    const exemptionStillApplies = portalResumeExemptionApplies(role, queue.settings);
+    if (!missingGeneratedCv || exemptionStillApplies) {
+      return { blocked: false, application_host: nextHost };
+    }
+
+    const reason = queue.settings?.portal_default_cv !== true
+      ? 'the portal-hosted-resume setting is off while this role has no generated CV'
+      : role.cv_source !== 'portal-default'
+        ? 'the role no longer declares the portal-hosted resume while it has no generated CV'
+        : `the live application is on ${nextHost}, which does not host the candidate's portal resume`;
+    const at = new Date().toISOString();
+
+    // Park the now-invalid browser request so it cannot consume one of the four
+    // controller slots or be picked up in a retry loop while PREPARE is still
+    // generating the CV. A One-shot request retains the candidate's original
+    // authorization and dispatches a fresh request after its gate passes.
+    const applicationRequest = role.application_request;
+    if (applicationRequest && ['queued', 'in-progress', 'parked'].includes(applicationRequest.state)) {
+      applicationRequest.state = 'parked';
+      applicationRequest.updated_at = at;
+      applicationRequest.parked_reason = reason;
+      delete applicationRequest.started_at;
+      delete applicationRequest.consumed_at;
+      delete applicationRequest.tab_id;
+      delete applicationRequest.asset_quality_evidence;
+    }
+    rewindOneShotRequestForPrepareOnRole(role, reason, at);
+    delete role.application_progress;
+    if (role.status === 'prepared' || role.status === 'prefilled') {
+      setStatus(queue, role.id, 'prepare-queued');
+    }
+
+    return { blocked: true, application_host: nextHost, reason };
+  });
+
+  if (result.blocked) {
+    const error = new Error(
+      `${result.reason}. The observed host was saved and this role was returned to PREPARE; `
+      + 'generate and verify a tailored CV before starting another live fill.',
+    );
+    error.code = 'PORTAL_RESUME_REDIRECT';
+    error.httpCode = 409;
+    throw error;
+  }
+  return result;
+}
+
 export function beginRole(roleId, payload) {
+  const tab = payload?.tab && typeof payload.tab === 'object' ? payload.tab : {};
+  requiredText(tab.id ?? tab.tab_id, 'tab.id');
+  const controllerId = requiredText(payload?.controller_id, 'controller_id');
+  recordObservedApplicationHost(roleId, payload?.tab?.url ?? payload?.url, {
+    runId: payload?.run_id,
+    controllerId,
+  });
   return mutateQueue((queue) => beginApplicationProgress(
     roleFromQueue(queue, roleId),
     payload,
@@ -1738,6 +1875,7 @@ export function beginRole(roleId, payload) {
 }
 
 export function recordRolePage(roleId, payload) {
+  recordObservedApplicationHost(roleId, payload?.url, { requireActiveProgress: true });
   return mutateQueue((queue) => recordPageReceipt(roleFromQueue(queue, roleId), payload));
 }
 
@@ -1839,7 +1977,9 @@ export function finalizeRole(roleId, payload) {
           transaction.payload_digest !== finalizationPayloadDigest(payload)) {
         throw new Error('durable application finalization transaction is missing or stale');
       }
-      const progress = finalizeApplicationProgress(role, payload);
+      const progress = finalizeApplicationProgress(role, payload, {
+        settings: queue.settings,
+      });
       // finalizeApplicationProgress has already written the report/handover
       // side effects. Mark that boundary before the protected status call so
       // any later validation or persistence failure rolls those artifacts back.

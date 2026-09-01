@@ -384,6 +384,29 @@ export function closeOneShotRequestOnRole(role, at = nowIso()) {
   return true;
 }
 
+/**
+ * Return an already-authorized One-shot chain to PREPARE after the live form
+ * proves that its asset strategy changed (for example, a native job-board
+ * listing redirects to an external ATS and now needs a generated CV).
+ *
+ * Pure mutator: the caller already owns the queue lock and resets the bound
+ * application request/progress in the same transaction. Candidate intent is
+ * preserved, so this recovery never asks for a second dashboard click.
+ */
+export function rewindOneShotRequestForPrepareOnRole(role, reason, at = nowIso()) {
+  const request = role?.one_shot_request;
+  if (!validOneShotRequest(request)
+      || request.state === 'review-ready'
+      || request.state === 'cancelled') return false;
+  request.state = 'preparing';
+  request.reason = String(reason || '').trim() || 'live application returned to PREPARE';
+  request.updated_at = at;
+  delete request.parked_from;
+  delete request.parked_application_request_state;
+  appendHistory(request, 'preparing', request.reason);
+  return true;
+}
+
 export function cancelOneShotRequestOnRole(role, reason = 'candidate revoked the queued work', at = nowIso()) {
   const request = role?.one_shot_request;
   if (!validOneShotRequest(request)

@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { pass, fail, ROOT } from './helpers.mjs';
+import { APPLICATION_RECEIPT_REQUEST_CONTRACT } from '../application-receipt-integrity.mjs';
 import { roleDraftKey } from '../queue-resolve.mjs';
 
 console.log('\n🧪 apply-page driver (Evidence Protocol v3)');
@@ -61,17 +62,38 @@ const SHARED_DRAFTS = [
 ];
 
 function makeRole(id, tabId, extraDrafts) {
+  const runId = `run-${id}`;
+  const requestId = `${runId}:${id}`;
+  const controllerId = 'browser-controller:test';
   return {
     id,
     company: 'Acme Energy',
     title: 'Data Cleanse Analyst',
     url,
     status: 'prepared',
+    // This fixture starts after the real begin/asset gate; keep the generated-CV
+    // marker that a production in-progress request necessarily carries.
+    cv_pdf: 'output/test-cv.pdf',
     drafts: Object.fromEntries([...SHARED_DRAFTS, ...extraDrafts]),
+    application_request: {
+      version: 1,
+      request_id: requestId,
+      run_id: runId,
+      role_id: id,
+      source: 'dashboard-fill',
+      state: 'in-progress',
+      controller: 'active-agent',
+      controller_id: controllerId,
+      requested_at: '2026-07-16T00:00:00.000Z',
+      url,
+      contract: [...APPLICATION_RECEIPT_REQUEST_CONTRACT],
+    },
     application_progress: {
       version: 2,
-      run_id: `run-${id}`,
+      run_id: runId,
       role_id: id,
+      application_request_id: requestId,
+      controller_id: controllerId,
       evidence_protocol: 'v3',
       evidence_capture: 'file-derived',
       tab: { id: tabId, url },

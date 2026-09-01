@@ -345,6 +345,74 @@ try {
   assert.equal(isAllowedReleaseModelEffort('claude', 'claude-sonnet-5', 'high', profile), true);
   const initialIssues = validateApplicationRole(role, { root, profile, quality, now: new Date('2026-07-13T00:00:00Z') });
   assert.equal(initialIssues.length, 0, JSON.stringify(initialIssues, null, 2));
+
+  // Production profile coverage for the portal-hosted-resume path. The
+  // lightweight feature test intentionally disables provenance and therefore
+  // cannot prove that the real release gate accepts a cover-only asset set.
+  const portalSettings = { portal_default_cv: true };
+  const portalRole = structuredClone(role);
+  portalRole.id = 'role-portal-resume';
+  portalRole.url = 'https://www.seek.com.au/job/12345';
+  portalRole.application_host = 'seek.com.au';
+  portalRole.cv_source = 'portal-default';
+  delete portalRole.cv_pdf;
+  delete portalRole.generation_provenance;
+  portalRole.generation_provenance = buildGenerationProvenance({
+    role: portalRole,
+    cli: 'codex',
+    model: 'gpt-5.6-sol',
+    effort: 'medium',
+    root,
+    settings: portalSettings,
+    now: new Date('2099-01-01T00:00:00.000Z'),
+  });
+  assert.equal(portalRole.generation_provenance.cv_source, 'portal-default');
+  assert.equal(Object.hasOwn(portalRole.generation_provenance.assets, 'cv_pdf'), false);
+  assert.equal(Object.hasOwn(portalRole.generation_provenance.assets, 'cv_html'), false);
+  const portalIssues = validateApplicationRole(portalRole, {
+    root,
+    profile,
+    quality,
+    settings: portalSettings,
+    now: new Date('2026-07-13T00:00:00Z'),
+  });
+  assert.deepEqual(
+    portalIssues.filter((item) => item.level === 'error'),
+    [],
+    JSON.stringify(portalIssues, null, 2),
+  );
+  assert(portalIssues.some((item) => item.code === 'cv-portal-default'));
+  assert.throws(
+    () => buildGenerationProvenance({
+      role: portalRole,
+      cli: 'codex',
+      model: 'gpt-5.6-sol',
+      effort: 'medium',
+      root,
+      settings: { portal_default_cv: false },
+    }),
+    /Required application asset is missing: cv_pdf/,
+  );
+  const portalToggleOffCodes = validateApplicationRole(portalRole, {
+    root,
+    profile,
+    quality,
+    settings: { portal_default_cv: false },
+    now: new Date('2026-07-13T00:00:00Z'),
+  }).map((item) => item.code);
+  assert(portalToggleOffCodes.includes('cv-missing'));
+  assert(portalToggleOffCodes.includes('cv-source-html-missing'));
+  const unboundPortalSource = structuredClone(portalRole);
+  delete unboundPortalSource.generation_provenance.cv_source;
+  const unboundPortalCodes = validateApplicationRole(unboundPortalSource, {
+    root,
+    profile,
+    quality,
+    settings: portalSettings,
+    now: new Date('2026-07-13T00:00:00Z'),
+  }).map((item) => item.code);
+  assert(unboundPortalCodes.includes('generation-provenance-cv-source'));
+
   writePdfFixture(join(root, 'output', 'acme-cv.pdf'), 0.3);
   const sparseCvCodes = validateApplicationRole(role, {
     root, profile, quality, now: new Date('2026-07-13T00:00:00Z'),
